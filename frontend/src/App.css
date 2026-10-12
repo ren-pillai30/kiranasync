@@ -182,3 +182,37 @@
     border-right-color: var(--border);
   }
 }
+
+/* --- NEW WINDOW CONTROL BUTTONS --- */
+.overlay-header {
+  -webkit-app-region: drag; /* Makes title bar draggable */
+}
+
+.window-controls {
+  -webkit-app-region: no-drag; /* Keeps buttons clickable */
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+
+.control-btn {
+  background: transparent;
+  border: none;
+  color: #94a3b8;
+  font-size: 16px;
+  line-height: 1;
+  cursor: pointer;
+  padding: 4px 8px;
+  border-radius: 4px;
+  transition: background 0.2s, color 0.2s;
+}
+
+.control-btn:hover {
+  background: #334155;
+  color: #ffffff;
+}
+
+.control-btn.close:hover {
+  background: #dc2626;
+  color: #ffffff;
+}
