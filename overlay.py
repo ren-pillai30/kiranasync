@@ -1,61 +1,46 @@
+import os
+import sys
+import threading
 import webview
 import keyboard
-import threading
-import time
-import sys
-import os
+from backend.app.main import app  # Flask server
 
-# Helper function to handle resource paths when bundled with PyInstaller
-def get_resource_path(relative_path):
-    """ Get absolute path to resource, works for dev and for PyInstaller """
-    if hasattr(sys, '_MEIPASS'):
-        return os.path.join(sys._MEIPASS, relative_path)
-    return os.path.join(os.path.abspath("."), relative_path)
+class DesktopAPI:
+    def minimize(self):
+        """Minimizes the pywebview desktop window."""
+        if webview.windows:
+            webview.windows[0].minimize()
 
-# Ensure backend module can be imported
-sys.path.append(get_resource_path('backend/app'))
-from main import app
+    def close(self):
+        """Closes the desktop application."""
+        if webview.windows:
+            webview.windows[0].destroy()
 
-def start_server():
-    import logging
-    log = logging.getLogger('werkzeug')
-    log.setLevel(logging.ERROR)
+def run_flask():
     app.run(host='127.0.0.1', port=5000, debug=False, use_reloader=False)
 
-def trigger_voice_copilot(window):
-    print("Voice Hotkey pressed!")
-    window.evaluate_js("document.getElementById('voice-trigger').click()")
-
-def trigger_dashboard(window):
-    print("Dashboard Hotkey pressed!")
-    window.evaluate_js("document.getElementById('dashboard-trigger').click()")
+def bind_hotkeys(window):
+    """Listens for global hotkeys and clicks the hidden React trigger buttons."""
+    keyboard.add_hotkey('ctrl+shift+v', lambda: window.evaluate_js('document.getElementById("voice-trigger") && document.getElementById("voice-trigger").click()'))
+    keyboard.add_hotkey('ctrl+shift+d', lambda: window.evaluate_js('document.getElementById("dashboard-trigger") && document.getElementById("dashboard-trigger").click()'))
 
 if __name__ == '__main__':
-    # 1. Start Flask API background thread
-    server_thread = threading.Thread(target=start_server, daemon=True)
+    # Start Flask API in background thread
+    server_thread = threading.Thread(target=run_flask, daemon=True)
     server_thread.start()
 
-    time.sleep(2)
-
-    # 2. Create the transparent, borderless window
-    window = webview.create_window(
-        'KiranaSync Copilot',
-        'http://127.0.0.1:5000',
-        transparent=True,
-        frameless=True,
-        on_top=True,
-        width=1000,
-        height=800,
-        x=450,
-        y=150
-    )
-
-    # 3. Bind global hotkeys
-    keyboard.add_hotkey('ctrl+shift+space', trigger_voice_copilot, args=[window])
-    keyboard.add_hotkey('ctrl+shift+d', trigger_dashboard, args=[window])
-
-    print("Daemon running.")
-    print(" - Press Ctrl+Shift+Space to speak.")
-    print(" - Press Ctrl+Shift+D to toggle live dashboard.")
+    api = DesktopAPI()
     
-    webview.start()
+    # Launch Frameless pywebview HUD Overlay
+    window = webview.create_window(
+        title='KiranaSync Voice',
+        url='http://127.0.0.1:5000',
+        js_api=api,
+        width=1000,   # Increased width to fit the dashboard
+        height=700,   # Increased height to fit the dashboard
+        frameless=True,
+        on_top=True
+    )
+    
+    # Start the webview and attach the hotkey listener
+    webview.start(bind_hotkeys, window)

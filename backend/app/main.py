@@ -125,6 +125,34 @@ def edit_credit_ui():
     except Exception as e:
         return jsonify({"status": "error", "message": str(e)}), 500
 
+
+@app.route('/api/inventory/confirm-restock', methods=['POST'])
+def confirm_restock_ui():
+    data = request.json
+    try:
+        db_path = get_resource_path('kirana.db')
+        conn = sqlite3.connect(db_path)
+        cur = conn.cursor()
+        
+        item_name = data['ItemName']
+        quantity = int(data['StockQuantity'])
+        price = float(data['Price'])
+        raw_command = data.get('RawCommand', 'Voice Confirmation')
+        
+        cur.execute('INSERT INTO Inventory (ItemName, StockQuantity, Price) VALUES (?, ?, ?)', 
+                    (item_name, quantity, price))
+        cur.execute('INSERT INTO Transactions (CommandText, TotalAmount) VALUES (?, ?)', 
+                    (raw_command, 0))
+        conn.commit()
+        conn.close()
+        
+        # Train the local catalog so it never asks again for this item!
+        update_catalog_file(item_name, price)
+        
+        return jsonify({"status": "success"})
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)}), 500
+
 if __name__ == '__main__':
     port = int(os.getenv("PORT", 5000))
     app.run(host='127.0.0.1', port=port, debug=False)
