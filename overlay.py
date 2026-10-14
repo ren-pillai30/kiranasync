@@ -1,4 +1,19 @@
 import os
+from dotenv import load_dotenv
+
+# Explicitly load .env and verify it
+load_dotenv()
+api_key_check = os.getenv("GNANI_API_KEY")
+
+print("----------------------------------------")
+print(f"DEBUG: Current Working Directory -> {os.getcwd()}")
+print(f"DEBUG: .env File Exists -> {os.path.exists('.env')}")
+if api_key_check:
+    print(f"SUCCESS: GNANI_API_KEY loaded successfully! (Length: {len(api_key_check)}, Starts with: {api_key_check[:4]}...)")
+else:
+    print("CRITICAL ERROR: GNANI_API_KEY is STILL None or empty!")
+print("----------------------------------------")
+
 import sys
 import threading
 import webview
@@ -36,8 +51,8 @@ if __name__ == '__main__':
         title='KiranaSync Voice',
         url='http://127.0.0.1:5000',
         js_api=api,
-        width=1000,   # Increased width to fit the dashboard
-        height=700,   # Increased height to fit the dashboard
+        width=1000,
+        height=700,
         frameless=True,
         on_top=True
     )

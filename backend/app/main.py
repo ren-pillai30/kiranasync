@@ -1,158 +1,168 @@
 import os
 import sys
-import tempfile
-import sqlite3
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, render_template
+from flask_cors import CORS
 from dotenv import load_dotenv
-from gnani.stt import GnaniSTTClient
+from gnani.stt import GnaniSTTClient  # Official SDK client
+
+# Explicitly load .env from the root directory
+load_dotenv(os.path.join(os.path.abspath(os.path.dirname(__file__)), '../../.env'))
+load_dotenv() # Fallback
+
+from backend.app.intent_parser import parse_and_execute
 
 def get_resource_path(relative_path):
     if hasattr(sys, '_MEIPASS'):
         return os.path.join(sys._MEIPASS, relative_path)
     return os.path.join(os.path.abspath("."), relative_path)
 
-sys.path.append(get_resource_path('backend/app'))
-from intent_parser import parse_and_execute
+template_dir = get_resource_path('frontend/dist')
+static_dir = get_resource_path('frontend/dist/assets')
 
-load_dotenv(get_resource_path('.env'))
+app = Flask(__name__, template_folder=template_dir, static_folder=static_dir)
+CORS(app)
 
-static_folder_path = get_resource_path('frontend/dist')
-app = Flask(__name__, static_folder=static_folder_path, static_url_path='/')
-gnani_client = GnaniSTTClient(api_key=os.getenv("GNANI_API_KEY"))
-
-def query_db(query, args=(), one=False):
-    db_path = get_resource_path('kirana.db')
-    conn = sqlite3.connect(db_path)
-    conn.row_factory = sqlite3.Row
-    cur = conn.cursor()
-    cur.execute(query, args)
-    rv = cur.fetchall()
-    conn.close()
-    return (rv[0] if rv else None) if one else rv
+def transcribe_audio(audio_path):
+    """Calls Gnani Vachana STT API using the official SDK client."""
+    api_key = os.getenv("GNANI_API_KEY")
+    if not api_key:
+        print("ERROR: GNANI_API_KEY is missing!")
+        return None
+    
+    try:
+        # Initialize the official SDK client
+        client = GnaniSTTClient(api_key=api_key)
+        
+        # Transcribe audio using the official SDK method
+        result = client.transcribe(audio_path, language_code="hi-IN")
+        
+        print(f"DEBUG: Gnani SDK Response -> {result}")
+        
+        if isinstance(result, dict):
+            return result.get('transcript', '') or result.get('text', '')
+        elif isinstance(result, str):
+            return result
+        else:
+            return None
+    except Exception as e:
+        print(f"Gnani SDK Exception: {e}")
+        return None
 
 @app.route('/')
-def serve_frontend():
-    return app.send_static_file('index.html')
+def index():
+    return render_template('index.html')
+
+@app.route('/api/dashboard', methods=['GET'])
+def get_dashboard_data():
+    import sqlite3
+    from backend.app.intent_parser import DB_PATH
+    
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    
+    cursor.execute('SELECT ItemID, ItemName, StockQuantity, Price FROM Inventory')
+    inventory = [{'ItemID': row[0], 'ItemName': row[1], 'StockQuantity': row[2], 'Price': row[3]} for row in cursor.fetchall()]
+    
+    cursor.execute('SELECT CustomerID, CustomerName, OutstandingBalance FROM CustomerCredit')
+    credit = [{'CustomerID': row[0], 'CustomerName': row[1], 'OutstandingBalance': row[2]} for row in cursor.fetchall()]
+    
+    conn.close()
+    return jsonify({'status': 'success', 'inventory': inventory, 'credit': credit})
 
 @app.route('/api/process-audio', methods=['POST'])
 def process_audio():
     if 'audio' not in request.files:
-        return jsonify({"error": "No audio file provided"}), 400
-
+        return jsonify({'status': 'error', 'error': 'No audio file provided'}), 400
+    
     audio_file = request.files['audio']
-    with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as temp_audio:
-        audio_file.save(temp_audio.name)
-        temp_path = temp_audio.name
+    temp_dir = '/tmp' if os.name != 'nt' else os.environ.get('TEMP', '.')
+    audio_path = os.path.join(temp_dir, 'temp_command.wav')
+    audio_file.save(audio_path)
+    
+    # Get transcription via SDK
+    raw_transcript = transcribe_audio(audio_path)
+    
+    if not raw_transcript:
+        return jsonify({'status': 'error', 'error': 'Failed to transcribe audio'}), 500
 
-    try:
-        result = gnani_client.transcribe(temp_path, language_code="hi-IN")
-        if os.path.exists(temp_path): os.remove(temp_path)
-        
-        transcript = result.get("transcript", "")
-        db_result = parse_and_execute(transcript)
-        return jsonify({"status": "success", "transcript": transcript, "database_action": db_result})
-    except Exception as e:
-        if os.path.exists(temp_path): os.remove(temp_path)
-        return jsonify({"error": str(e)}), 500
+    # Execute intent
+    db_result = parse_and_execute(raw_transcript)
 
-@app.route('/api/dashboard', methods=['GET'])
-def get_dashboard_data():
-    try:
-        inventory = [dict(row) for row in query_db('SELECT ItemID, ItemName, StockQuantity, Price FROM Inventory ORDER BY ItemID DESC')]
-        credit = [dict(row) for row in query_db('SELECT CustomerID, CustomerName, OutstandingBalance FROM CustomerCredit ORDER BY CustomerID DESC')]
-        return jsonify({"status": "success", "inventory": inventory, "credit": credit})
-    except Exception as e:
-        return jsonify({"status": "error", "message": str(e)}), 500
+    return jsonify({
+        'status': 'success',
+        'transcript': raw_transcript,
+        'database_action': db_result
+    })
 
 @app.route('/api/inventory/add', methods=['POST'])
-def add_inventory_ui():
+def add_inventory():
+    import sqlite3
+    from backend.app.intent_parser import DB_PATH
+    
     data = request.json
-    try:
-        db_path = get_resource_path('kirana.db')
-        conn = sqlite3.connect(db_path)
-        cur = conn.cursor()
-        cur.execute('INSERT INTO Inventory (ItemName, StockQuantity, Price) VALUES (?, ?, ?)', 
-                    (data['ItemName'], int(data['StockQuantity']), float(data.get('Price', 0))))
-        conn.commit()
-        conn.close()
-        return jsonify({"status": "success"})
-    except Exception as e:
-        return jsonify({"status": "error", "message": str(e)}), 500
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    cursor.execute('INSERT INTO Inventory (ItemName, StockQuantity, Price) VALUES (?, ?, ?)',
+                   (data['ItemName'], data['StockQuantity'], data['Price']))
+    conn.commit()
+    conn.close()
+    return jsonify({'status': 'success'})
 
 @app.route('/api/credit/add', methods=['POST'])
-def add_credit_ui():
+def add_credit():
+    import sqlite3
+    from backend.app.intent_parser import DB_PATH
+    
     data = request.json
-    try:
-        db_path = get_resource_path('kirana.db')
-        conn = sqlite3.connect(db_path)
-        cur = conn.cursor()
-        cur.execute('INSERT INTO CustomerCredit (CustomerName, OutstandingBalance) VALUES (?, ?)', 
-                    (data['CustomerName'], float(data['Amount'])))
-        conn.commit()
-        conn.close()
-        return jsonify({"status": "success"})
-    except Exception as e:
-        return jsonify({"status": "error", "message": str(e)}), 500
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    cursor.execute('INSERT INTO CustomerCredit (CustomerName, OutstandingBalance) VALUES (?, ?)',
+                   (data['CustomerName'], data['Amount']))
+    conn.commit()
+    conn.close()
+    return jsonify({'status': 'success'})
 
-# NEW: Endpoints for editing spellings
 @app.route('/api/inventory/edit', methods=['POST'])
-def edit_inventory_ui():
+def edit_inventory():
+    import sqlite3
+    from backend.app.intent_parser import DB_PATH
+    
     data = request.json
-    try:
-        db_path = get_resource_path('kirana.db')
-        conn = sqlite3.connect(db_path)
-        cur = conn.cursor()
-        cur.execute('UPDATE Inventory SET ItemName = ? WHERE ItemID = ?', 
-                    (data['NewItemName'], data['ItemID']))
-        conn.commit()
-        conn.close()
-        return jsonify({"status": "success"})
-    except Exception as e:
-        return jsonify({"status": "error", "message": str(e)}), 500
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    cursor.execute('UPDATE Inventory SET ItemName = ? WHERE ItemID = ?', (data['NewItemName'], data['ItemID']))
+    conn.commit()
+    conn.close()
+    return jsonify({'status': 'success'})
 
 @app.route('/api/credit/edit', methods=['POST'])
-def edit_credit_ui():
+def edit_credit():
+    import sqlite3
+    from backend.app.intent_parser import DB_PATH
+    
     data = request.json
-    try:
-        db_path = get_resource_path('kirana.db')
-        conn = sqlite3.connect(db_path)
-        cur = conn.cursor()
-        cur.execute('UPDATE CustomerCredit SET CustomerName = ? WHERE CustomerID = ?', 
-                    (data['NewCustomerName'], data['CustomerID']))
-        conn.commit()
-        conn.close()
-        return jsonify({"status": "success"})
-    except Exception as e:
-        return jsonify({"status": "error", "message": str(e)}), 500
-
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    cursor.execute('UPDATE CustomerCredit SET CustomerName = ? WHERE CustomerID = ?', (data['NewCustomerName'], data['CustomerID']))
+    conn.commit()
+    conn.close()
+    return jsonify({'status': 'success'})
 
 @app.route('/api/inventory/confirm-restock', methods=['POST'])
-def confirm_restock_ui():
+def confirm_restock():
+    import sqlite3
+    from backend.app.intent_parser import DB_PATH
+    
     data = request.json
-    try:
-        db_path = get_resource_path('kirana.db')
-        conn = sqlite3.connect(db_path)
-        cur = conn.cursor()
-        
-        item_name = data['ItemName']
-        quantity = int(data['StockQuantity'])
-        price = float(data['Price'])
-        raw_command = data.get('RawCommand', 'Voice Confirmation')
-        
-        cur.execute('INSERT INTO Inventory (ItemName, StockQuantity, Price) VALUES (?, ?, ?)', 
-                    (item_name, quantity, price))
-        cur.execute('INSERT INTO Transactions (CommandText, TotalAmount) VALUES (?, ?)', 
-                    (raw_command, 0))
-        conn.commit()
-        conn.close()
-        
-        # Train the local catalog so it never asks again for this item!
-        update_catalog_file(item_name, price)
-        
-        return jsonify({"status": "success"})
-    except Exception as e:
-        return jsonify({"status": "error", "message": str(e)}), 500
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    cursor.execute('INSERT INTO Inventory (ItemName, StockQuantity, Price) VALUES (?, ?, ?)',
+                   (data['ItemName'], data['StockQuantity'], data['Price']))
+    cursor.execute('INSERT INTO Transactions (CommandText, TotalAmount) VALUES (?, ?)', 
+                   (data.get('RawCommand', 'Manual Confirmation'), 0))
+    conn.commit()
+    conn.close()
+    return jsonify({'status': 'success'})
 
 if __name__ == '__main__':
-    port = int(os.getenv("PORT", 5000))
-    app.run(host='127.0.0.1', port=port, debug=False)
+    app.run(host='127.0.0.1', port=5000, debug=True)
