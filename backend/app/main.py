@@ -3,13 +3,21 @@ import sys
 from flask import Flask, request, jsonify, render_template
 from flask_cors import CORS
 from dotenv import load_dotenv
-from gnani.stt import GnaniSTTClient  # Official SDK client
+import requests
 
 # Explicitly load .env from the root directory
 load_dotenv(os.path.join(os.path.abspath(os.path.dirname(__file__)), '../../.env'))
 load_dotenv() # Fallback
 
-from backend.app.intent_parser import parse_and_execute
+from backend.app.intent_parser import (
+    extract_explicit_quantity,
+    get_db_records,
+    parse_and_execute,
+)
+from backend.app.gemini_understanding import (
+    GeminiUnderstandingError,
+    understand_command,
+)
 
 def get_resource_path(relative_path):
     if hasattr(sys, '_MEIPASS'):
@@ -22,30 +30,36 @@ static_dir = get_resource_path('frontend/dist/assets')
 app = Flask(__name__, template_folder=template_dir, static_folder=static_dir)
 CORS(app)
 
-def transcribe_audio(audio_path):
-    """Calls Gnani Vachana STT API using the official SDK client."""
+def transcribe_audio(audio_path, language_code="en-IN"):
+    """Transcribe audio with Gnani and request native digits for Hindi retries."""
     api_key = os.getenv("GNANI_API_KEY")
     if not api_key:
         print("ERROR: GNANI_API_KEY is missing!")
         return None
     
     try:
-        # Initialize the official SDK client
-        client = GnaniSTTClient(api_key=api_key)
-        
-        # Transcribe audio using the official SDK method
-        result = client.transcribe(audio_path, language_code="hi-IN")
-        
-        print(f"DEBUG: Gnani SDK Response -> {result}")
+        with open(audio_path, "rb") as audio_file:
+            response = requests.post(
+                "https://api.vachana.ai/stt/v3",
+                headers={"X-API-Key-ID": api_key},
+                files={"audio_file": (os.path.basename(audio_path), audio_file)},
+                data={
+                    "language_code": language_code,
+                    "format": "transcribe",
+                    "itn_native_numerals": str(language_code == "hi-IN").lower(),
+                },
+                timeout=120,
+            )
+        response.raise_for_status()
+        result = response.json()
         
         if isinstance(result, dict):
             return result.get('transcript', '') or result.get('text', '')
-        elif isinstance(result, str):
+        if isinstance(result, str):
             return result
-        else:
-            return None
+        return None
     except Exception as e:
-        print(f"Gnani SDK Exception: {e}")
+        print(f"Gnani STT Exception: {e}")
         return None
 
 @app.route('/')
@@ -85,8 +99,26 @@ def process_audio():
     if not raw_transcript:
         return jsonify({'status': 'error', 'error': 'Failed to transcribe audio'}), 500
 
-    # Execute intent
-    db_result = parse_and_execute(raw_transcript)
+    hindi_transcript = None
+    if extract_explicit_quantity(raw_transcript) is None:
+        hindi_transcript = transcribe_audio(audio_path, language_code="hi-IN")
+
+    try:
+        interpretation = understand_command(
+            transcript=raw_transcript,
+            hindi_transcript=hindi_transcript,
+            inventory=get_db_records("Inventory", "ItemName"),
+            customers=get_db_records("CustomerCredit", "CustomerName"),
+        )
+    except GeminiUnderstandingError as exc:
+        return jsonify({
+            "status": "error",
+            "error": str(exc),
+            "transcript": raw_transcript,
+        }), 503
+
+    # Execute only after the model's fields have been validated by the parser.
+    db_result = parse_and_execute(raw_transcript, interpretation=interpretation)
 
     return jsonify({
         'status': 'success',
