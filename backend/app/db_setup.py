@@ -31,9 +31,24 @@ def init_db():
             TxnID INTEGER PRIMARY KEY AUTOINCREMENT,
             Timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
             CommandText TEXT,
-            TotalAmount REAL
+            TotalAmount REAL,
+            TransactionType TEXT,
+            EntityName TEXT,
+            Quantity REAL
         )
     ''')
+    transaction_columns = {
+        row[1] for row in cursor.execute('PRAGMA table_info(Transactions)')
+    }
+    for column, column_type in (
+        ('TransactionType', 'TEXT'),
+        ('EntityName', 'TEXT'),
+        ('Quantity', 'REAL'),
+    ):
+        if column not in transaction_columns:
+            cursor.execute(
+                f'ALTER TABLE Transactions ADD COLUMN {column} {column_type}'
+            )
 
     # Insert some dummy inventory for testing
     try:
