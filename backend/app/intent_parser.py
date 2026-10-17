@@ -7,9 +7,11 @@ import difflib
 from number_parser import parse
 
 try:
-    from duckduckgo_search import DDGS
+    from ddgs import DDGS
+    from ddgs.exceptions import DDGSException
 except ImportError:
     DDGS = None
+    DDGSException = None
 
 try:
     from thefuzz import fuzz, process
@@ -25,6 +27,46 @@ def get_resource_path(relative_path):
 DB_PATH = get_resource_path('kirana.db')
 CATALOG_PATH = os.path.join(os.path.abspath("."), "catalog.json")
 MAPPINGS_PATH = os.path.join(os.path.abspath("."), "mappings.json")
+
+
+def ensure_transactions_schema(connection):
+    connection.execute(
+        """
+        CREATE TABLE IF NOT EXISTS Transactions (
+            TxnID INTEGER PRIMARY KEY AUTOINCREMENT,
+            Timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+            CommandText TEXT,
+            TotalAmount REAL
+        )
+        """
+    )
+    columns = {
+        row[1] for row in connection.execute("PRAGMA table_info(Transactions)")
+    }
+    for column, column_type in (
+        ("TransactionType", "TEXT"),
+        ("EntityName", "TEXT"),
+        ("Quantity", "REAL"),
+    ):
+        if column not in columns:
+            connection.execute(
+                f"ALTER TABLE Transactions ADD COLUMN {column} {column_type}"
+            )
+    connection.commit()
+
+
+def record_transaction(
+    cursor, command_text, total_amount, transaction_type, entity_name=None, quantity=None
+):
+    cursor.execute(
+        """
+        INSERT INTO Transactions
+            (CommandText, TotalAmount, TransactionType, EntityName, Quantity)
+        VALUES (?, ?, ?, ?, ?)
+        """,
+        (command_text, total_amount, transaction_type, entity_name, quantity),
+    )
+
 
 # --- DYNAMIC LEARNING MAPPINGS ---
 def load_learned_mappings():
@@ -56,22 +98,184 @@ def load_fmcg_catalog():
         return {}
 
 def search_product_online(clean_item_name):
-    """Agentic web search for real MRPs of unknown items."""
-    corrected_brand = clean_item_name.title()
-    price = 0
-    if DDGS:
-        try:
-            query = f"{corrected_brand} MRP price BigBasket JioMart India"
-            with DDGS() as ddgs:
-                results = list(ddgs.text(query, max_results=3))
-            if results:
-                text_corpus = " ".join([r.get('body', '') + " " + r.get('title', '') for r in results]).lower()
-                price_matches = re.findall(r'(?:rs\.?|₹|inr|mrp|price)\s*[:\-\s]?\s*(?:rs\.?|₹)?\s*(\d{1,4})', text_corpus)
-                if price_matches:
-                    price = int(price_matches[0])
-        except Exception as e:
-            print(f"DDG Search Error: {e}")
-    return corrected_brand, price
+    """Find a suggested MRP and source for a new inventory item."""
+    corrected_name = clean_item_name.strip().title()
+    if not DDGS:
+        return {
+            "ItemName": corrected_name,
+            "Price": None,
+            "PriceFound": False,
+            "PriceIsMRP": False,
+            "SearchStatus": "unavailable",
+            "SearchMessage": "Web search is unavailable. Enter the MRP manually.",
+            "SearchResults": [],
+        }
+
+    normalized_query_name = re.sub(
+        r"\band\b", "&", corrected_name, flags=re.IGNORECASE
+    )
+    query_names = [corrected_name, normalized_query_name]
+    ignored_name_tokens = {
+        "a", "an", "and", "for", "in", "of", "the", "with",
+        "g", "gm", "gram", "grams", "kg", "kgs", "l", "ltr", "ml",
+        "pack", "packet", "piece", "pieces", "product", "products",
+        "biscuit", "biscuits", "snack", "snacks", "brand",
+    }
+    brand_tokens = [
+        token
+        for token in re.findall(r"[a-z0-9]+", corrected_name.lower())
+        if token not in ignored_name_tokens and len(token) > 1
+    ]
+    if brand_tokens:
+        normalized_brand = " ".join(brand_tokens)
+        query_names.append(normalized_brand)
+    queries = list(dict.fromkeys(f"{name} MRP India" for name in query_names))
+    try:
+        with DDGS() as ddgs:
+            results = []
+            seen_urls = set()
+            for query in queries:
+                try:
+                    query_results = ddgs.text(query, max_results=5)
+                except DDGSException as exc:
+                    if str(exc).strip().lower() == "no results found.":
+                        continue
+                    raise
+                for result in query_results:
+                    url = result.get("href") or ""
+                    if url and url in seen_urls:
+                        continue
+                    if url:
+                        seen_urls.add(url)
+                    results.append(result)
+                if len(results) >= 10:
+                    break
+    except Exception as exc:
+        print(f"Product MRP search failed: {exc}")
+        return {
+            "ItemName": corrected_name,
+            "Price": None,
+            "PriceFound": False,
+            "PriceIsMRP": False,
+            "SearchStatus": "error",
+            "SearchMessage": "Could not retrieve web results. Enter and verify the MRP manually.",
+            "SearchResults": [],
+        }
+
+    search_results = []
+    price_options = {}
+    mrp_pattern = re.compile(
+        r"(?:m\.?\s*r\.?\s*p\.?|maximum\s+retail\s+price)"
+        r"\s*(?:is|:|at|-)?\s*(?:₹|rs\.?|inr)?\s*"
+        r"(\d{1,5}(?:[,.]\d{1,2})?)",
+        re.IGNORECASE,
+    )
+    price_pattern = re.compile(
+        r"price\s*(?:is|:|at|-)?\s*(?:₹|rs\.?|inr)?\s*"
+        r"(\d{1,5}(?:[,.]\d{1,2})?)",
+        re.IGNORECASE,
+    )
+    currency_pattern = re.compile(
+        r"(?:₹|rs\.?|inr)\s*(\d{1,5}(?:[,.]\d{1,2})?)",
+        re.IGNORECASE,
+    )
+    requested_tokens = {
+        token
+        for token in re.findall(r"[a-z0-9]+", corrected_name.lower())
+        if token not in ignored_name_tokens and len(token) > 1
+    }
+    if not requested_tokens:
+        requested_tokens = set(re.findall(r"[a-z0-9]+", corrected_name.lower()))
+
+    for result in results:
+        title = (result.get("title") or "").strip()
+        body = (result.get("body") or "").strip()
+        source = (result.get("href") or "").strip()
+        snippet = " ".join(part for part in (title, body) if part)
+        if not snippet:
+            continue
+        result_tokens = set(re.findall(r"[a-z0-9]+", title.lower()))
+        if not all(
+            any(
+                token == result_token
+                or (
+                    min(len(token), len(result_token)) >= 3
+                    and difflib.SequenceMatcher(None, token, result_token).ratio() >= 0.78
+                )
+                for result_token in result_tokens
+            )
+            for token in requested_tokens
+        ):
+            continue
+
+        search_results.append(
+            {"Title": title, "Snippet": body, "URL": source}
+        )
+
+        mrp_matches = mrp_pattern.findall(snippet)
+        price_matches = [] if mrp_matches else price_pattern.findall(snippet)
+        currency_matches = (
+            [] if mrp_matches or price_matches else currency_pattern.findall(snippet)
+        )
+        matches = [
+            *((match, True) for match in mrp_matches),
+            *((match, False) for match in price_matches),
+            *((match, False) for match in currency_matches),
+        ]
+        for match, is_mrp in matches:
+            try:
+                value = float(match.replace(",", ""))
+            except ValueError:
+                continue
+            if value <= 0:
+                continue
+            option = price_options.setdefault(
+                value,
+                {"Price": value, "PriceIsMRP": is_mrp, "Sources": []},
+            )
+            option["PriceIsMRP"] = option["PriceIsMRP"] or is_mrp
+            option["Sources"].append(
+                {"Title": title, "URL": source, "Snippet": body}
+            )
+
+    sorted_options = sorted(
+        price_options.values(),
+        key=lambda option: (not option["PriceIsMRP"], option["Price"]),
+    )
+    price_options_list = [
+        {
+            **option,
+            "Sources": option["Sources"][:3],
+        }
+        for option in sorted_options
+    ]
+    mrp_options = [option for option in price_options_list if option["PriceIsMRP"]]
+    selected_options = mrp_options or price_options_list
+    price_is_mrp = bool(mrp_options)
+    suggested_price = selected_options[0]["Price"] if selected_options else None
+    if mrp_options:
+        search_status = "found_mrp"
+    elif selected_options:
+        search_status = "found_price"
+    else:
+        search_status = "not_found" if search_results else "no_relevant_results"
+
+    return {
+        "ItemName": corrected_name,
+        "Price": suggested_price,
+        "PriceFound": suggested_price is not None,
+        "PriceIsMRP": price_is_mrp,
+        "PriceOptions": price_options_list,
+        "SearchStatus": search_status,
+        "SearchMessage": {
+            "found_mrp": "An MRP was found online. Verify it against the product packaging.",
+            "found_price": "An online price was found, but it may not be the MRP. Verify the product packaging.",
+            "found_currency": "An online amount was found, but it may not be the MRP. Verify the product packaging.",
+            "not_found": "No reliable MRP was found. Enter and verify it before adding.",
+            "no_relevant_results": "No web results matched this product name. Check the name and search again.",
+        }[search_status],
+        "SearchResults": search_results[:3],
+    }
 
 def get_db_records(table, column):
     conn = sqlite3.connect(DB_PATH)
@@ -153,6 +357,57 @@ def match_entity_with_score(query_text, db_records, threshold=70):
             best_token_score = token_score
 
     return best_token_record if best_token_score >= 88 else None
+
+
+def find_unresolved_inventory_variants(cursor, entity_name, raw_transcript):
+    cursor.execute(
+        "SELECT ItemID, ItemName, StockQuantity, Price FROM Inventory"
+    )
+    inventory = cursor.fetchall()
+    variant_pattern = re.compile(r"\s+\(MRP\s*₹\s*[\d,.]+\)\s*$", re.IGNORECASE)
+    base_names = {}
+    for row in inventory:
+        base_name = variant_pattern.sub("", row[1]).strip()
+        base_names.setdefault(base_name.casefold(), []).append(row)
+
+    query_base = variant_pattern.sub("", entity_name).strip()
+    base_labels = {
+        rows[0][1].casefold(): variant_pattern.sub("", rows[0][1]).strip()
+        for rows in base_names.values()
+    }
+    matched_base = match_entity_with_score(
+        query_base,
+        list(base_labels.values()),
+        threshold=70,
+    )
+    if not matched_base:
+        return []
+
+    variants = base_names.get(matched_base.casefold(), [])
+    if len(variants) < 2:
+        return []
+
+    transcript = raw_transcript.lower()
+    explicitly_priced = bool(find_currency_unit(transcript))
+    if explicitly_priced:
+        spoken_numbers = {
+            float(value.replace(",", ""))
+            for value in re.findall(r"\d+(?:[,.]\d{1,2})?", transcript)
+        }
+        priced_variants = [row for row in variants if float(row[3]) in spoken_numbers]
+        if len(priced_variants) == 1:
+            return []
+
+    return [
+        {
+            "ItemID": row[0],
+            "ItemName": row[1],
+            "StockQuantity": row[2],
+            "Price": row[3],
+        }
+        for row in variants
+    ]
+
 
 _QUANTITY_UNIT_PATTERN = (
     r'\b(?:k\s*g|kg|kilo(?:s|gram|grams)?|g|grams?|lit(?:er|re)s?|ml|millilit(?:er|re)s?)\b|'
@@ -268,6 +523,7 @@ def parse_and_execute(raw_transcript, quantity_override=None, interpretation=Non
             }
 
     conn = sqlite3.connect(DB_PATH)
+    ensure_transactions_schema(conn)
     cursor = conn.cursor()
     db_items = get_db_records('Inventory', 'ItemName')
     db_customers = get_db_records('CustomerCredit', 'CustomerName')
@@ -348,6 +604,25 @@ def parse_and_execute(raw_transcript, quantity_override=None, interpretation=Non
 
     final_unknown_entity = clean_translated_entity
 
+    if intent in {"sell", "restock"} and target_item:
+        variants = find_unresolved_inventory_variants(
+            cursor, clean_translated_entity, raw_transcript
+        )
+        if variants:
+            conn.close()
+            return {
+                "status": "pending_selection",
+                "action": "select_inventory_item",
+                "message": "More than one inventory variant matches. Choose the exact product before changing stock.",
+                "draft": {
+                    "Intent": intent,
+                    "Quantity": quantity_or_amount,
+                    "RawCommand": raw_transcript,
+                    "EntityName": final_unknown_entity,
+                    "Candidates": variants,
+                },
+            }
+
     # --- EXECUTE TRANSACTIONS ---
     if intent == 'credit' or target_customer:
         amount = quantity_or_amount
@@ -363,34 +638,46 @@ def parse_and_execute(raw_transcript, quantity_override=None, interpretation=Non
             cursor.execute('UPDATE CustomerCredit SET OutstandingBalance = ? WHERE CustomerName = ?', (new_bal, target_customer))
             message = f"Added Rs {amount} to {target_customer}. New Balance: Rs {new_bal}."
 
-        cursor.execute('INSERT INTO Transactions (CommandText, TotalAmount) VALUES (?, ?)', (raw_transcript, amount))
+        record_transaction(
+            cursor, raw_transcript, amount, "Credit", target_customer
+        )
         conn.commit()
         conn.close()
         return {"status": "success", "action": "udhaar_added", "message": message}
 
     elif intent == 'restock':
         if target_item:
-            cursor.execute('SELECT StockQuantity FROM Inventory WHERE ItemName = ?', (target_item,))
+            cursor.execute(
+                'SELECT StockQuantity, Price FROM Inventory WHERE ItemName = ?',
+                (target_item,),
+            )
             row = cursor.fetchone()
             current_stock = int(row[0]) if row else 0
+            purchase_amount = float(row[1]) * quantity_or_amount if row else 0
             new_stock = current_stock + quantity_or_amount
             cursor.execute('UPDATE Inventory SET StockQuantity = ? WHERE ItemName = ?', (new_stock, target_item))
-            cursor.execute('INSERT INTO Transactions (CommandText, TotalAmount) VALUES (?, ?)', (raw_transcript, 0))
+            record_transaction(
+                cursor,
+                raw_transcript,
+                -purchase_amount,
+                "Restock",
+                target_item,
+                quantity_or_amount,
+            )
             conn.commit()
             conn.close()
             return {"status": "success", "action": "inventory_restocked", "message": f"Restocked {quantity_or_amount} {target_item}. Total stock: {new_stock}."}
         else:
-            web_name, web_price = search_product_online(final_unknown_entity)
+            product_lookup = search_product_online(final_unknown_entity)
             conn.close()
             return {
                 "status": "pending_confirmation",
                 "action": "confirm_restock",
-                "message": f"Internet Search: Found '{web_name}'. Please confirm details.",
+                "message": product_lookup["SearchMessage"],
                 "draft": {
-                    "ItemName": web_name,
-                    "Price": web_price,
                     "StockQuantity": quantity_or_amount,
-                    "RawCommand": raw_transcript
+                    "RawCommand": raw_transcript,
+                    **product_lookup,
                 }
             }
 
@@ -401,7 +688,14 @@ def parse_and_execute(raw_transcript, quantity_override=None, interpretation=Non
             if result and int(result[0]) >= quantity_or_amount:
                 new_stock = int(result[0]) - quantity_or_amount
                 cursor.execute('UPDATE Inventory SET StockQuantity = ? WHERE ItemName = ?', (new_stock, target_item))
-                cursor.execute('INSERT INTO Transactions (CommandText, TotalAmount) VALUES (?, ?)', (raw_transcript, result[1] * quantity_or_amount))
+                record_transaction(
+                    cursor,
+                    raw_transcript,
+                    result[1] * quantity_or_amount,
+                    "Sale",
+                    target_item,
+                    quantity_or_amount,
+                )
                 conn.commit()
                 conn.close()
                 return {"status": "success", "action": "inventory_updated", "message": f"Sold {quantity_or_amount} {target_item}. Stock left: {new_stock}."}
