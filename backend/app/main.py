@@ -1,7 +1,10 @@
 import os
 import sys
 import math
-from flask import Flask, request, jsonify, render_template
+import tempfile
+from concurrent.futures import ThreadPoolExecutor
+from io import BytesIO
+from flask import Flask, request, jsonify, render_template, send_file
 from flask_cors import CORS
 from dotenv import load_dotenv
 import requests
@@ -11,7 +14,6 @@ load_dotenv(os.path.join(os.path.abspath(os.path.dirname(__file__)), '../../.env
 load_dotenv() # Fallback
 
 from backend.app.intent_parser import (
-    extract_explicit_quantity,
     ensure_transactions_schema,
     get_db_records,
     parse_and_execute,
@@ -33,8 +35,22 @@ static_dir = get_resource_path('frontend/dist/assets')
 app = Flask(__name__, template_folder=template_dir, static_folder=static_dir)
 CORS(app)
 
+STT_LANGUAGE_CODES = (
+    "bn-IN",
+    "en-IN",
+    "gu-IN",
+    "hi-IN",
+    "kn-IN",
+    "ml-IN",
+    "mr-IN",
+    "pa-IN",
+    "ta-IN",
+    "te-IN",
+)
+
+
 def transcribe_audio(audio_path, language_code="en-IN"):
-    """Transcribe audio with Gnani and request native digits for Hindi retries."""
+    """Transcribe audio with Gnani using one of its supported language codes."""
     api_key = os.getenv("GNANI_API_KEY")
     if not api_key:
         print("ERROR: GNANI_API_KEY is missing!")
@@ -64,6 +80,113 @@ def transcribe_audio(audio_path, language_code="en-IN"):
     except Exception as e:
         print(f"Gnani STT Exception: {e}")
         return None
+
+
+def transcribe_audio_candidates(audio_path, language_code):
+    if language_code == "auto":
+        with ThreadPoolExecutor(max_workers=len(STT_LANGUAGE_CODES)) as executor:
+            futures = {
+                code: executor.submit(transcribe_audio, audio_path, code)
+                for code in STT_LANGUAGE_CODES
+            }
+            candidates = []
+            for code, future in futures.items():
+                transcript = future.result()
+                if isinstance(transcript, str) and transcript.strip():
+                    candidates.append({
+                        "language_code": code,
+                        "transcript": transcript.strip(),
+                    })
+            return candidates
+
+    transcript = transcribe_audio(audio_path, language_code=language_code)
+    if not isinstance(transcript, str) or not transcript.strip():
+        return []
+    return [{
+        "language_code": language_code,
+        "transcript": transcript.strip(),
+    }]
+
+
+@app.route('/api/tts', methods=['POST'])
+def synthesize_speech():
+    data = request.get_json(silent=True)
+    if not isinstance(data, dict):
+        return jsonify({"status": "error", "error": "Speech text is required."}), 400
+
+    text = data.get("text")
+    language = data.get("language", "en-IN")
+    supported_languages = {*STT_LANGUAGE_CODES, "hi-en", "auto"}
+    if not isinstance(text, str) or not text.strip() or len(text) > 2000:
+        return jsonify({
+            "status": "error",
+            "error": "Enter speech text with no more than 2000 characters.",
+        }), 400
+    if not isinstance(language, str) or language not in supported_languages:
+        return jsonify({
+            "status": "error",
+            "error": "Choose a supported Gnani speech language.",
+        }), 400
+
+    api_key = os.getenv("GNANI_API_KEY")
+    if not api_key:
+        return jsonify({
+            "status": "error",
+            "error": "Gnani is not configured. Set GNANI_API_KEY in the root .env file.",
+        }), 503
+
+    try:
+        response = requests.post(
+            "https://api.vachana.ai/api/v1/tts/inference",
+            headers={"X-API-Key-ID": api_key},
+            json={
+                "text": text.strip(),
+                "voice": os.getenv("GNANI_TTS_VOICE", "Shivani"),
+                "model": os.getenv("GNANI_TTS_MODEL", "timbre-v3.0"),
+                "language": language,
+                "speed": 1.0,
+                "audio_config": {
+                    "sample_rate": 24000,
+                    "num_channels": 1,
+                    "sample_width": 2,
+                    "encoding": "linear_pcm",
+                    "container": "wav",
+                },
+            },
+            timeout=45,
+        )
+        response.raise_for_status()
+    except requests.Timeout as exc:
+        app.logger.warning("Gnani TTS request timed out: %s", exc)
+        return jsonify({
+            "status": "error",
+            "error": "Gnani speech generation timed out. Please try again.",
+        }), 504
+    except requests.RequestException as exc:
+        status_code = getattr(getattr(exc, "response", None), "status_code", None)
+        app.logger.error("Gnani TTS request failed: %s", exc)
+        return jsonify({
+            "status": "error",
+            "error": (
+                f"Gnani could not generate speech (HTTP {status_code})."
+                if status_code
+                else "Gnani could not be reached to generate speech."
+            ),
+        }), 502
+
+    if not response.content:
+        app.logger.error("Gnani TTS returned an empty audio response")
+        return jsonify({
+            "status": "error",
+            "error": "Gnani returned empty speech audio.",
+        }), 502
+
+    return send_file(
+        BytesIO(response.content),
+        mimetype="audio/wav",
+        download_name="transaction-confirmation.wav",
+    )
+
 
 @app.route('/')
 def index():
@@ -199,44 +322,180 @@ def confirm_inventory_command():
 def process_audio():
     if 'audio' not in request.files:
         return jsonify({'status': 'error', 'error': 'No audio file provided'}), 400
-    
-    audio_file = request.files['audio']
-    temp_dir = '/tmp' if os.name != 'nt' else os.environ.get('TEMP', '.')
-    audio_path = os.path.join(temp_dir, 'temp_command.wav')
-    audio_file.save(audio_path)
-    
-    # Get transcription via SDK
-    raw_transcript = transcribe_audio(audio_path)
-    
-    if not raw_transcript:
-        return jsonify({'status': 'error', 'error': 'Failed to transcribe audio'}), 500
 
-    hindi_transcript = None
-    if extract_explicit_quantity(raw_transcript) is None:
-        hindi_transcript = transcribe_audio(audio_path, language_code="hi-IN")
-
-    try:
-        interpretation = understand_command(
-            transcript=raw_transcript,
-            hindi_transcript=hindi_transcript,
-            inventory=get_db_records("Inventory", "ItemName"),
-            customers=get_db_records("CustomerCredit", "CustomerName"),
-        )
-    except GeminiUnderstandingError as exc:
+    language_code = request.form.get("language_code", "auto")
+    if language_code != "auto" and language_code not in STT_LANGUAGE_CODES:
         return jsonify({
             "status": "error",
-            "error": str(exc),
-            "transcript": raw_transcript,
-        }), 503
+            "error": "Choose auto-detect or a supported Gnani language.",
+        }), 400
 
-    # Execute only after the model's fields have been validated by the parser.
-    db_result = parse_and_execute(raw_transcript, interpretation=interpretation)
+    audio_file = request.files['audio']
+    temp_dir = '/tmp' if os.name != 'nt' else os.environ.get('TEMP', '.')
+    file_descriptor, audio_path = tempfile.mkstemp(
+        prefix="kirana_command_",
+        suffix=".wav",
+        dir=temp_dir,
+    )
+    os.close(file_descriptor)
+    try:
+        audio_file.save(audio_path)
+        transcripts = transcribe_audio_candidates(audio_path, language_code)
+        if not transcripts:
+            return jsonify({
+                'status': 'error',
+                'error': 'Failed to transcribe audio',
+            }), 500
 
-    return jsonify({
-        'status': 'success',
-        'transcript': raw_transcript,
-        'database_action': db_result
-    })
+        try:
+            interpretation = understand_command(
+                transcripts=transcripts,
+                inventory=get_db_records("Inventory", "ItemName"),
+                customers=get_db_records("CustomerCredit", "CustomerName"),
+            )
+        except GeminiUnderstandingError as exc:
+            return jsonify({
+                "status": "error",
+                "error": str(exc),
+                "transcript": transcripts[0]["transcript"],
+            }), 503
+
+        selected_transcript = transcripts[interpretation["transcript_index"]]
+        # Execute only after the model's fields have been validated by the parser.
+        db_result = parse_and_execute(
+            selected_transcript["transcript"],
+            interpretation=interpretation,
+            preview_only=True,
+        )
+        if db_result.get("status") in {"pending_review", "pending_selection"}:
+            db_result["draft"]["LanguageCode"] = selected_transcript["language_code"]
+
+        return jsonify({
+            'status': 'success',
+            'transcript': selected_transcript["transcript"],
+            'language_code': selected_transcript["language_code"],
+            'database_action': db_result
+        })
+    finally:
+        os.remove(audio_path)
+
+
+@app.route('/api/confirm-transaction', methods=['POST'])
+def confirm_transaction():
+    import sqlite3
+    from backend.app.intent_parser import DB_PATH
+
+    data = request.get_json(silent=True)
+    if not isinstance(data, dict):
+        return jsonify({
+            "status": "error",
+            "error": "Transaction details are required.",
+        }), 400
+
+    intent = data.get("Intent")
+    entity = data.get("EntityName")
+    quantity = data.get("Quantity")
+    raw_command = data.get("RawCommand")
+    if (
+        not isinstance(intent, str)
+        or intent not in {"sell", "restock", "credit", "inventory_add", "credit_add"}
+        or not isinstance(entity, str)
+        or not entity.strip()
+        or not isinstance(quantity, int)
+        or isinstance(quantity, bool)
+        or not 0 < quantity <= 2**63 - 1
+        or not isinstance(raw_command, str)
+    ):
+        return jsonify({
+            "status": "error",
+            "error": "Enter a valid action, item or customer, and positive whole-number amount.",
+        }), 400
+
+    if intent in {"inventory_add", "credit_add"}:
+        unit_price = data.get("UnitPrice")
+        try:
+            parsed_unit_price = float(unit_price)
+        except (TypeError, ValueError, OverflowError):
+            parsed_unit_price = None
+        if intent == "inventory_add" and (
+            isinstance(unit_price, bool)
+            or not isinstance(unit_price, (int, float))
+            or parsed_unit_price is None
+            or not math.isfinite(parsed_unit_price)
+            or not 0 < parsed_unit_price <= 2**63 - 1
+        ):
+            return jsonify({
+                "status": "error",
+                "error": "Enter a valid positive item price.",
+            }), 400
+
+        connection = sqlite3.connect(DB_PATH)
+        try:
+            ensure_transactions_schema(connection)
+            cursor = connection.cursor()
+            if intent == "inventory_add":
+                cursor.execute(
+                    """
+                    INSERT INTO Inventory (ItemName, StockQuantity, Price)
+                    VALUES (?, ?, ?)
+                    """,
+                    (entity.strip(), quantity, parsed_unit_price),
+                )
+                record_transaction(
+                    cursor,
+                    raw_command,
+                    -parsed_unit_price * quantity,
+                    "Restock",
+                    entity.strip(),
+                    quantity,
+                )
+                action = "inventory_restocked"
+                message = f"Added {quantity} {entity.strip()} to inventory."
+            else:
+                cursor.execute(
+                    """
+                    INSERT INTO CustomerCredit (CustomerName, OutstandingBalance)
+                    VALUES (?, ?)
+                    """,
+                    (entity.strip(), quantity),
+                )
+                record_transaction(
+                    cursor,
+                    raw_command,
+                    quantity,
+                    "Credit",
+                    entity.strip(),
+                )
+                action = "udhaar_added"
+                message = f"Added Rs {quantity} credit for {entity.strip()}."
+            connection.commit()
+            return jsonify({
+                "status": "success",
+                "database_action": {
+                    "status": "success",
+                    "action": action,
+                    "message": message,
+                },
+            })
+        except sqlite3.IntegrityError:
+            connection.rollback()
+            return jsonify({
+                "status": "error",
+                "error": "That item or customer already exists. Check the name and try again.",
+            }), 409
+        finally:
+            connection.close()
+
+    result = parse_and_execute(
+        raw_command,
+        interpretation={
+            "action": intent,
+            "entity": entity.strip(),
+            "quantity": quantity,
+        },
+    )
+    return jsonify({"status": "success", "database_action": result})
+
 
 @app.route('/api/inventory/add', methods=['POST'])
 def add_inventory():

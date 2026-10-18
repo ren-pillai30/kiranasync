@@ -97,6 +97,59 @@ def load_fmcg_catalog():
     except Exception:
         return {}
 
+
+def suggest_similar_product_names(item_name, results, ignored_tokens):
+    requested_name = " ".join(
+        token
+        for token in re.findall(r"[a-z0-9]+", item_name.lower())
+        if token not in ignored_tokens and len(token) > 1
+    )
+    if not requested_name:
+        return []
+
+    stop_tokens = ignored_tokens | {
+        "buy", "online", "india", "mrp", "price", "offer", "offers",
+        "shop", "shopping", "store", "best", "product", "products",
+        "brand", "brands", "similar", "sounding", "packaging",
+    }
+    candidates = {}
+    for result in results:
+        title = result.get("title") or ""
+        words = [
+            token
+            for token in re.findall(r"[a-z0-9]+", title.lower())
+            if token not in stop_tokens and len(token) > 1
+        ]
+        for start in range(len(words)):
+            for width in range(1, min(4, len(words) - start) + 1):
+                candidate = " ".join(words[start:start + width])
+                score = difflib.SequenceMatcher(
+                    None, requested_name, candidate
+                ).ratio()
+                if candidate == requested_name or score < 0.75:
+                    continue
+                previous = candidates.get(candidate)
+                if previous is None or score > previous[0]:
+                    candidates[candidate] = (score, " ".join(words[start:start + width]).title())
+
+    ranked = sorted(
+        candidates.values(),
+        key=lambda candidate: candidate[0],
+        reverse=True,
+    )
+    suggestions = []
+    seen = set()
+    for _, name in ranked:
+        normalized_name = name.casefold()
+        if normalized_name in seen:
+            continue
+        seen.add(normalized_name)
+        suggestions.append(name)
+        if len(suggestions) == 3:
+            break
+    return suggestions
+
+
 def search_product_online(clean_item_name):
     """Find a suggested MRP and source for a new inventory item."""
     corrected_name = clean_item_name.strip().title()
@@ -108,6 +161,8 @@ def search_product_online(clean_item_name):
             "PriceIsMRP": False,
             "SearchStatus": "unavailable",
             "SearchMessage": "Web search is unavailable. Enter the MRP manually.",
+            "ProductSuggestions": [],
+            "SuggestionSearchError": False,
             "SearchResults": [],
         }
 
@@ -159,6 +214,8 @@ def search_product_online(clean_item_name):
             "PriceIsMRP": False,
             "SearchStatus": "error",
             "SearchMessage": "Could not retrieve web results. Enter and verify the MRP manually.",
+            "ProductSuggestions": [],
+            "SuggestionSearchError": False,
             "SearchResults": [],
         }
 
@@ -238,6 +295,32 @@ def search_product_online(clean_item_name):
                 {"Title": title, "URL": source, "Snippet": body}
             )
 
+    product_suggestions = []
+    if not search_results and not price_options and brand_tokens:
+        try:
+            with DDGS() as ddgs:
+                try:
+                    suggestion_results = ddgs.text(
+                        f"{' '.join(brand_tokens)} product brand India",
+                        max_results=10,
+                    )
+                except DDGSException as exc:
+                    if str(exc).strip().lower() != "no results found.":
+                        raise
+                    suggestion_results = []
+            product_suggestions = suggest_similar_product_names(
+                corrected_name,
+                suggestion_results,
+                ignored_name_tokens,
+            )
+        except Exception as exc:
+            print(f"Similar product name search failed: {exc}")
+            search_suggestion_error = True
+        else:
+            search_suggestion_error = False
+    else:
+        search_suggestion_error = False
+
     sorted_options = sorted(
         price_options.values(),
         key=lambda option: (not option["PriceIsMRP"], option["Price"]),
@@ -274,6 +357,8 @@ def search_product_online(clean_item_name):
             "not_found": "No reliable MRP was found. Enter and verify it before adding.",
             "no_relevant_results": "No web results matched this product name. Check the name and search again.",
         }[search_status],
+        "ProductSuggestions": product_suggestions,
+        "SuggestionSearchError": search_suggestion_error,
         "SearchResults": search_results[:3],
     }
 
@@ -511,7 +596,12 @@ def isolate_clean_entity(text_string):
     clean_words = [w for w in words if w not in stop_words and not re.match(r'\d+', w)]
     return " ".join(clean_words).title()
 
-def parse_and_execute(raw_transcript, quantity_override=None, interpretation=None):
+def parse_and_execute(
+    raw_transcript,
+    quantity_override=None,
+    interpretation=None,
+    preview_only=False,
+):
     if interpretation is None:
         try:
             english_meaning = translate_to_english(raw_transcript)
@@ -622,6 +712,34 @@ def parse_and_execute(raw_transcript, quantity_override=None, interpretation=Non
                     "Candidates": variants,
                 },
             }
+
+    if preview_only:
+        unit_price = None
+        available_stock = None
+        if target_item and intent in {"sell", "restock"}:
+            cursor.execute(
+                "SELECT StockQuantity, Price FROM Inventory WHERE ItemName = ?",
+                (target_item,),
+            )
+            row = cursor.fetchone()
+            if row:
+                available_stock = int(row[0])
+                unit_price = float(row[1])
+        entity_name = target_customer or target_item or final_unknown_entity
+        conn.close()
+        return {
+            "status": "pending_review",
+            "action": "review_transaction",
+            "message": "Review the transaction details before applying changes.",
+            "draft": {
+                "Intent": intent,
+                "EntityName": entity_name,
+                "Quantity": quantity_or_amount,
+                "RawCommand": raw_transcript,
+                "UnitPrice": unit_price,
+                "AvailableStock": available_stock,
+            },
+        }
 
     # --- EXECUTE TRANSACTIONS ---
     if intent == 'credit' or target_customer:
