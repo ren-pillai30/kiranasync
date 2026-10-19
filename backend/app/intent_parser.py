@@ -19,12 +19,16 @@ except ImportError:
     fuzz = None
     process = None
 
-def get_resource_path(relative_path):
+def get_writable_db_path():
+    """Returns a persistent, writable path for SQLite database."""
     if hasattr(sys, '_MEIPASS'):
-        return os.path.join(sys._MEIPASS, relative_path)
-    return os.path.join(os.path.abspath("."), relative_path)
+        app_data = os.environ.get('LOCALAPPDATA', os.path.expanduser('~'))
+        target_dir = os.path.join(app_data, 'KiranaSync')
+        os.makedirs(target_dir, exist_ok=True)
+        return os.path.join(target_dir, 'kirana.db')
+    return os.path.join(os.path.abspath("."), 'kirana.db')
 
-DB_PATH = get_resource_path('kirana.db')
+DB_PATH = get_writable_db_path()
 CATALOG_PATH = os.path.join(os.path.abspath("."), "catalog.json")
 MAPPINGS_PATH = os.path.join(os.path.abspath("."), "mappings.json")
 
@@ -97,59 +101,6 @@ def load_fmcg_catalog():
     except Exception:
         return {}
 
-
-def suggest_similar_product_names(item_name, results, ignored_tokens):
-    requested_name = " ".join(
-        token
-        for token in re.findall(r"[a-z0-9]+", item_name.lower())
-        if token not in ignored_tokens and len(token) > 1
-    )
-    if not requested_name:
-        return []
-
-    stop_tokens = ignored_tokens | {
-        "buy", "online", "india", "mrp", "price", "offer", "offers",
-        "shop", "shopping", "store", "best", "product", "products",
-        "brand", "brands", "similar", "sounding", "packaging",
-    }
-    candidates = {}
-    for result in results:
-        title = result.get("title") or ""
-        words = [
-            token
-            for token in re.findall(r"[a-z0-9]+", title.lower())
-            if token not in stop_tokens and len(token) > 1
-        ]
-        for start in range(len(words)):
-            for width in range(1, min(4, len(words) - start) + 1):
-                candidate = " ".join(words[start:start + width])
-                score = difflib.SequenceMatcher(
-                    None, requested_name, candidate
-                ).ratio()
-                if candidate == requested_name or score < 0.75:
-                    continue
-                previous = candidates.get(candidate)
-                if previous is None or score > previous[0]:
-                    candidates[candidate] = (score, " ".join(words[start:start + width]).title())
-
-    ranked = sorted(
-        candidates.values(),
-        key=lambda candidate: candidate[0],
-        reverse=True,
-    )
-    suggestions = []
-    seen = set()
-    for _, name in ranked:
-        normalized_name = name.casefold()
-        if normalized_name in seen:
-            continue
-        seen.add(normalized_name)
-        suggestions.append(name)
-        if len(suggestions) == 3:
-            break
-    return suggestions
-
-
 def search_product_online(clean_item_name):
     """Find a suggested MRP and source for a new inventory item."""
     corrected_name = clean_item_name.strip().title()
@@ -161,8 +112,6 @@ def search_product_online(clean_item_name):
             "PriceIsMRP": False,
             "SearchStatus": "unavailable",
             "SearchMessage": "Web search is unavailable. Enter the MRP manually.",
-            "ProductSuggestions": [],
-            "SuggestionSearchError": False,
             "SearchResults": [],
         }
 
@@ -214,8 +163,6 @@ def search_product_online(clean_item_name):
             "PriceIsMRP": False,
             "SearchStatus": "error",
             "SearchMessage": "Could not retrieve web results. Enter and verify the MRP manually.",
-            "ProductSuggestions": [],
-            "SuggestionSearchError": False,
             "SearchResults": [],
         }
 
@@ -295,32 +242,6 @@ def search_product_online(clean_item_name):
                 {"Title": title, "URL": source, "Snippet": body}
             )
 
-    product_suggestions = []
-    if not search_results and not price_options and brand_tokens:
-        try:
-            with DDGS() as ddgs:
-                try:
-                    suggestion_results = ddgs.text(
-                        f"{' '.join(brand_tokens)} product brand India",
-                        max_results=10,
-                    )
-                except DDGSException as exc:
-                    if str(exc).strip().lower() != "no results found.":
-                        raise
-                    suggestion_results = []
-            product_suggestions = suggest_similar_product_names(
-                corrected_name,
-                suggestion_results,
-                ignored_name_tokens,
-            )
-        except Exception as exc:
-            print(f"Similar product name search failed: {exc}")
-            search_suggestion_error = True
-        else:
-            search_suggestion_error = False
-    else:
-        search_suggestion_error = False
-
     sorted_options = sorted(
         price_options.values(),
         key=lambda option: (not option["PriceIsMRP"], option["Price"]),
@@ -357,13 +278,11 @@ def search_product_online(clean_item_name):
             "not_found": "No reliable MRP was found. Enter and verify it before adding.",
             "no_relevant_results": "No web results matched this product name. Check the name and search again.",
         }[search_status],
-        "ProductSuggestions": product_suggestions,
-        "SuggestionSearchError": search_suggestion_error,
         "SearchResults": search_results[:3],
     }
 
-def get_db_records(table, column):
-    conn = sqlite3.connect(DB_PATH)
+def get_db_records(table, column, db_path=None):
+    conn = sqlite3.connect(db_path or DB_PATH)
     cursor = conn.cursor()
     cursor.execute(f'SELECT {column} FROM {table}')
     records = [row[0] for row in cursor.fetchall()]
@@ -596,12 +515,8 @@ def isolate_clean_entity(text_string):
     clean_words = [w for w in words if w not in stop_words and not re.match(r'\d+', w)]
     return " ".join(clean_words).title()
 
-def parse_and_execute(
-    raw_transcript,
-    quantity_override=None,
-    interpretation=None,
-    preview_only=False,
-):
+def parse_and_execute(raw_transcript, quantity_override=None, interpretation=None, db_path=None):
+    target_db = db_path or DB_PATH
     if interpretation is None:
         try:
             english_meaning = translate_to_english(raw_transcript)
@@ -612,11 +527,14 @@ def parse_and_execute(
                 "message": str(exc),
             }
 
-    conn = sqlite3.connect(DB_PATH)
+    conn = sqlite3.connect(target_db)
     ensure_transactions_schema(conn)
     cursor = conn.cursor()
-    db_items = get_db_records('Inventory', 'ItemName')
-    db_customers = get_db_records('CustomerCredit', 'CustomerName')
+    db_items = get_db_records('Inventory', 'ItemName', db_path=target_db)
+    db_customers = get_db_records('CustomerCredit', 'CustomerName', db_path=target_db)
+
+    from backend.app.services.alias_service import AliasService
+    alias_service = AliasService(target_db)
 
     if interpretation is not None:
         if not isinstance(interpretation, dict):
@@ -629,13 +547,134 @@ def parse_and_execute(
         intent = interpretation.get("action")
         clean_translated_entity = interpretation.get("entity")
         quantity_or_amount = interpretation.get("quantity")
-        if intent not in {"sell", "restock", "credit", "unknown"}:
+        INTELLIGENCE_ACTIONS = {
+            "query_hisaab", "query_low_stock", "query_stock",
+            "query_customer", "repayment", "multi_sell", "assistant_qa"
+        }
+        if intent not in {"sell", "restock", "credit", "unknown"} | INTELLIGENCE_ACTIONS:
             conn.close()
             return {
                 "status": "failed",
                 "action": "interpretation_invalid",
                 "message": "The command could not be safely interpreted. No changes were made.",
             }
+
+        if intent == "query_hisaab":
+            from backend.app.services.query_service import QueryService
+            qs = QueryService(target_db)
+            hisaab = qs.get_today_hisaab()
+            conn.close()
+            return {
+                "status": "success",
+                "action": "query_hisaab",
+                "message": hisaab["Message"],
+                "data": hisaab
+            }
+
+        if intent == "query_low_stock":
+            from backend.app.services.query_service import QueryService
+            qs = QueryService(target_db)
+            res = qs.get_low_stock_items()
+            conn.close()
+            items_text = ", ".join([f"{it['ItemName']} ({it['StockQuantity']} left)" for it in res["items"]]) if res["items"] else "None"
+            msg = f"{res['count']} item(s) running low: {items_text}." if res["items"] else "All inventory items have healthy stock levels."
+            return {
+                "status": "success",
+                "action": "query_low_stock",
+                "message": msg,
+                "items": res["items"]
+            }
+
+        if intent == "query_stock":
+            from backend.app.services.query_service import QueryService
+            qs = QueryService(target_db)
+            target = clean_translated_entity or interpretation.get("entity", "")
+            res = qs.get_inventory_stock(target)
+            conn.close()
+            return {
+                "status": "success" if res.get("found") else "failed",
+                "action": "query_stock",
+                "message": res["message"],
+                "data": res
+            }
+
+        if intent == "query_customer":
+            from backend.app.services.query_service import QueryService
+            qs = QueryService(target_db)
+            target = clean_translated_entity or interpretation.get("entity", "")
+            res = qs.get_customer_balance(target)
+            conn.close()
+            return {
+                "status": "success" if res.get("found") else "failed",
+                "action": "query_customer",
+                "message": res["message"],
+                "data": res
+            }
+
+        if intent == "repayment":
+            from backend.app.services.transaction_service import TransactionService
+            cust_name = clean_translated_entity or interpretation.get("entity", "")
+            amount = quantity_or_amount or 0
+            if amount <= 0:
+                conn.close()
+                return {"status": "failed", "action": "repayment_failed", "message": "Please specify a positive repayment amount."}
+            try:
+                res = TransactionService.commit_repayment(conn, {"CustomerName": cust_name, "Amount": amount, "RawCommand": raw_transcript}, None)
+                conn.commit()
+                conn.close()
+                return {
+                    "status": "success",
+                    "action": "repayment_recorded",
+                    "message": res["Message"],
+                    "data": res
+                }
+            except Exception as e:
+                conn.close()
+                return {"status": "failed", "action": "repayment_failed", "message": str(e)}
+
+        if intent == "multi_sell":
+            items = interpretation.get("items", [])
+            if not items:
+                conn.close()
+                return {"status": "failed", "action": "multi_sell_empty", "message": "No items found in multi-item sale command."}
+            from backend.app.services.transaction_service import TransactionService
+            sold_summary = []
+            errors = []
+            for item in items:
+                prod_name = item.get("entity", "").strip()
+                qty = int(item.get("quantity", 1))
+                matched_item = match_entity_with_score(prod_name, db_items, threshold=60)
+                if not matched_item:
+                    errors.append(f"'{prod_name}' not found")
+                    continue
+                cursor.execute("SELECT ItemID FROM Inventory WHERE ItemName = ?", (matched_item,))
+                row = cursor.fetchone()
+                if not row:
+                    errors.append(f"'{matched_item}' not found")
+                    continue
+                try:
+                    res = TransactionService.commit_sale(conn, {"ItemID": row[0], "Quantity": qty, "RawCommand": raw_transcript}, None)
+                    sold_summary.append(f"{qty}x {matched_item}")
+                except Exception as e:
+                    errors.append(f"{matched_item}: {str(e)}")
+            conn.commit()
+            conn.close()
+            if sold_summary:
+                msg = f"Multi-item sale recorded: {', '.join(sold_summary)}."
+                if errors:
+                    msg += f" (Notice: {'; '.join(errors)})"
+                return {"status": "success", "action": "multi_sale_completed", "message": msg, "sold": sold_summary}
+            return {"status": "failed", "action": "multi_sale_failed", "message": "; ".join(errors) or "Could not process items."}
+
+        if intent == "assistant_qa":
+            conn.close()
+            reply = interpretation.get("spoken_response") or "I am your KiranaSync shop assistant. Ask me to sell, restock, check hisaab, check stock, or check customer balances."
+            return {
+                "status": "success",
+                "action": "assistant_qa",
+                "message": reply
+            }
+
         if intent == "unknown":
             conn.close()
             return {
@@ -662,6 +701,22 @@ def parse_and_execute(
                 "action": "quantity_unrecognized",
                 "message": "Could not recognize a positive whole-number quantity. No changes were made.",
             }
+        alias_res = alias_service.resolve_alias(clean_translated_entity)
+        if alias_res.get("Ambiguous"):
+            conn.close()
+            return {
+                "status": "pending_clarification",
+                "action": "ambiguous_alias",
+                "message": alias_res.get("Message", "Ambiguous alias found. Clarification needed."),
+                "candidates": alias_res.get("Candidates", []),
+            }
+        if alias_res.get("Found"):
+            resolved_target = alias_res["ResolvedName"]
+            if alias_res["EntityType"] == "Product" and intent in {"sell", "restock"}:
+                clean_translated_entity = resolved_target
+            elif alias_res["EntityType"] == "Customer" and intent == "credit":
+                clean_translated_entity = resolved_target
+
         target_item = (
             match_entity_with_score(clean_translated_entity, db_items, threshold=70)
             if intent in {"sell", "restock"}
@@ -675,6 +730,18 @@ def parse_and_execute(
     else:
         # Preserve the local parser path for callers that do not provide an interpretation.
         clean_translated_entity = isolate_clean_entity(english_meaning)
+        alias_res = alias_service.resolve_alias(clean_translated_entity)
+        if alias_res.get("Ambiguous"):
+            conn.close()
+            return {
+                "status": "pending_clarification",
+                "action": "ambiguous_alias",
+                "message": alias_res.get("Message", "Ambiguous alias found. Clarification needed."),
+                "candidates": alias_res.get("Candidates", []),
+            }
+        if alias_res.get("Found"):
+            clean_translated_entity = alias_res["ResolvedName"]
+
         target_item = match_entity_with_score(clean_translated_entity, db_items, threshold=70)
         target_customer = match_entity_with_score(clean_translated_entity, db_customers, threshold=70)
         intent = determine_intent(english_meaning)
@@ -712,34 +779,6 @@ def parse_and_execute(
                     "Candidates": variants,
                 },
             }
-
-    if preview_only:
-        unit_price = None
-        available_stock = None
-        if target_item and intent in {"sell", "restock"}:
-            cursor.execute(
-                "SELECT StockQuantity, Price FROM Inventory WHERE ItemName = ?",
-                (target_item,),
-            )
-            row = cursor.fetchone()
-            if row:
-                available_stock = int(row[0])
-                unit_price = float(row[1])
-        entity_name = target_customer or target_item or final_unknown_entity
-        conn.close()
-        return {
-            "status": "pending_review",
-            "action": "review_transaction",
-            "message": "Review the transaction details before applying changes.",
-            "draft": {
-                "Intent": intent,
-                "EntityName": entity_name,
-                "Quantity": quantity_or_amount,
-                "RawCommand": raw_transcript,
-                "UnitPrice": unit_price,
-                "AvailableStock": available_stock,
-            },
-        }
 
     # --- EXECUTE TRANSACTIONS ---
     if intent == 'credit' or target_customer:

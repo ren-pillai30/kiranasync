@@ -78,54 +78,6 @@ class IntentParserInterpretationTests(unittest.TestCase):
             ).fetchone()
         self.assertEqual(transaction, ("Sale", "Sugar 1kg", 2, 20))
 
-    def test_preview_does_not_apply_sale_until_confirmation(self):
-        result = intent_parser.parse_and_execute(
-            "sell two sugar",
-            interpretation={
-                "action": "sell",
-                "entity": "Sugar 1kg",
-                "quantity": 2,
-            },
-            preview_only=True,
-        )
-
-        self.assertEqual(result["status"], "pending_review")
-        self.assertEqual(
-            result["draft"],
-            {
-                "Intent": "sell",
-                "EntityName": "Sugar 1kg",
-                "Quantity": 2,
-                "RawCommand": "sell two sugar",
-                "UnitPrice": 10.0,
-                "AvailableStock": 5,
-            },
-        )
-        with closing(sqlite3.connect(self.database_path)) as connection:
-            stock = connection.execute(
-                "SELECT StockQuantity FROM Inventory WHERE ItemName = 'Sugar 1kg'"
-            ).fetchone()[0]
-            transaction_count = connection.execute(
-                "SELECT COUNT(*) FROM Transactions"
-            ).fetchone()[0]
-        self.assertEqual(stock, 5)
-        self.assertEqual(transaction_count, 0)
-
-    def test_preview_allows_user_to_correct_quantity_exceeding_stock(self):
-        result = intent_parser.parse_and_execute(
-            "sell ten sugar",
-            interpretation={
-                "action": "sell",
-                "entity": "Sugar 1kg",
-                "quantity": 10,
-            },
-            preview_only=True,
-        )
-
-        self.assertEqual(result["status"], "pending_review")
-        self.assertEqual(result["draft"]["AvailableStock"], 5)
-        self.assertEqual(result["draft"]["Quantity"], 10)
-
     def test_validated_restock_is_added_to_ledger(self):
         result = intent_parser.parse_and_execute(
             "restock two sugar",
@@ -321,28 +273,7 @@ class IntentParserInterpretationTests(unittest.TestCase):
         result = intent_parser.search_product_online("Hide And Seek Biscuit")
 
         self.assertEqual(result["SearchStatus"], "no_relevant_results")
-        self.assertEqual(result["ProductSuggestions"], [])
-        self.assertEqual(ddgs.text.call_count, 4)
-
-    @patch.object(intent_parser, "DDGS")
-    def test_web_lookup_suggests_similarly_spelled_product_brands(self, ddgs_class):
-        ddgs = ddgs_class.return_value.__enter__.return_value
-        ddgs.text.side_effect = [
-            [],
-            [],
-            [{
-                "title": "Parle Hide & Seek Chocolate Chip Biscuits",
-                "body": "Popular biscuit brand",
-                "href": "https://example.test/hide-seek",
-            }],
-        ]
-
-        result = intent_parser.search_product_online("Hid Seak")
-
-        self.assertEqual(result["SearchStatus"], "no_relevant_results")
-        self.assertEqual(result["ProductSuggestions"], ["Hide Seek"])
-        self.assertFalse(result["PriceFound"])
-        self.assertEqual(result["PriceOptions"], [])
+        self.assertEqual(ddgs.text.call_count, 3)
 
     def test_unknown_action_does_not_change_stock_or_balance(self):
         result = intent_parser.parse_and_execute(
