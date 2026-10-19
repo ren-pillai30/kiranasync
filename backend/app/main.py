@@ -1,10 +1,7 @@
 import os
 import sys
 import math
-import tempfile
-from concurrent.futures import ThreadPoolExecutor
-from io import BytesIO
-from flask import Flask, request, jsonify, render_template, send_file
+from flask import Flask, request, jsonify, render_template
 from flask_cors import CORS
 from dotenv import load_dotenv
 import requests
@@ -14,6 +11,7 @@ load_dotenv(os.path.join(os.path.abspath(os.path.dirname(__file__)), '../../.env
 load_dotenv() # Fallback
 
 from backend.app.intent_parser import (
+    extract_explicit_quantity,
     ensure_transactions_schema,
     get_db_records,
     parse_and_execute,
@@ -35,158 +33,36 @@ static_dir = get_resource_path('frontend/dist/assets')
 app = Flask(__name__, template_folder=template_dir, static_folder=static_dir)
 CORS(app)
 
-STT_LANGUAGE_CODES = (
-    "bn-IN",
-    "en-IN",
-    "gu-IN",
-    "hi-IN",
-    "kn-IN",
-    "ml-IN",
-    "mr-IN",
-    "pa-IN",
-    "ta-IN",
-    "te-IN",
-)
+from backend.app.providers.gnani_stt import GnaniSTTProvider
+from backend.app.providers.gnani_tts import GnaniTTSProvider
 
+stt_provider = GnaniSTTProvider()
+tts_provider = GnaniTTSProvider()
 
-def transcribe_audio(audio_path, language_code="en-IN"):
-    """Transcribe audio with Gnani using one of its supported language codes."""
-    api_key = os.getenv("GNANI_API_KEY")
-    if not api_key:
-        print("ERROR: GNANI_API_KEY is missing!")
-        return None
-    
-    try:
-        with open(audio_path, "rb") as audio_file:
-            response = requests.post(
-                "https://api.vachana.ai/stt/v3",
-                headers={"X-API-Key-ID": api_key},
-                files={"audio_file": (os.path.basename(audio_path), audio_file)},
-                data={
-                    "language_code": language_code,
-                    "format": "transcribe",
-                    "itn_native_numerals": str(language_code == "hi-IN").lower(),
-                },
-                timeout=120,
-            )
-        response.raise_for_status()
-        result = response.json()
-        
-        if isinstance(result, dict):
-            return result.get('transcript', '') or result.get('text', '')
-        if isinstance(result, str):
-            return result
-        return None
-    except Exception as e:
-        print(f"Gnani STT Exception: {e}")
-        return None
-
-
-def transcribe_audio_candidates(audio_path, language_code):
-    if language_code == "auto":
-        with ThreadPoolExecutor(max_workers=len(STT_LANGUAGE_CODES)) as executor:
-            futures = {
-                code: executor.submit(transcribe_audio, audio_path, code)
-                for code in STT_LANGUAGE_CODES
-            }
-            candidates = []
-            for code, future in futures.items():
-                transcript = future.result()
-                if isinstance(transcript, str) and transcript.strip():
-                    candidates.append({
-                        "language_code": code,
-                        "transcript": transcript.strip(),
-                    })
-            return candidates
-
-    transcript = transcribe_audio(audio_path, language_code=language_code)
-    if not isinstance(transcript, str) or not transcript.strip():
-        return []
-    return [{
-        "language_code": language_code,
-        "transcript": transcript.strip(),
-    }]
-
-
-@app.route('/api/tts', methods=['POST'])
-def synthesize_speech():
-    data = request.get_json(silent=True)
-    if not isinstance(data, dict):
-        return jsonify({"status": "error", "error": "Speech text is required."}), 400
-
-    text = data.get("text")
-    language = data.get("language", "en-IN")
-    supported_languages = {*STT_LANGUAGE_CODES, "hi-en", "auto"}
-    if not isinstance(text, str) or not text.strip() or len(text) > 2000:
-        return jsonify({
-            "status": "error",
-            "error": "Enter speech text with no more than 2000 characters.",
-        }), 400
-    if not isinstance(language, str) or language not in supported_languages:
-        return jsonify({
-            "status": "error",
-            "error": "Choose a supported Gnani speech language.",
-        }), 400
-
-    api_key = os.getenv("GNANI_API_KEY")
-    if not api_key:
-        return jsonify({
-            "status": "error",
-            "error": "Gnani is not configured. Set GNANI_API_KEY in the root .env file.",
-        }), 503
-
-    try:
-        response = requests.post(
-            "https://api.vachana.ai/api/v1/tts/inference",
-            headers={"X-API-Key-ID": api_key},
-            json={
-                "text": text.strip(),
-                "voice": os.getenv("GNANI_TTS_VOICE", "Shivani"),
-                "model": os.getenv("GNANI_TTS_MODEL", "timbre-v3.0"),
-                "language": language,
-                "speed": 1.0,
-                "audio_config": {
-                    "sample_rate": 24000,
-                    "num_channels": 1,
-                    "sample_width": 2,
-                    "encoding": "linear_pcm",
-                    "container": "wav",
-                },
-            },
-            timeout=45,
-        )
-        response.raise_for_status()
-    except requests.Timeout as exc:
-        app.logger.warning("Gnani TTS request timed out: %s", exc)
-        return jsonify({
-            "status": "error",
-            "error": "Gnani speech generation timed out. Please try again.",
-        }), 504
-    except requests.RequestException as exc:
-        status_code = getattr(getattr(exc, "response", None), "status_code", None)
-        app.logger.error("Gnani TTS request failed: %s", exc)
-        return jsonify({
-            "status": "error",
-            "error": (
-                f"Gnani could not generate speech (HTTP {status_code})."
-                if status_code
-                else "Gnani could not be reached to generate speech."
-            ),
-        }), 502
-
-    if not response.content:
-        app.logger.error("Gnani TTS returned an empty audio response")
-        return jsonify({
-            "status": "error",
-            "error": "Gnani returned empty speech audio.",
-        }), 502
-
-    return send_file(
-        BytesIO(response.content),
-        mimetype="audio/wav",
-        download_name="transaction-confirmation.wav",
+def transcribe_audio(audio_path, language_code="hi-IN"):
+    """Transcribe audio with Gnani (hi-IN natively supports Hindi and Hinglish)."""
+    return stt_provider.transcribe(
+        audio_path,
+        language_code=language_code,
+        native_numerals=(language_code == "hi-IN")
     )
 
+@app.route('/api/voice/synthesize', methods=['POST'])
+def synthesize_voice():
+    """Generates audio bytes from server-verified text using Gnani Timbre TTS."""
+    from flask import Response
+    data = request.get_json(silent=True) or {}
+    text = data.get("text", "").strip()
+    language_code = data.get("language_code", "hi-IN")
+
+    if not text:
+        return jsonify({'status': 'error', 'error': 'Text is required'}), 400
+
+    try:
+        audio_bytes, content_type = tts_provider.synthesize(text, language_code=language_code)
+        return Response(audio_bytes, mimetype=content_type)
+    except Exception as e:
+        return jsonify({'status': 'error', 'error': str(e)}), 503
 
 @app.route('/')
 def index():
@@ -237,6 +113,92 @@ def get_transaction_ledger():
     ]
     conn.close()
     return jsonify({'status': 'success', 'transactions': transactions})
+
+@app.route('/api/analytics/hisaab', methods=['GET'])
+def get_hisaab_summary():
+    from backend.app.intent_parser import DB_PATH
+    from backend.app.services.query_service import QueryService
+    service = QueryService(DB_PATH)
+    return jsonify(service.get_today_hisaab())
+
+@app.route('/api/analytics/low-stock', methods=['GET'])
+def get_low_stock():
+    from backend.app.intent_parser import DB_PATH
+    from backend.app.services.query_service import QueryService
+    service = QueryService(DB_PATH)
+    return jsonify(service.get_low_stock_items())
+
+@app.route('/api/query/balance', methods=['GET'])
+def get_balance_query():
+    from backend.app.intent_parser import DB_PATH
+    from backend.app.services.query_service import QueryService
+    customer = request.args.get('customer', '')
+    if not customer:
+        return jsonify({'status': 'error', 'error': 'Customer name required'}), 400
+    service = QueryService(DB_PATH)
+    return jsonify(service.get_customer_balance(customer))
+
+@app.route('/api/aliases', methods=['GET', 'POST'])
+def manage_aliases():
+    from backend.app.intent_parser import DB_PATH
+    from backend.app.services.alias_service import AliasService
+    service = AliasService(DB_PATH)
+    if request.method == 'GET':
+        return jsonify({'status': 'success', 'aliases': service.list_aliases()})
+    
+    data = request.get_json(silent=True) or {}
+    entity_type = data.get("EntityType")
+    entity_id = data.get("EntityID")
+    resolved_name = data.get("ResolvedName")
+    spoken_alias = data.get("SpokenAlias")
+
+    if not (entity_type and entity_id and resolved_name and spoken_alias):
+        return jsonify({'status': 'error', 'error': 'All alias fields are required'}), 400
+
+    result = service.add_alias(entity_type, entity_id, resolved_name, spoken_alias)
+    return jsonify(result)
+
+@app.route('/api/aliases/<int:alias_id>', methods=['DELETE'])
+def delete_alias_route(alias_id):
+    from backend.app.intent_parser import DB_PATH
+    from backend.app.services.alias_service import AliasService
+    service = AliasService(DB_PATH)
+    return jsonify(service.delete_alias(alias_id))
+
+@app.route('/api/evaluation/benchmark', methods=['GET'])
+def get_evaluation_benchmark():
+    import json
+    eval_dir = os.path.join(os.path.dirname(__file__), 'evaluation')
+    results_path = os.path.join(eval_dir, 'benchmark_results.json')
+    split = request.args.get('split') # e.g. 'held_out_test' or None for all
+
+    if not os.path.exists(results_path):
+        from backend.app.evaluation.benchmark_cli import run_all_benchmarks
+        run_all_benchmarks(eval_dir)
+
+    try:
+        with open(results_path, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+
+        if split == 'held_out_test' and "ProductionPipeline" in data and "HeldOutTest" in data["ProductionPipeline"]:
+            split_data = data["ProductionPipeline"]["HeldOutTest"]
+            return jsonify({
+                'status': 'success',
+                **split_data,
+                'Metadata': data.get('Metadata', {}),
+                'PipelineType': 'ProductionPipeline'
+            })
+        elif split == 'evaluation_set' and "ProductionPipeline" in data and "EvaluationSet" in data["ProductionPipeline"]:
+            split_data = data["ProductionPipeline"]["EvaluationSet"]
+            return jsonify({
+                'status': 'success',
+                **split_data,
+                'Metadata': data.get('Metadata', {}),
+                'PipelineType': 'ProductionPipeline'
+            })
+        return jsonify({'status': 'success', **data})
+    except Exception as e:
+        return jsonify({'status': 'error', 'error': str(e)}), 500
 
 @app.route('/api/product-lookup', methods=['POST'])
 def lookup_product():
@@ -318,184 +280,121 @@ def confirm_inventory_command():
     finally:
         conn.close()
 
+@app.route('/api/commands/<command_id>/confirm', methods=['POST'])
+def confirm_command_route(command_id):
+    from backend.app.intent_parser import DB_PATH
+    from backend.app.services.command_service import CommandService
+    from backend.app.services.transaction_service import TransactionService
+
+    service = CommandService(DB_PATH)
+    cmd = service.get_command(command_id)
+    if not cmd:
+        return jsonify({'status': 'error', 'error': 'Command not found'}), 404
+
+    op = cmd.get("Operation")
+    if op == "sale":
+        result = service.confirm_command(command_id, TransactionService.commit_sale)
+    elif op == "restock":
+        result = service.confirm_command(command_id, TransactionService.commit_restock)
+    elif op == "credit":
+        result = service.confirm_command(command_id, TransactionService.commit_credit)
+    elif op == "udhaar_sale":
+        result = service.confirm_command(command_id, TransactionService.commit_udhaar_sale)
+    elif op == "repayment":
+        result = service.confirm_command(command_id, TransactionService.commit_repayment)
+    else:
+        return jsonify({'status': 'error', 'error': f'Unsupported operation {op}'}), 400
+
+    if result.get("status") == "error":
+        return jsonify(result), 400
+    return jsonify(result)
+
+@app.route('/api/commands/<command_id>/cancel', methods=['POST'])
+def cancel_command_route(command_id):
+    from backend.app.intent_parser import DB_PATH
+    from backend.app.services.command_service import CommandService
+
+    service = CommandService(DB_PATH)
+    result = service.cancel_command(command_id)
+    status_code = 200 if result.get("status") == "success" else 400
+    return jsonify(result), status_code
+
 @app.route('/api/process-audio', methods=['POST'])
 def process_audio():
+    import tempfile
     if 'audio' not in request.files:
         return jsonify({'status': 'error', 'error': 'No audio file provided'}), 400
-
-    language_code = request.form.get("language_code", "auto")
-    if language_code != "auto" and language_code not in STT_LANGUAGE_CODES:
-        return jsonify({
-            "status": "error",
-            "error": "Choose auto-detect or a supported Gnani language.",
-        }), 400
-
+    
     audio_file = request.files['audio']
-    temp_dir = '/tmp' if os.name != 'nt' else os.environ.get('TEMP', '.')
-    file_descriptor, audio_path = tempfile.mkstemp(
-        prefix="kirana_command_",
-        suffix=".wav",
-        dir=temp_dir,
-    )
-    os.close(file_descriptor)
+    temp_audio_file = tempfile.NamedTemporaryFile(suffix='.wav', delete=False)
+    temp_audio_path = temp_audio_file.name
+    temp_audio_file.close()
+
     try:
-        audio_file.save(audio_path)
-        transcripts = transcribe_audio_candidates(audio_path, language_code)
-        if not transcripts:
-            return jsonify({
-                'status': 'error',
-                'error': 'Failed to transcribe audio',
-            }), 500
+        audio_file.save(temp_audio_path)
+        
+        preferred_lang = request.form.get('lang', 'hi-IN')
+        
+        # Get transcription via SDK (hi-IN handles Hindi and code-switched Hinglish natively)
+        raw_transcript = transcribe_audio(temp_audio_path, language_code=preferred_lang)
+
+        # If empty and preferred_lang was en-IN, try hi-IN (or vice-versa)
+        if raw_transcript is not None and not raw_transcript.strip():
+            fallback_lang = "en-IN" if preferred_lang == "hi-IN" else "hi-IN"
+            fallback_transcript = transcribe_audio(temp_audio_path, language_code=fallback_lang)
+            if fallback_transcript and fallback_transcript.strip():
+                raw_transcript = fallback_transcript
+
+        if raw_transcript is None:
+            return jsonify({'status': 'error', 'error': 'Could not reach speech recognition service. Check your internet connection and API key.'}), 503
+
+        if not raw_transcript.strip():
+            return jsonify({'status': 'error', 'error': 'No speech detected. Please speak clearly into your microphone and click Send.'}), 400
+
+        hindi_transcript = None
+        if extract_explicit_quantity(raw_transcript) is None:
+            hindi_transcript = transcribe_audio(temp_audio_path, language_code="hi-IN")
+
+        from backend.app.intent_parser import DB_PATH
+        from backend.app.services.query_service import QueryService
+        try:
+            store_kpis = QueryService(DB_PATH).get_store_kpis()
+        except Exception:
+            store_kpis = {}
 
         try:
             interpretation = understand_command(
-                transcripts=transcripts,
+                transcript=raw_transcript,
+                hindi_transcript=hindi_transcript,
                 inventory=get_db_records("Inventory", "ItemName"),
                 customers=get_db_records("CustomerCredit", "CustomerName"),
+                language_hint=preferred_lang,
+                store_kpis=store_kpis,
             )
         except GeminiUnderstandingError as exc:
             return jsonify({
                 "status": "error",
                 "error": str(exc),
-                "transcript": transcripts[0]["transcript"],
+                "transcript": raw_transcript,
             }), 503
 
-        selected_transcript = transcripts[interpretation["transcript_index"]]
         # Execute only after the model's fields have been validated by the parser.
-        db_result = parse_and_execute(
-            selected_transcript["transcript"],
-            interpretation=interpretation,
-            preview_only=True,
-        )
-        if db_result.get("status") in {"pending_review", "pending_selection"}:
-            db_result["draft"]["LanguageCode"] = selected_transcript["language_code"]
+        db_result = parse_and_execute(raw_transcript, interpretation=interpretation)
+        if isinstance(db_result, dict) and interpretation.get("spoken_response"):
+            if db_result.get("action") == "assistant_qa" or not db_result.get("message"):
+                db_result["message"] = interpretation["spoken_response"]
 
         return jsonify({
             'status': 'success',
-            'transcript': selected_transcript["transcript"],
-            'language_code': selected_transcript["language_code"],
+            'transcript': raw_transcript,
             'database_action': db_result
         })
     finally:
-        os.remove(audio_path)
-
-
-@app.route('/api/confirm-transaction', methods=['POST'])
-def confirm_transaction():
-    import sqlite3
-    from backend.app.intent_parser import DB_PATH
-
-    data = request.get_json(silent=True)
-    if not isinstance(data, dict):
-        return jsonify({
-            "status": "error",
-            "error": "Transaction details are required.",
-        }), 400
-
-    intent = data.get("Intent")
-    entity = data.get("EntityName")
-    quantity = data.get("Quantity")
-    raw_command = data.get("RawCommand")
-    if (
-        not isinstance(intent, str)
-        or intent not in {"sell", "restock", "credit", "inventory_add", "credit_add"}
-        or not isinstance(entity, str)
-        or not entity.strip()
-        or not isinstance(quantity, int)
-        or isinstance(quantity, bool)
-        or not 0 < quantity <= 2**63 - 1
-        or not isinstance(raw_command, str)
-    ):
-        return jsonify({
-            "status": "error",
-            "error": "Enter a valid action, item or customer, and positive whole-number amount.",
-        }), 400
-
-    if intent in {"inventory_add", "credit_add"}:
-        unit_price = data.get("UnitPrice")
-        try:
-            parsed_unit_price = float(unit_price)
-        except (TypeError, ValueError, OverflowError):
-            parsed_unit_price = None
-        if intent == "inventory_add" and (
-            isinstance(unit_price, bool)
-            or not isinstance(unit_price, (int, float))
-            or parsed_unit_price is None
-            or not math.isfinite(parsed_unit_price)
-            or not 0 < parsed_unit_price <= 2**63 - 1
-        ):
-            return jsonify({
-                "status": "error",
-                "error": "Enter a valid positive item price.",
-            }), 400
-
-        connection = sqlite3.connect(DB_PATH)
-        try:
-            ensure_transactions_schema(connection)
-            cursor = connection.cursor()
-            if intent == "inventory_add":
-                cursor.execute(
-                    """
-                    INSERT INTO Inventory (ItemName, StockQuantity, Price)
-                    VALUES (?, ?, ?)
-                    """,
-                    (entity.strip(), quantity, parsed_unit_price),
-                )
-                record_transaction(
-                    cursor,
-                    raw_command,
-                    -parsed_unit_price * quantity,
-                    "Restock",
-                    entity.strip(),
-                    quantity,
-                )
-                action = "inventory_restocked"
-                message = f"Added {quantity} {entity.strip()} to inventory."
-            else:
-                cursor.execute(
-                    """
-                    INSERT INTO CustomerCredit (CustomerName, OutstandingBalance)
-                    VALUES (?, ?)
-                    """,
-                    (entity.strip(), quantity),
-                )
-                record_transaction(
-                    cursor,
-                    raw_command,
-                    quantity,
-                    "Credit",
-                    entity.strip(),
-                )
-                action = "udhaar_added"
-                message = f"Added Rs {quantity} credit for {entity.strip()}."
-            connection.commit()
-            return jsonify({
-                "status": "success",
-                "database_action": {
-                    "status": "success",
-                    "action": action,
-                    "message": message,
-                },
-            })
-        except sqlite3.IntegrityError:
-            connection.rollback()
-            return jsonify({
-                "status": "error",
-                "error": "That item or customer already exists. Check the name and try again.",
-            }), 409
-        finally:
-            connection.close()
-
-    result = parse_and_execute(
-        raw_command,
-        interpretation={
-            "action": intent,
-            "entity": entity.strip(),
-            "quantity": quantity,
-        },
-    )
-    return jsonify({"status": "success", "database_action": result})
-
+        if os.path.exists(temp_audio_path):
+            try:
+                os.remove(temp_audio_path)
+            except Exception as e:
+                print(f"Warning: Failed to clean up temp audio {temp_audio_path}: {e}")
 
 @app.route('/api/inventory/add', methods=['POST'])
 def add_inventory():
