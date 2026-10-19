@@ -150,12 +150,16 @@ export default function App() {
 
   const [isActive, setIsActive] = useState(false);
   const [showDashboard, setShowDashboard] = useState(true);
+  const [showArchives, setShowArchives] = useState(false);
+  const [archives, setArchives] = useState([]);
+  const [archivesError, setArchivesError] = useState('');
   const [transcript, setTranscript] = useState(t.defaultListening);
   const [dbAction, setDbAction] = useState(null);
   
   // Confirmation Modal State
   const [pendingDraft, setPendingDraft] = useState(null);
   const [pendingItemChoice, setPendingItemChoice] = useState(null);
+  const [pendingRemoval, setPendingRemoval] = useState(null);
   const [selectedItemId, setSelectedItemId] = useState(null);
   const [confirmationError, setConfirmationError] = useState('');
   const [isSearchingProduct, setIsSearchingProduct] = useState(false);
@@ -172,7 +176,8 @@ export default function App() {
   const [invForm, setInvForm] = useState({ ItemName: '', StockQuantity: '', Price: '' });
   
   const [showAddCust, setShowAddCust] = useState(false);
-  const [custForm, setCustForm] = useState({ CustomerName: '', Amount: '' });
+  const [custForm, setCustForm] = useState({ CustomerName: '', Amount: '0' });
+  const [manualFormError, setManualFormError] = useState('');
 
   const [editInvId, setEditInvId] = useState(null);
   const [editInvName, setEditInvName] = useState('');
@@ -188,28 +193,65 @@ export default function App() {
   const [audioLevel, setAudioLevel] = useState(0);
   const [isRecording, setIsRecording] = useState(false);
   const [isMuted, setIsMuted] = useState(false);
+  const [voiceError, setVoiceError] = useState('');
   const activeAudioRef = useRef(null);
+  const playbackAudioContextRef = useRef(null);
+  const activeAudioSourceRef = useRef(null);
 
   const playVoiceReceipt = async (textToSpeak) => {
     if (isMuted || !textToSpeak) return;
     try {
+      setVoiceError('');
       if (activeAudioRef.current) {
         activeAudioRef.current.pause();
         activeAudioRef.current = null;
+      }
+      if (activeAudioSourceRef.current) {
+        activeAudioSourceRef.current.stop();
+        activeAudioSourceRef.current = null;
       }
       const response = await fetch('http://127.0.0.1:5000/api/voice/synthesize', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           text: textToSpeak,
-          language_code: selectedLangCode
+          language_code: lang === 'hi' ? 'hi-IN' : 'en-IN'
         })
       });
       if (!response.ok) {
-        console.warn("TTS synthesis returned status", response.status);
-        return;
+        const errorBody = response.headers.get('content-type')?.includes('application/json')
+          ? await response.json()
+          : await response.text();
+        throw new Error(
+          typeof errorBody === 'string'
+            ? `TTS request failed (${response.status}): ${errorBody.slice(0, 200)}`
+            : errorBody.error || `TTS request failed (${response.status})`
+        );
       }
       const audioBlob = await response.blob();
+      if (!audioBlob.type.startsWith('audio/')) {
+        throw new Error(`TTS returned an unexpected response type: ${audioBlob.type || 'unknown'}`);
+      }
+
+      const playbackContext = playbackAudioContextRef.current;
+      if (playbackContext) {
+        if (playbackContext.state === 'suspended') {
+          await playbackContext.resume();
+        }
+        const audioBuffer = await playbackContext.decodeAudioData(await audioBlob.arrayBuffer());
+        const source = playbackContext.createBufferSource();
+        source.buffer = audioBuffer;
+        source.connect(playbackContext.destination);
+        source.onended = () => {
+          if (activeAudioSourceRef.current === source) {
+            activeAudioSourceRef.current = null;
+          }
+        };
+        activeAudioSourceRef.current = source;
+        source.start();
+        return;
+      }
+
       const audioUrl = URL.createObjectURL(audioBlob);
       const audio = new Audio(audioUrl);
       activeAudioRef.current = audio;
@@ -221,7 +263,8 @@ export default function App() {
       };
       await audio.play();
     } catch (err) {
-      console.warn("TTS Playback notice:", err);
+      console.error("TTS playback failed:", err);
+      setVoiceError(`Could not play the spoken answer: ${err.message}`);
     }
   };
 
@@ -254,6 +297,21 @@ export default function App() {
       }
     } catch (error) {
       console.error("Transaction ledger fetch error:", error);
+    }
+  };
+
+  const fetchArchives = async () => {
+    try {
+      const response = await fetch('http://127.0.0.1:5000/api/archives');
+      const data = await response.json();
+      if (!response.ok || data.status !== 'success') {
+        throw new Error(data.error || 'Could not load archive audit records.');
+      }
+      setArchives(data.archives);
+      setArchivesError('');
+    } catch (error) {
+      console.error('Archive audit fetch error:', error);
+      setArchivesError(error.message || 'Could not load archive audit records.');
     }
   };
 
@@ -290,33 +348,61 @@ export default function App() {
     return () => {
       isMounted = false;
       clearInterval(interval);
+      if (activeAudioSourceRef.current) {
+        activeAudioSourceRef.current.stop();
+      }
+      if (playbackAudioContextRef.current) {
+        playbackAudioContextRef.current.close();
+      }
     };
   }, []);
 
   const handleAddInventory = async (e) => {
     e.preventDefault();
-    await fetch('http://127.0.0.1:5000/api/inventory/add', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(invForm)
-    });
-    setInvForm({ ItemName: '', StockQuantity: '', Price: '' });
-    setShowAddInv(false);
-    fetchDashboardData();
-    fetchLedgerData();
+    setManualFormError('');
+    try {
+      const response = await fetch('http://127.0.0.1:5000/api/inventory/add', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(invForm)
+      });
+      const result = await response.json();
+      if (!response.ok || result.status !== 'success') {
+        setManualFormError(result.error || t.connError);
+        return;
+      }
+      setInvForm({ ItemName: '', StockQuantity: '', Price: '' });
+      setShowAddInv(false);
+      fetchDashboardData();
+      fetchLedgerData();
+    } catch (error) {
+      console.error('Product add failed:', error);
+      setManualFormError(t.connError);
+    }
   };
 
   const handleAddCustomer = async (e) => {
     e.preventDefault();
-    await fetch('http://127.0.0.1:5000/api/credit/add', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(custForm)
-    });
-    setCustForm({ CustomerName: '', Amount: '' });
-    setShowAddCust(false);
-    fetchDashboardData();
-    fetchLedgerData();
+    setManualFormError('');
+    try {
+      const response = await fetch('http://127.0.0.1:5000/api/credit/add', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(custForm)
+      });
+      const result = await response.json();
+      if (!response.ok || result.status !== 'success') {
+        setManualFormError(result.error || t.connError);
+        return;
+      }
+      setCustForm({ CustomerName: '', Amount: '0' });
+      setShowAddCust(false);
+      fetchDashboardData();
+      fetchLedgerData();
+    } catch (error) {
+      console.error('Customer add failed:', error);
+      setManualFormError(t.connError);
+    }
   };
 
   const handleEditInventory = async (id) => {
@@ -327,6 +413,46 @@ export default function App() {
     });
     setEditInvId(null);
     fetchDashboardData();
+  };
+
+  const archiveEntity = async (entity) => {
+    setConfirmationError('');
+    try {
+      const response = await fetch('http://127.0.0.1:5000/api/entities/archive', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          EntityType: entity.EntityType,
+          EntityID: entity.EntityID,
+          Reason: entity.Reason,
+          RawCommand: entity.RawCommand,
+        }),
+      });
+      const result = await response.json();
+      if (!response.ok || result.status !== 'success') {
+        setConfirmationError(result.error || t.connError);
+        return;
+      }
+      setPendingRemoval(null);
+      setConfirmationError('');
+      setDbAction(result);
+      setIsActive(Boolean(entity.RawCommand));
+      fetchDashboardData();
+      fetchLedgerData();
+      fetchArchives();
+      playVoiceReceipt(result.message);
+      if (entity.RawCommand) {
+        setTimeout(() => setIsActive(false), 5000);
+      }
+    } catch (error) {
+      console.error('Entity removal failed:', error);
+      setConfirmationError(t.connError);
+    }
+  };
+
+  const confirmEntityRemoval = async () => {
+    if (!pendingRemoval) return;
+    await archiveEntity(pendingRemoval);
   };
 
   const handleEditCustomer = async (id) => {
@@ -365,6 +491,10 @@ export default function App() {
       }
       setPendingDraft(null);
       setManualMrp('');
+      if (result.database_action?.message) {
+        setDbAction(result.database_action);
+        playVoiceReceipt(result.database_action.message);
+      }
       fetchDashboardData();
       fetchLedgerData();
     } catch (error) {
@@ -542,6 +672,13 @@ export default function App() {
 
           try {
             const response = await fetch('http://127.0.0.1:5000/api/process-audio', { method: 'POST', body: formData });
+            if (!response.headers.get('content-type')?.includes('application/json')) {
+              const responseText = await response.text();
+              const detail = responseText.trim().toLowerCase().startsWith('<!doctype')
+                ? 'The backend returned an HTML page instead of JSON. Restart KiranaSync and try again.'
+                : responseText.slice(0, 200) || 'The backend returned an unexpected response.';
+              throw new Error(detail);
+            }
             const data = await response.json();
             if (data.status === 'success') {
               setTranscript(data.transcript);
@@ -550,13 +687,42 @@ export default function App() {
                 fetchLedgerData();
               }
               
-              if (data.database_action?.message) {
+              if (
+                data.database_action?.message &&
+                [
+                  'query_stock',
+                  'query_customer',
+                  'customer_archived',
+                  'customer_deleted',
+                  'inventory_archived',
+                ].includes(data.database_action.action)
+              ) {
                 playVoiceReceipt(data.database_action.message);
+              }
+              if (
+                ['customer_archived', 'customer_deleted', 'inventory_archived'].includes(
+                  data.database_action?.action
+                )
+              ) {
+                fetchArchives();
               }
               
               // Route to Confirmation Modal if needed
               if (data.database_action && data.database_action.status === 'pending_confirmation') {
                 const draft = data.database_action.draft;
+                if (draft?.EntityType) {
+                  playVoiceReceipt(data.database_action.message);
+                  setPendingRemoval(draft);
+                  setConfirmationError('');
+                  setDbAction({ status: 'pending', message: data.database_action.message });
+                  return;
+                }
+                if (draft?.ItemName) {
+                  playVoiceReceipt(
+                    data.database_action.speech_message ||
+                    data.database_action.message
+                  );
+                }
                 const options = draft.PriceOptions || (
                   Number(draft.Price) > 0
                     ? [{ Price: Number(draft.Price), PriceIsMRP: draft.PriceIsMRP, Sources: [] }]
@@ -588,8 +754,9 @@ export default function App() {
               setTranscript("Notice: " + (data.error || "Failed to process audio"));
               setTimeout(() => { setIsActive(false); }, 4000);
             }
-          } catch {
-            setTranscript(t.connError);
+          } catch (err) {
+            console.error("Audio processing failed:", err);
+            setTranscript(err.message || t.connError);
             setTimeout(() => { setIsActive(false); }, 4000);
           }
         });
@@ -606,9 +773,25 @@ export default function App() {
       stopAndProcessRecording();
       return;
     }
+    const AudioCtx = window.AudioContext || window.webkitAudioContext;
+    if (AudioCtx) {
+      try {
+        if (!playbackAudioContextRef.current) {
+          playbackAudioContextRef.current = new AudioCtx();
+        }
+        if (playbackAudioContextRef.current.state === 'suspended') {
+          playbackAudioContextRef.current.resume().catch((err) => {
+            console.warn("Audio playback unlock failed:", err);
+          });
+        }
+      } catch (err) {
+        console.warn("Audio playback initialization failed:", err);
+      }
+    }
     try {
       setIsActive(true);
       setIsRecording(true);
+      setVoiceError('');
       setTranscript(t.defaultListening);
       setDbAction(null);
 
@@ -1021,6 +1204,66 @@ export default function App() {
         </AnimatePresence>
 
         <AnimatePresence>
+          {pendingRemoval && (
+            <motion.div
+              initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+              className="fixed inset-0 z-[70] flex items-center justify-center bg-black/70 backdrop-blur-sm pointer-events-auto p-4"
+            >
+              <motion.div
+                initial={{ scale: 0.95, y: 16 }} animate={{ scale: 1, y: 0 }}
+                className="bg-gray-800 border border-red-500/50 p-6 rounded-2xl shadow-2xl w-full max-w-[440px]"
+              >
+                <h3 className="text-xl font-bold text-white mb-2">Confirm removal</h3>
+                <p className="text-gray-300 text-sm mb-3">
+                  Remove <strong>{pendingRemoval.EntityName}</strong> from active {pendingRemoval.EntityType === 'Product' ? 'inventory' : 'customers'}?
+                </p>
+                {pendingRemoval.EntityType === 'Product' ? (
+                  <p className="text-sm text-amber-300 mb-4">
+                    Remaining stock ({pendingRemoval.QuantityOrBalance}) will be set to zero and recorded as a write-off. Transaction history will remain.
+                  </p>
+                ) : (
+                  <p className="text-sm text-amber-300 mb-4">
+                    Outstanding balance (₹{Number(pendingRemoval.QuantityOrBalance || 0).toLocaleString('en-IN')}) and transaction history will be retained.
+                  </p>
+                )}
+                <label className="block text-xs text-gray-400 mb-1">Reason (optional)</label>
+                <input
+                  type="text"
+                  value={pendingRemoval.Reason || ''}
+                  onChange={event => setPendingRemoval(current => ({
+                    ...current,
+                    Reason: event.target.value,
+                  }))}
+                  className="w-full bg-gray-700 text-white p-2 rounded-lg border border-gray-600 mb-4"
+                  placeholder="e.g. expired or recalled"
+                />
+                {confirmationError && (
+                  <p role="alert" className="text-sm text-red-400 mb-3">{confirmationError}</p>
+                )}
+                <div className="flex gap-3">
+                  <button
+                    onClick={() => {
+                      setPendingRemoval(null);
+                      setConfirmationError('');
+                      if (pendingRemoval.RawCommand) setIsActive(false);
+                    }}
+                    className="flex-1 py-3 rounded-xl bg-gray-700 hover:bg-gray-600 text-gray-200 font-medium"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={confirmEntityRemoval}
+                    className="flex-1 py-3 rounded-xl bg-red-600 hover:bg-red-500 text-white font-semibold"
+                  >
+                    Confirm removal
+                  </button>
+                </div>
+              </motion.div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+
+        <AnimatePresence>
           {pendingItemChoice && (
             <motion.div
               initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
@@ -1129,12 +1372,15 @@ export default function App() {
                   <span className="text-sm font-medium">{dbAction.message}</span>
                 </motion.div>
               )}
+              {voiceError && (
+                <p role="alert" className="mt-3 text-sm text-red-300">{voiceError}</p>
+              )}
             </motion.div>
           )}
         </AnimatePresence>
 
         <AnimatePresence>
-          {showDashboard && (
+          {showDashboard && !showArchives && (
             <motion.div 
               initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.95 }}
               className="w-full max-w-5xl bg-gray-900/95 backdrop-blur-xl border border-gray-700 rounded-2xl p-8 shadow-2xl pointer-events-auto max-h-[85vh] overflow-y-auto"
@@ -1181,6 +1427,15 @@ export default function App() {
                   >
                     🔬 Voice AI Lab
                   </button>
+                  <button
+                    onClick={() => {
+                      setShowArchives(true);
+                      fetchArchives();
+                    }}
+                    className="px-3 py-1.5 bg-amber-600/20 hover:bg-amber-600/30 text-amber-300 border border-amber-500/40 rounded-lg text-xs font-semibold"
+                  >
+                    {lang === 'hi' ? 'आर्काइव' : 'Archives'}
+                  </button>
                   <button onClick={() => setLang(lang === 'en' ? 'hi' : 'en')} className="px-4 py-2 bg-gray-800 hover:bg-gray-700 text-gray-300 rounded-lg text-sm font-medium border border-gray-600 transition-colors">
                     {t.toggleLang}
                   </button>
@@ -1224,6 +1479,7 @@ export default function App() {
                         <input required type="number" placeholder={t.qtyPlace} className="bg-gray-700 text-white p-2 rounded w-1/2" value={invForm.StockQuantity} onChange={e => setInvForm({...invForm, StockQuantity: e.target.value})} />
                         <input required type="number" placeholder={t.pricePlace} className="bg-gray-700 text-white p-2 rounded w-1/2" value={invForm.Price} onChange={e => setInvForm({...invForm, Price: e.target.value})} />
                       </div>
+                      {manualFormError && <p role="alert" className="text-sm text-red-400">{manualFormError}</p>}
                       <button type="submit" className="bg-blue-500 text-white py-2 rounded font-semibold mt-2">{t.saveItem}</button>
                     </form>
                   )}
@@ -1252,7 +1508,24 @@ export default function App() {
                               {editInvId === item.ItemID ? (
                                 <button onClick={() => handleEditInventory(item.ItemID)} className="text-emerald-400 hover:text-emerald-300 text-xs px-2 py-1 bg-emerald-500/20 rounded ml-2">{t.saveBtn}</button>
                               ) : (
-                                <button onClick={() => { setEditInvId(item.ItemID); setEditInvName(item.ItemName); }} className="text-gray-400 hover:text-white text-xs px-2 py-1 bg-gray-700 rounded ml-2">{t.editBtn}</button>
+                                <>
+                                  <button onClick={() => { setEditInvId(item.ItemID); setEditInvName(item.ItemName); }} className="text-gray-400 hover:text-white text-xs px-2 py-1 bg-gray-700 rounded ml-2">{t.editBtn}</button>
+                                  <button
+                                    onClick={() => {
+                                      setConfirmationError('');
+                                      setPendingRemoval({
+                                        EntityType: 'Product',
+                                        EntityID: item.ItemID,
+                                        EntityName: item.ItemName,
+                                        QuantityOrBalance: item.StockQuantity,
+                                        Reason: '',
+                                      });
+                                    }}
+                                    className="text-red-300 hover:text-red-200 text-xs px-2 py-1 bg-red-500/20 rounded ml-2"
+                                  >
+                                    Remove
+                                  </button>
+                                </>
                               )}
                             </td>
                           </tr>
@@ -1272,7 +1545,8 @@ export default function App() {
                   {showAddCust && (
                     <form onSubmit={handleAddCustomer} className="bg-gray-800 p-4 rounded-xl mb-4 border border-gray-700 flex flex-col space-y-2">
                       <input required type="text" placeholder={t.custPlace} className="bg-gray-700 text-white p-2 rounded" value={custForm.CustomerName} onChange={e => setCustForm({...custForm, CustomerName: e.target.value})} />
-                      <input required type="number" placeholder={t.balPlace} className="bg-gray-700 text-white p-2 rounded" value={custForm.Amount} onChange={e => setCustForm({...custForm, Amount: e.target.value})} />
+                      <input required type="number" min="0" placeholder={t.balPlace} className="bg-gray-700 text-white p-2 rounded" value={custForm.Amount} onChange={e => setCustForm({...custForm, Amount: e.target.value})} />
+                      {manualFormError && <p role="alert" className="text-sm text-red-400">{manualFormError}</p>}
                       <button type="submit" className="bg-rose-500 text-white py-2 rounded font-semibold mt-2">{t.saveCust}</button>
                     </form>
                   )}
@@ -1299,7 +1573,29 @@ export default function App() {
                               {editCustId === person.CustomerID ? (
                                 <button onClick={() => handleEditCustomer(person.CustomerID)} className="text-emerald-400 hover:text-emerald-300 text-xs px-2 py-1 bg-emerald-500/20 rounded ml-2">{t.saveBtn}</button>
                               ) : (
-                                <button onClick={() => { setEditCustId(person.CustomerID); setEditCustName(person.CustomerName); }} className="text-gray-400 hover:text-white text-xs px-2 py-1 bg-gray-700 rounded ml-2">{t.editBtn}</button>
+                                <>
+                                  <button onClick={() => { setEditCustId(person.CustomerID); setEditCustName(person.CustomerName); }} className="text-gray-400 hover:text-white text-xs px-2 py-1 bg-gray-700 rounded ml-2">{t.editBtn}</button>
+                                  <button
+                                    onClick={() => {
+                                      setConfirmationError('');
+                                      const removal = {
+                                        EntityType: 'Customer',
+                                        EntityID: person.CustomerID,
+                                        EntityName: person.CustomerName,
+                                        QuantityOrBalance: person.OutstandingBalance,
+                                        Reason: '',
+                                      };
+                                      if (Number(person.OutstandingBalance) < 1) {
+                                        archiveEntity(removal);
+                                      } else {
+                                        setPendingRemoval(removal);
+                                      }
+                                    }}
+                                    className="text-red-300 hover:text-red-200 text-xs px-2 py-1 bg-red-500/20 rounded ml-2"
+                                  >
+                                    Remove
+                                  </button>
+                                </>
                               )}
                             </td>
                           </tr>
@@ -1349,7 +1645,7 @@ export default function App() {
                                   : ''
                             }>
                               {transaction.TransactionType === 'Sale' ? '+' : ''}
-                              {transaction.TransactionType === 'Restock' && Number(transaction.TotalAmount) < 0 ? '−' : ''}
+                              {['Restock', 'WriteOff'].includes(transaction.TransactionType) && Number(transaction.TotalAmount) < 0 ? '−' : ''}
                               ₹{Math.abs(Number(transaction.TotalAmount || 0)).toLocaleString('en-IN')}
                             </span>
                           </td>
@@ -1362,6 +1658,78 @@ export default function App() {
                   </table>
                 </div>
               </section>
+            </motion.div>
+          )}
+          {showDashboard && showArchives && (
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              className="w-full max-w-6xl bg-gray-900/95 backdrop-blur-xl border border-gray-700 rounded-2xl p-8 shadow-2xl pointer-events-auto max-h-[85vh] overflow-y-auto"
+            >
+              <div className="flex items-center justify-between mb-6">
+                <div>
+                  <h2 className="text-2xl font-bold text-white">
+                    {lang === 'hi' ? 'हटाए गए आइटम का ऑडिट' : 'Removal Archive & Audit'}
+                  </h2>
+                  <p className="text-sm text-gray-400 mt-1">
+                    {lang === 'hi' ? 'सभी हटाए गए उत्पादों और ग्राहकों का रिकॉर्ड' : 'Audit history for removed products and customers'}
+                  </p>
+                </div>
+                <button
+                  onClick={() => setShowArchives(false)}
+                  className="px-4 py-2 bg-gray-700 hover:bg-gray-600 text-white rounded-lg text-sm font-medium"
+                >
+                  {lang === 'hi' ? 'डैशबोर्ड पर वापस' : 'Back to dashboard'}
+                </button>
+              </div>
+              {archivesError && (
+                <p role="alert" className="mb-4 rounded-lg border border-red-500/40 bg-red-500/10 p-3 text-sm text-red-300">
+                  {archivesError}
+                </p>
+              )}
+              <div className="bg-gray-800 rounded-xl overflow-auto border border-gray-700 max-h-[65vh]">
+                <table className="w-full min-w-[900px] text-left text-sm text-gray-300">
+                  <thead className="bg-gray-700/70 text-gray-400 uppercase sticky top-0">
+                    <tr>
+                      <th className="px-4 py-3">{lang === 'hi' ? 'हटाने का समय' : 'Removed at'}</th>
+                      <th className="px-4 py-3">{lang === 'hi' ? 'प्रकार' : 'Type'}</th>
+                      <th className="px-4 py-3">{lang === 'hi' ? 'नाम' : 'Name'}</th>
+                      <th className="px-4 py-3">{lang === 'hi' ? 'कार्रवाई' : 'Action'}</th>
+                      <th className="px-4 py-3">{lang === 'hi' ? 'कारण' : 'Reason'}</th>
+                      <th className="px-4 py-3 text-right">{lang === 'hi' ? 'मात्रा' : 'Quantity'}</th>
+                      <th className="px-4 py-3 text-right">{lang === 'hi' ? 'बाकी उधार' : 'Balance at removal'}</th>
+                      <th className="px-4 py-3">{lang === 'hi' ? 'कमांड' : 'Command'}</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {archives.length === 0 ? (
+                      <tr>
+                        <td colSpan="8" className="px-4 py-10 text-center text-gray-500">
+                          {lang === 'hi' ? 'अभी तक कोई हटाने का रिकॉर्ड नहीं है।' : 'No removal records yet.'}
+                        </td>
+                      </tr>
+                    ) : archives.map(record => (
+                      <tr key={record.ArchiveID} className="border-t border-gray-700/50 align-top">
+                        <td className="px-4 py-3 whitespace-nowrap">
+                          {record.RemovedAt
+                            ? new Date(`${record.RemovedAt.replace(' ', 'T')}Z`).toLocaleString()
+                            : '—'}
+                        </td>
+                        <td className="px-4 py-3">{record.EntityType}</td>
+                        <td className="px-4 py-3 font-medium text-white">{record.EntityName}</td>
+                        <td className="px-4 py-3">{record.RemovalType}</td>
+                        <td className="px-4 py-3">{record.Reason || '—'}</td>
+                        <td className="px-4 py-3 text-right">{record.Quantity ?? '—'}</td>
+                        <td className="px-4 py-3 text-right">
+                          {record.Balance === null ? '—' : `₹${Number(record.Balance).toLocaleString('en-IN')}`}
+                        </td>
+                        <td className="px-4 py-3 max-w-sm break-words">{record.RawCommand || '—'}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
             </motion.div>
           )}
         </AnimatePresence>

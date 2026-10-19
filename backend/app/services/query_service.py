@@ -1,6 +1,8 @@
 import sqlite3
 from datetime import datetime, timezone
 
+from backend.app.db_setup import ensure_archive_schema
+
 def ensure_v2_schema(conn):
     """
     Safely migrates SQLite schema to KiranaSync 2.0 without losing historical data.
@@ -8,6 +10,7 @@ def ensure_v2_schema(conn):
     - Preserves existing 'Price' column as default SellingPrice.
     """
     cursor = conn.cursor()
+    ensure_archive_schema(conn)
     
     # 1. Update Inventory columns
     cursor.execute("PRAGMA table_info(Inventory)")
@@ -53,7 +56,7 @@ class QueryService:
         try:
             cursor = conn.cursor()
             cursor.execute(
-                "SELECT CustomerID, CustomerName, OutstandingBalance FROM CustomerCredit WHERE CustomerName LIKE ?",
+                "SELECT CustomerID, CustomerName, OutstandingBalance FROM CustomerCredit WHERE CustomerName LIKE ? AND IsActive = 1",
                 (f"%{customer_name.strip()}%",)
             )
             rows = cursor.fetchall()
@@ -85,7 +88,7 @@ class QueryService:
         try:
             cursor = conn.cursor()
             cursor.execute(
-                "SELECT ItemID, ItemName, StockQuantity, coalesce(SellingPrice, Price) as SellingPrice, MRP FROM Inventory WHERE ItemName LIKE ?",
+                "SELECT ItemID, ItemName, StockQuantity, coalesce(SellingPrice, Price) as SellingPrice, MRP FROM Inventory WHERE ItemName LIKE ? AND IsActive = 1",
                 (f"%{item_name.strip()}%",)
             )
             rows = cursor.fetchall()
@@ -120,7 +123,7 @@ class QueryService:
             cursor.execute('''
                 SELECT ItemID, ItemName, StockQuantity, ReorderLevel, coalesce(SellingPrice, Price) as Price
                 FROM Inventory
-                WHERE StockQuantity <= coalesce(ReorderLevel, 5)
+                WHERE IsActive = 1 AND StockQuantity <= coalesce(ReorderLevel, 5)
                 ORDER BY StockQuantity ASC
             ''')
             rows = cursor.fetchall()
@@ -212,7 +215,7 @@ class QueryService:
                     count(*),
                     coalesce(sum(StockQuantity), 0),
                     coalesce(sum(StockQuantity * coalesce(SellingPrice, Price)), 0.0)
-                FROM Inventory
+                    FROM Inventory WHERE IsActive = 1
             ''')
             inv_row = cursor.fetchone()
             total_skus = inv_row[0]
@@ -221,14 +224,17 @@ class QueryService:
 
             # 2. Customer receivables & top debtor
             cursor.execute('''
-                SELECT count(*), coalesce(sum(OutstandingBalance), 0.0) FROM CustomerCredit
+                SELECT
+                    (SELECT count(*) FROM CustomerCredit WHERE IsActive = 1),
+                    coalesce(sum(OutstandingBalance), 0.0)
+                FROM CustomerCredit
             ''')
             debt_row = cursor.fetchone()
             customer_count = debt_row[0]
             total_debt = float(debt_row[1])
 
             cursor.execute('''
-                SELECT CustomerName, OutstandingBalance FROM CustomerCredit WHERE OutstandingBalance > 0 ORDER BY OutstandingBalance DESC LIMIT 1
+                SELECT CustomerName, OutstandingBalance FROM CustomerCredit WHERE IsActive = 1 AND OutstandingBalance > 0 ORDER BY OutstandingBalance DESC LIMIT 1
             ''')
             top_debtor_row = cursor.fetchone()
             top_debtor = {

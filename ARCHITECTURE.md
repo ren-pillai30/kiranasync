@@ -104,12 +104,14 @@ stateDiagram-v2
 - `PurchaseCost` REAL DEFAULT NULL
 - `Unit` TEXT DEFAULT 'packet'
 - `ReorderLevel` INTEGER DEFAULT 5
+- `IsActive` INTEGER NOT NULL DEFAULT 1 *(added by an in-place schema upgrade; removed items remain inactive)*
 
 ### Table: `CustomerCredit`
 - `CustomerID` INTEGER PRIMARY KEY AUTOINCREMENT
 - `CustomerName` TEXT NOT NULL UNIQUE
 - `PhoneNumber` TEXT
 - `OutstandingBalance` REAL NOT NULL DEFAULT 0.0
+- `IsActive` INTEGER NOT NULL DEFAULT 1 *(added by an in-place schema upgrade; archived customers remain inactive when a balance is outstanding)*
 
 ### Table: `Transactions`
 - `TxnID` INTEGER PRIMARY KEY AUTOINCREMENT
@@ -123,6 +125,23 @@ stateDiagram-v2
 - `CommandID` TEXT UNIQUE *(Idempotency key)*
 - `IsReversed` BOOLEAN DEFAULT 0
 - `ReversalOfTxnID` INTEGER REFERENCES Transactions(TxnID)
+
+Removal actions are also recorded in `Transactions` as `WriteOff` (product) or `CustomerArchived` (customer).
+
+### Table: `EntityArchive`
+- `ArchiveID` INTEGER PRIMARY KEY AUTOINCREMENT
+- `SourceTransactionID` INTEGER UNIQUE *(links the removal to its ledger row and makes backfill idempotent)*
+- `EntityType` TEXT NOT NULL *(Product or Customer)*
+- `EntityID` INTEGER *(may refer to a deleted zero-balance customer; audit records are retained)*
+- `EntityName` TEXT NOT NULL
+- `RemovalType` TEXT NOT NULL
+- `RemovedAt` DATETIME NOT NULL
+- `Reason` TEXT
+- `Quantity` REAL *(product stock at removal)*
+- `Balance` REAL *(customer balance at removal)*
+- `RawCommand` TEXT
+
+`GET /api/archives` returns the audit entries newest-first. Schema initialization adds the archive table, marks active-state columns, and imports prior removal ledger rows without duplicating them.
 
 ### Table: `PendingCommands`
 - `CommandID` TEXT PRIMARY KEY

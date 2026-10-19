@@ -1,5 +1,65 @@
 import sqlite3
 
+
+def ensure_archive_schema(conn):
+    cursor = conn.cursor()
+    for table in ("Inventory", "CustomerCredit"):
+        columns = {
+            row[1] for row in cursor.execute(f"PRAGMA table_info({table})")
+        }
+        if columns and "IsActive" not in columns:
+            cursor.execute(
+                f"ALTER TABLE {table} ADD COLUMN IsActive INTEGER NOT NULL DEFAULT 1"
+            )
+    cursor.execute(
+        """
+        CREATE TABLE IF NOT EXISTS EntityArchive (
+            ArchiveID INTEGER PRIMARY KEY AUTOINCREMENT,
+            SourceTransactionID INTEGER UNIQUE,
+            EntityType TEXT NOT NULL,
+            EntityID INTEGER,
+            EntityName TEXT NOT NULL,
+            RemovalType TEXT NOT NULL,
+            RemovedAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            Reason TEXT,
+            Quantity REAL,
+            Balance REAL,
+            RawCommand TEXT
+        )
+        """
+    )
+    transaction_columns = {
+        row[1] for row in cursor.execute("PRAGMA table_info(Transactions)")
+    }
+    if {"TransactionType", "EntityName"} <= transaction_columns:
+        quantity_expression = "Quantity" if "Quantity" in transaction_columns else "NULL"
+        command_expression = "CommandText" if "CommandText" in transaction_columns else "NULL"
+        timestamp_expression = (
+            "coalesce(Timestamp, CURRENT_TIMESTAMP)"
+            if "Timestamp" in transaction_columns
+            else "CURRENT_TIMESTAMP"
+        )
+        cursor.execute(
+            f"""
+            INSERT OR IGNORE INTO EntityArchive (
+                SourceTransactionID, EntityType, EntityName, RemovalType,
+                RemovedAt, Quantity, RawCommand
+            )
+            SELECT rowid,
+                   CASE WHEN TransactionType = 'WriteOff' THEN 'Product' ELSE 'Customer' END,
+                   EntityName,
+                   TransactionType,
+                   {timestamp_expression},
+                   {quantity_expression},
+                   {command_expression}
+            FROM Transactions
+            WHERE TransactionType IN ('WriteOff', 'CustomerArchived')
+              AND EntityName IS NOT NULL
+            """
+        )
+    conn.commit()
+
+
 def init_db():
     conn = sqlite3.connect('kirana.db')
     cursor = conn.cursor()
@@ -24,6 +84,7 @@ def init_db():
             OutstandingBalance REAL DEFAULT 0.0
         )
     ''')
+    ensure_archive_schema(conn)
 
     # 3. Transaction Logging Table
     cursor.execute('''

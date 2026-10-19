@@ -9,6 +9,69 @@ class GeminiUnderstandingError(RuntimeError):
     pass
 
 
+def translate_for_speech(text, language_code):
+    if not isinstance(text, str) or not text.strip():
+        raise GeminiUnderstandingError("Cannot translate an empty spoken response.")
+    if language_code == "en-IN":
+        return text.strip()
+
+    api_key = os.getenv("GEMINI_API_KEY")
+    if not api_key:
+        raise GeminiUnderstandingError(
+            "Gemini is not configured. Set GEMINI_API_KEY to translate spoken responses."
+        )
+
+    model = os.getenv("GEMINI_MODEL", "gemini-3.5-flash-lite")
+    endpoint = (
+        "https://generativelanguage.googleapis.com/v1beta/models/"
+        f"{model}:generateContent"
+    )
+    payload = {
+        "contents": [{
+            "parts": [{
+                "text": (
+                    "Translate the following shopkeeper app response into the language "
+                    f"identified by this BCP-47 language code: {language_code}. "
+                    "Preserve all product and customer names, numbers, quantities, and "
+                    "currency values exactly. Do not add or omit facts. Return only JSON "
+                    'with one string property named "translation".\n'
+                    f"Response to translate: {json.dumps(text.strip(), ensure_ascii=False)}"
+                )
+            }]
+        }],
+        "generationConfig": {
+            "temperature": 0,
+            "responseMimeType": "application/json",
+            "responseSchema": {
+                "type": "OBJECT",
+                "properties": {"translation": {"type": "STRING"}},
+                "required": ["translation"],
+            },
+        },
+    }
+    try:
+        response = requests.post(
+            endpoint,
+            headers={"x-goog-api-key": api_key},
+            json=payload,
+            timeout=30,
+        )
+        response.raise_for_status()
+        response_data = response.json()
+        response_text = response_data["candidates"][0]["content"]["parts"][0]["text"]
+        translation = json.loads(response_text).get("translation")
+    except (requests.RequestException, KeyError, IndexError, TypeError, ValueError) as exc:
+        raise GeminiUnderstandingError(
+            "Gemini could not translate the spoken response. Please try again."
+        ) from exc
+
+    if not isinstance(translation, str) or not translation.strip():
+        raise GeminiUnderstandingError(
+            "Gemini returned an empty spoken translation. Please try again."
+        )
+    return translation.strip()
+
+
 _TRANSIENT_STATUS_CODES = {408, 429, 500, 502, 503, 504}
 _MAX_ATTEMPTS = 3
 
@@ -16,8 +79,12 @@ SUPPORTED_ACTIONS = {
     "sell",
     "multi_sell",
     "restock",
+    "add_product",
     "credit",
+    "add_customer",
     "repayment",
+    "remove_product",
+    "remove_customer",
     "query_stock",
     "query_low_stock",
     "query_customer",
@@ -55,8 +122,12 @@ def understand_command(transcript, hindi_transcript=None, inventory=None, custom
         "- sell: Single product sale (e.g., '2 packet maggi becho', 'sell 1 milk')\n"
         "- multi_sell: Multiple different products sold in one utterance (e.g., '2 maggi and 1 salt and 3 soaps')\n"
         "- restock: Adding or restocking inventory (e.g., '10 bread aaya hai', 'restock sugar')\n"
-        "- credit: Customer buying on debt / udhaar without paying now (e.g., 'Ramesh ko 50 ka samaan udhaar do')\n"
-        "- repayment: Customer paying off their existing debt / udhaar (e.g., 'Ramesh ne 100 rupaye diye/chukaye', 'Ramesh paid 100')\n"
+        "- add_product: Registering a new product in the catalog; include its spoken name and starting stock when given. Use restock when replenishing an existing product.\n"
+        "- credit: Add to a customer's udhaar/account balance because the customer is receiving goods or the shopkeeper is adding an amount due. If this customer is not in customer_names, this means create their customer row with that balance. An instruction to put/add/debit an amount into the customer's account is credit, not repayment.\n"
+        "- add_customer: Explicitly register a customer in the customer table without recording a purchase or debt (e.g., 'Add Ramesh as a customer').\n"
+        "- repayment: Record money the customer has paid to the shopkeeper to reduce an already-existing udhaar balance (e.g., 'Ramesh paid me 100', 'Ramesh ne 100 rupaye diye/chukaye'). Only choose repayment when the customer is clearly paying money to the shopkeeper; merely mentioning an account or amount is not enough.\n"
+        "- remove_product: Request to remove/archive a specific inventory product, including expiration or recall. Return its catalog name and a concise reason if given. This action requires explicit user confirmation before any changes.\n"
+        "- remove_customer: Request to remove/archive a specific customer from the active udhaar list. Return their catalog name and a concise reason if given. Their history and balance are retained. This action requires explicit user confirmation before any changes.\n"
         "- query_stock: Asking about stock or price of a product (e.g., 'Maggi ka kitna stock hai?', 'What is the price of Tata Salt?')\n"
         "- query_low_stock: Asking which items are running low or out of stock (e.g., 'Kaun sa samaan khatam ho raha hai?', 'Show low stock')\n"
         "- query_customer: Inquiring about a customer's debt / balance (e.g., 'Ramesh ka kitna udhaar baaki hai?', 'Check Ramesh balance')\n"
@@ -64,9 +135,10 @@ def understand_command(transcript, hindi_transcript=None, inventory=None, custom
         "- assistant_qa: Answering 2nd-degree analytical questions, store revenue calculations, inventory valuation, profit, top debtor, or business questions. Calculate the exact answer using live_store_kpis and state the exact calculated figures clearly in spoken_response!\n"
         "- unknown: Unintelligible or unrelated input\n\n"
         "Matching rules:\n"
-        "- For sell/restock/query_stock, entity must be the best matching inventory item name from the catalog if one matches; otherwise a clean product name.\n"
+        "- For sell/restock/add_product/remove_product/query_stock, entity must be the best matching inventory item name from the catalog if one matches; otherwise a clean product name.\n"
         "- For multi_sell, populate the 'items' list where each item has 'entity' (product name) and 'quantity' (integer digits as string).\n"
-        "- For credit/repayment/query_customer, entity must be the customer name from the catalog if one matches; otherwise the customer's name.\n"
+        "- For credit/add_customer/repayment/remove_customer/query_customer, entity must be the best matching customer name from the catalog if one matches; otherwise the customer's name.\n"
+        "- For a new customer credit, preserve the spoken customer name exactly when it is not in the catalog; do not turn it into a lookup or repayment request.\n"
         "- quantity must contain only positive whole-number digits as a string (e.g., '2', '50', '100'), or empty string if absent or unclear.\n"
         "- spoken_response: CRITICAL — You MUST reply in the EXACT SAME language and script as the transcript. "
         "Tamil input -> reply ONLY in Tamil script. Telugu input -> Telugu script only. "
@@ -102,6 +174,7 @@ def understand_command(transcript, hindi_transcript=None, inventory=None, custom
                         },
                     },
                     "spoken_response": {"type": "STRING"},
+                    "reason": {"type": "STRING"},
                 },
                 "required": ["action", "entity", "quantity"],
             },
@@ -221,5 +294,7 @@ def understand_command(transcript, hindi_transcript=None, inventory=None, custom
         res_dict["items"] = clean_items
     if result.get("spoken_response"):
         res_dict["spoken_response"] = result["spoken_response"].strip()
+    if isinstance(result.get("reason"), str) and result["reason"].strip():
+        res_dict["reason"] = result["reason"].strip()
 
     return res_dict

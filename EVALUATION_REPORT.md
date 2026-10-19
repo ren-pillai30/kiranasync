@@ -66,6 +66,7 @@ For every single utterance in the 232-sample benchmark, the `ProductionPipelineE
 
 ## 5. Honest Limitations & Transparency
 
+- **Entity lifecycle coverage**: This benchmark predates the interpreted/manual add/remove workflows and the removal archive. Its 232-sample metrics do not measure removal-intent accuracy or archive integrity; those behaviors are exercised by focused backend tests instead.
 - **Audio STT WER**: Audio Word Error Rate (WER) is **unverified** in this benchmark because automated test execution operates on text transcripts using deterministic provider mocks to conserve live API credits. Live STT audio quality should be evaluated using recorded kirana noise audio clips.
 - **Provider Quotas**: Benchmarks run offline with deterministic provider adapters. Timings for STT and TTS are labeled as offline simulations; real-world latency will depend on shop internet connectivity and cloud latency.
 - **Live Model Output**: Live Gemini calls require `GEMINI_API_KEY` and are bypassed in automated test suites to maintain determinism and zero financial cost.

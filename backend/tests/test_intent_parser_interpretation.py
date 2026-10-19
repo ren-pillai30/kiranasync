@@ -98,6 +98,146 @@ class IntentParserInterpretationTests(unittest.TestCase):
             ).fetchone()
         self.assertEqual(transaction, ("Restock", "Sugar 1kg", 2, -20))
 
+    def test_remove_product_waits_for_confirmation_and_keeps_stock_unchanged(self):
+        result = intent_parser.parse_and_execute(
+            "remove expired sugar",
+            interpretation={
+                "action": "remove_product",
+                "entity": "Sugar 1kg",
+                "quantity": None,
+                "reason": "expired",
+            },
+        )
+
+        self.assertEqual(result["status"], "pending_confirmation")
+        self.assertEqual(result["draft"]["EntityType"], "Product")
+        self.assertEqual(result["draft"]["Reason"], "expired")
+        with closing(sqlite3.connect(self.database_path)) as connection:
+            stock, active = connection.execute(
+                "SELECT StockQuantity, IsActive FROM Inventory WHERE ItemName = 'Sugar 1kg'"
+            ).fetchone()
+            transaction_count = connection.execute(
+                "SELECT COUNT(*) FROM Transactions"
+            ).fetchone()[0]
+        self.assertEqual((stock, active, transaction_count), (5, 1, 0))
+
+    def test_voice_add_customer_creates_zero_balance_account(self):
+        result = intent_parser.parse_and_execute(
+            "add Suresh as a customer",
+            interpretation={
+                "action": "add_customer",
+                "entity": "Suresh",
+                "quantity": None,
+            },
+        )
+
+        self.assertEqual(result["status"], "success")
+        with closing(sqlite3.connect(self.database_path)) as connection:
+            customer = connection.execute(
+                "SELECT OutstandingBalance, IsActive FROM CustomerCredit WHERE CustomerName = 'Suresh'"
+            ).fetchone()
+        self.assertEqual(customer, (0, 1))
+
+    def test_voice_credit_for_unknown_customer_creates_customer_with_balance(self):
+        result = intent_parser.parse_and_execute(
+            "श्याम के खाते में 1564 डाल दो",
+            interpretation={
+                "action": "credit",
+                "entity": "श्याम",
+                "quantity": 1564,
+            },
+        )
+
+        self.assertEqual(result["status"], "success")
+        with closing(sqlite3.connect(self.database_path)) as connection:
+            customer = connection.execute(
+                "SELECT OutstandingBalance, IsActive FROM CustomerCredit WHERE CustomerName = 'श्याम'"
+            ).fetchone()
+        self.assertEqual(customer, (1564, 1))
+
+    def test_voice_remove_customer_waits_for_confirmation(self):
+        result = intent_parser.parse_and_execute(
+            "remove Ramesh from the udhaar list",
+            interpretation={
+                "action": "remove_customer",
+                "entity": "Ramesh",
+                "quantity": None,
+            },
+        )
+
+        self.assertEqual(result["status"], "pending_confirmation")
+        self.assertEqual(result["draft"]["EntityType"], "Customer")
+        self.assertEqual(result["draft"]["QuantityOrBalance"], 20)
+
+    def test_voice_remove_customer_archives_without_confirmation_below_one_rupee(self):
+        with closing(sqlite3.connect(self.database_path)) as connection:
+            connection.execute(
+                "UPDATE CustomerCredit SET OutstandingBalance = 0.75 WHERE CustomerName = 'Ramesh'"
+            )
+            connection.commit()
+
+        result = intent_parser.parse_and_execute(
+            "remove Ramesh from the udhaar list",
+            interpretation={
+                "action": "remove_customer",
+                "entity": "Ramesh",
+                "quantity": None,
+            },
+        )
+
+        self.assertEqual(result["status"], "success")
+        self.assertEqual(result["action"], "customer_archived")
+        with closing(sqlite3.connect(self.database_path)) as connection:
+            balance, active = connection.execute(
+                "SELECT OutstandingBalance, IsActive FROM CustomerCredit WHERE CustomerName = 'Ramesh'"
+            ).fetchone()
+        self.assertEqual((balance, active), (0.75, 0))
+
+    def test_voice_remove_customer_deletes_exact_zero_balance_row(self):
+        with closing(sqlite3.connect(self.database_path)) as connection:
+            connection.execute(
+                "UPDATE CustomerCredit SET OutstandingBalance = 0 WHERE CustomerName = 'Ramesh'"
+            )
+            connection.commit()
+
+        result = intent_parser.parse_and_execute(
+            "remove Ramesh from the udhaar list",
+            interpretation={
+                "action": "remove_customer",
+                "entity": "Ramesh",
+                "quantity": None,
+            },
+        )
+
+        self.assertEqual(result["status"], "success")
+        self.assertEqual(result["action"], "customer_deleted")
+        with closing(sqlite3.connect(self.database_path)) as connection:
+            customer = connection.execute(
+                "SELECT 1 FROM CustomerCredit WHERE CustomerName = 'Ramesh'"
+            ).fetchone()
+        self.assertIsNone(customer)
+
+    @patch.object(intent_parser, "search_product_online")
+    def test_voice_add_product_uses_product_confirmation_flow(self, search):
+        search.return_value = {
+            "ItemName": "New Tea",
+            "Price": 25,
+            "PriceFound": True,
+            "SearchMessage": "Verify the suggested price.",
+            "SearchResults": [],
+        }
+        result = intent_parser.parse_and_execute(
+            "add new tea with 3 packets",
+            interpretation={
+                "action": "add_product",
+                "entity": "New Tea",
+                "quantity": 3,
+            },
+        )
+
+        self.assertEqual(result["status"], "pending_confirmation")
+        self.assertEqual(result["draft"]["StockQuantity"], 3)
+
     def test_sale_of_ambiguous_mrp_variants_waits_for_product_choice(self):
         connection = sqlite3.connect(self.database_path)
         try:

@@ -4,11 +4,40 @@ from unittest.mock import patch
 
 from backend.app.gemini_understanding import (
     GeminiUnderstandingError,
+    translate_for_speech,
     understand_command,
 )
 
 
 class GeminiUnderstandingTests(unittest.TestCase):
+    @patch.dict(os.environ, {"GEMINI_API_KEY": "test-key"})
+    @patch("backend.app.gemini_understanding.requests.post")
+    def test_translates_spoken_response_to_selected_language(self, post):
+        response = post.return_value
+        response.raise_for_status.return_value = None
+        response.json.return_value = {
+            "candidates": [{
+                "content": {
+                    "parts": [{"text": '{"translation":"चीनी के 5 पैकेट बचे हैं।"}'}]
+                }
+            }]
+        }
+
+        translation = translate_for_speech("Sugar: 5 in stock.", "hi-IN")
+
+        self.assertEqual(translation, "चीनी के 5 पैकेट बचे हैं।")
+        request_text = post.call_args.kwargs["json"]["contents"][0]["parts"][0]["text"]
+        self.assertIn("hi-IN", request_text)
+        self.assertIn("Sugar: 5 in stock.", request_text)
+
+    @patch("backend.app.gemini_understanding.requests.post")
+    def test_does_not_translate_english_response(self, post):
+        self.assertEqual(
+            translate_for_speech("Sugar: 5 in stock.", "en-IN"),
+            "Sugar: 5 in stock.",
+        )
+        post.assert_not_called()
+
     @patch.dict(os.environ, {"GEMINI_API_KEY": "test-key"})
     @patch("backend.app.gemini_understanding.requests.post")
     def test_returns_validated_command(self, post):
@@ -72,6 +101,71 @@ class GeminiUnderstandingTests(unittest.TestCase):
             "not a whole number",
         ):
             understand_command("sell sugar", None, ["Sugar 1kg"], [])
+
+    @patch.dict(os.environ, {"GEMINI_API_KEY": "test-key"})
+    @patch("backend.app.gemini_understanding.requests.post")
+    def test_validates_gemini_removal_intent_and_reason(self, post):
+        post.return_value.json.return_value = {
+            "candidates": [
+                {
+                    "content": {
+                        "parts": [
+                            {
+                                "text": (
+                                    '{"action":"remove_product","entity":"Milk 1L",'
+                                    '"quantity":"","reason":"recalled"}'
+                                )
+                            }
+                        ]
+                    }
+                }
+            ]
+        }
+
+        result = understand_command(
+            "remove the recalled milk",
+            inventory=["Milk 1L"],
+            customers=[],
+        )
+
+        self.assertEqual(
+            result,
+            {
+                "action": "remove_product",
+                "entity": "Milk 1L",
+                "quantity": None,
+                "reason": "recalled",
+            },
+        )
+        schema = post.call_args.kwargs["json"]["generationConfig"]["responseSchema"]
+        self.assertIn("remove_product", schema["properties"]["action"]["enum"])
+
+    @patch.dict(os.environ, {"GEMINI_API_KEY": "test-key"})
+    @patch("backend.app.gemini_understanding.requests.post")
+    def test_prompt_distinguishes_new_customer_credit_from_repayment(self, post):
+        post.return_value.json.return_value = {
+            "candidates": [{
+                "content": {
+                    "parts": [{
+                        "text": (
+                            '{"action":"credit","entity":"श्याम",'
+                            '"quantity":"1564"}'
+                        )
+                    }]
+                }
+            }]
+        }
+
+        result = understand_command(
+            "श्याम के खाते में 1564 डाल दो",
+            inventory=[],
+            customers=[],
+        )
+
+        prompt = post.call_args.kwargs["json"]["contents"][0]["parts"][0]["text"]
+        self.assertEqual(result["action"], "credit")
+        self.assertIn("create their customer row with that balance", prompt)
+        self.assertIn("Only choose repayment when the customer is clearly paying", prompt)
 
     @patch.dict(os.environ, {"GEMINI_API_KEY": "test-key"})
     @patch("backend.app.gemini_understanding.time.sleep")

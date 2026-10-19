@@ -7,6 +7,8 @@ Treat this as the product north star and staged implementation contract. Do not 
 
 The target is not merely a pretty demo. It is a working, defensible product with a reliable voice loop, safe financial/inventory mutations, useful Indian-language support, reproducible evaluation, polished UX, clear technical documentation, and finally a Windows executable.
 
+> **Status note:** This document captures the original build brief, not a current task list. The repository now also supports Gemini-interpreted/manual entity additions and removals, selective multilingual TTS, and a persistent removal audit page. See [BUILD_STATUS.md](./BUILD_STATUS.md) for the latest implementation and verification state.
+
 ---
 
 # 1. Product thesis
