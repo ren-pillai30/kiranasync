@@ -21,7 +21,7 @@ class GeminiUnderstandingTests(unittest.TestCase):
                             {
                                 "text": (
                                     '{"action":"restock","entity":"Sugar 1kg",'
-                                    '"quantity":"2000","transcript_index":0}'
+                                    '"quantity":"2000"}'
                                 )
                             }
                         ]
@@ -31,80 +31,21 @@ class GeminiUnderstandingTests(unittest.TestCase):
         }
 
         result = understand_command(
-            transcripts=[{
-                "language_code": "hi-IN",
-                "transcript": "do hazaar kg shakkar aayi hai",
-            }],
+            transcript="do hazaar kg shakkar aayi hai",
+            hindi_transcript=None,
             inventory=["Sugar 1kg"],
             customers=[],
         )
 
         self.assertEqual(
             result,
-            {
-                "action": "restock",
-                "entity": "Sugar 1kg",
-                "quantity": 2000,
-                "transcript_index": 0,
-            },
+            {"action": "restock", "entity": "Sugar 1kg", "quantity": 2000},
         )
         self.assertIn("gemini-3.5-flash-lite:generateContent", post.call_args.args[0])
         self.assertEqual(
             post.call_args.kwargs["headers"]["x-goog-api-key"],
             "test-key",
         )
-
-    @patch.dict(os.environ, {"GEMINI_API_KEY": "test-key"})
-    @patch("backend.app.gemini_understanding.requests.post")
-    def test_uses_all_transcripts_to_resolve_code_switched_number(self, post):
-        post.return_value.json.return_value = {
-            "candidates": [
-                {
-                    "content": {
-                        "parts": [
-                            {
-                                "text": (
-                                    '{"action":"restock","entity":"Sugar 1kg",'
-                                    '"quantity":"64","transcript_index":0}'
-                                )
-                            }
-                        ]
-                    }
-                }
-            ]
-        }
-        transcripts = [
-            {
-                "language_code": "en-IN",
-                "transcript": "Add chaunsath kg of sugar",
-            },
-            {
-                "language_code": "te-IN",
-                "transcript": "add 4 kg of sugar",
-            },
-            {
-                "language_code": "hi-IN",
-                "transcript": "चौंसठ किलो चीनी",
-            },
-        ]
-
-        result = understand_command(transcripts, ["Sugar 1kg"], [])
-
-        self.assertEqual(
-            result,
-            {
-                "action": "restock",
-                "entity": "Sugar 1kg",
-                "quantity": 64,
-                "transcript_index": 0,
-            },
-        )
-        prompt = post.call_args.kwargs["json"]["contents"][0]["parts"][0]["text"]
-        self.assertIn("Compare all candidates semantically and phonetically", prompt)
-        self.assertIn("written phonetically in Latin script", prompt)
-        self.assertIn("recover the complete spoken number", prompt.lower())
-        self.assertIn("Add chaunsath kg of sugar", prompt)
-        self.assertIn("add 4 kg of sugar", prompt)
 
     @patch.dict(os.environ, {"GEMINI_API_KEY": "test-key"})
     @patch("backend.app.gemini_understanding.requests.post")
@@ -117,7 +58,7 @@ class GeminiUnderstandingTests(unittest.TestCase):
                             {
                                 "text": (
                                     '{"action":"sell","entity":"Sugar 1kg",'
-                                    '"quantity":"1.5","transcript_index":0}'
+                                    '"quantity":"1.5"}'
                                 )
                             }
                         ]
@@ -130,41 +71,7 @@ class GeminiUnderstandingTests(unittest.TestCase):
             GeminiUnderstandingError,
             "not a whole number",
         ):
-            understand_command(
-                [{"language_code": "en-IN", "transcript": "sell sugar"}],
-                ["Sugar 1kg"],
-                [],
-            )
-
-    @patch.dict(os.environ, {"GEMINI_API_KEY": "test-key"})
-    @patch("backend.app.gemini_understanding.requests.post")
-    def test_rejects_transcript_index_outside_candidate_list(self, post):
-        post.return_value.json.return_value = {
-            "candidates": [
-                {
-                    "content": {
-                        "parts": [
-                            {
-                                "text": (
-                                    '{"action":"sell","entity":"Sugar 1kg",'
-                                    '"quantity":"1","transcript_index":1}'
-                                )
-                            }
-                        ]
-                    }
-                }
-            ]
-        }
-
-        with self.assertRaisesRegex(
-            GeminiUnderstandingError,
-            "invalid format",
-        ):
-            understand_command(
-                [{"language_code": "en-IN", "transcript": "sell sugar"}],
-                ["Sugar 1kg"],
-                [],
-            )
+            understand_command("sell sugar", None, ["Sugar 1kg"], [])
 
     @patch.dict(os.environ, {"GEMINI_API_KEY": "test-key"})
     @patch("backend.app.gemini_understanding.time.sleep")
@@ -182,7 +89,7 @@ class GeminiUnderstandingTests(unittest.TestCase):
                             {
                                 "text": (
                                     '{"action":"sell","entity":"Sugar 1kg",'
-                                    '"quantity":"1","transcript_index":0}'
+                                    '"quantity":"1"}'
                                 )
                             }
                         ]
@@ -192,20 +99,11 @@ class GeminiUnderstandingTests(unittest.TestCase):
         }
         post.side_effect = [unavailable, success]
 
-        result = understand_command(
-            [{"language_code": "hi-IN", "transcript": "sugar bhej do"}],
-            ["Sugar 1kg"],
-            [],
-        )
+        result = understand_command("sugar bhej do", None, ["Sugar 1kg"], [])
 
         self.assertEqual(
             result,
-            {
-                "action": "sell",
-                "entity": "Sugar 1kg",
-                "quantity": 1,
-                "transcript_index": 0,
-            },
+            {"action": "sell", "entity": "Sugar 1kg", "quantity": 1},
         )
         self.assertEqual(post.call_count, 2)
         sleep.assert_called_once_with(0.5)
@@ -220,11 +118,7 @@ class GeminiUnderstandingTests(unittest.TestCase):
             GeminiUnderstandingError,
             "temporarily unavailable \\(503\\)",
         ):
-            understand_command(
-                [{"language_code": "hi-IN", "transcript": "sugar bhej do"}],
-                ["Sugar 1kg"],
-                [],
-            )
+            understand_command("sugar bhej do", None, ["Sugar 1kg"], [])
 
         self.assertEqual(post.call_count, 3)
         self.assertEqual(sleep.call_count, 2)
@@ -233,11 +127,7 @@ class GeminiUnderstandingTests(unittest.TestCase):
     @patch("backend.app.gemini_understanding.requests.post")
     def test_requires_api_key(self, post):
         with self.assertRaisesRegex(GeminiUnderstandingError, "GEMINI_API_KEY"):
-            understand_command(
-                [{"language_code": "en-IN", "transcript": "sell sugar"}],
-                ["Sugar 1kg"],
-                [],
-            )
+            understand_command("sell sugar", None, ["Sugar 1kg"], [])
 
         post.assert_not_called()
 
