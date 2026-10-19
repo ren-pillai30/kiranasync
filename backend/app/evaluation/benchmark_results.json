@@ -1,0 +1,157 @@
+{
+  "Metadata": {
+    "SuiteName": "KiranaSync 2.0 Empirical Evaluation Suite",
+    "CodeVersion": "2.0.0-integrity-certified",
+    "Timestamp": "2026-10-17T07:41:15.917319+00:00",
+    "DatasetFile": "dataset.json",
+    "TotalDatasetSamples": 232,
+    "LanguageDistribution": {
+      "Code-Mixed": "35.8%",
+      "English": "27.6%",
+      "Romanized Hinglish": "28.9%",
+      "Devanagari Hindi": "7.8%"
+    },
+    "LanguageCounts": {
+      "Code-Mixed": 83,
+      "English": 64,
+      "Romanized Hinglish": 67,
+      "Devanagari Hindi": 18
+    },
+    "ProviderMode": "deterministic_offline_mock"
+  },
+  "ProductionPipeline": {
+    "AllSplits": {
+      "TotalSamples": 232,
+      "IntentAccuracy": 0.875,
+      "IntentMacroF1": 0.8741,
+      "SlotExactMatchRate": 0.9181,
+      "UnsafeWriteRate": 0.0,
+      "ExecutionSafetyAdherenceRate": 0.8966,
+      "LatencyP50Ms": 227.4,
+      "LatencyP95Ms": 246.67,
+      "LatencyBreakdown": {
+        "MockedSTT": {
+          "P50Ms": 122.5,
+          "P95Ms": 130.0,
+          "MeasurementMode": "mocked_network_offline"
+        },
+        "Interpretation": {
+          "P50Ms": 0.1,
+          "P95Ms": 0.17,
+          "MeasurementMode": "deterministic_pipeline"
+        },
+        "ValidationAndDB": {
+          "P50Ms": 18.22,
+          "P95Ms": 30.87,
+          "MeasurementMode": "isolated_sqlite_instance"
+        },
+        "MockedTTS": {
+          "P50Ms": 89.0,
+          "P95Ms": 93.0,
+          "MeasurementMode": "mocked_network_offline"
+        },
+        "EndToEnd": {
+          "P50Ms": 227.4,
+          "P95Ms": 246.67,
+          "MeasurementMode": "combined_measured_pipeline"
+        }
+      }
+    },
+    "EvaluationSet": {
+      "TotalSamples": 147,
+      "IntentAccuracy": 0.8912,
+      "IntentMacroF1": 0.8196,
+      "SlotExactMatchRate": 0.9116,
+      "UnsafeWriteRate": 0.0,
+      "ExecutionSafetyAdherenceRate": 0.9048,
+      "LatencyP50Ms": 233.98,
+      "LatencyP95Ms": 248.17
+    },
+    "HeldOutTest": {
+      "TotalSamples": 85,
+      "IntentAccuracy": 0.8471,
+      "IntentMacroF1": 0.8632,
+      "SlotExactMatchRate": 0.9294,
+      "UnsafeWriteRate": 0.0,
+      "ExecutionSafetyAdherenceRate": 0.8824,
+      "LatencyP50Ms": 226.42,
+      "LatencyP95Ms": 249.67
+    }
+  },
+  "BaselineHeuristic": {
+    "AllSplits": {
+      "TotalSamples": 232,
+      "IntentAccuracy": 0.875,
+      "IntentMacroF1": 0.8741,
+      "SlotExactMatchRate": 0.9181,
+      "UnsafeWriteRate": 0.0,
+      "HeuristicLatencyP50Ms": 0.03,
+      "HeuristicLatencyP95Ms": 0.06,
+      "LatencyP50Ms": 0.03,
+      "LatencyP95Ms": 0.06,
+      "SplitEvaluated": "all_splits",
+      "PipelineType": "BaselineHeuristic"
+    },
+    "EvaluationSet": {
+      "TotalSamples": 147,
+      "IntentAccuracy": 0.8912,
+      "IntentMacroF1": 0.8196,
+      "SlotExactMatchRate": 0.9116,
+      "UnsafeWriteRate": 0.0,
+      "HeuristicLatencyP50Ms": 0.03,
+      "HeuristicLatencyP95Ms": 0.04,
+      "LatencyP50Ms": 0.03,
+      "LatencyP95Ms": 0.04,
+      "SplitEvaluated": "evaluation_set",
+      "PipelineType": "BaselineHeuristic"
+    },
+    "HeldOutTest": {
+      "TotalSamples": 85,
+      "IntentAccuracy": 0.8471,
+      "IntentMacroF1": 0.8632,
+      "SlotExactMatchRate": 0.9294,
+      "UnsafeWriteRate": 0.0,
+      "HeuristicLatencyP50Ms": 0.03,
+      "HeuristicLatencyP95Ms": 0.04,
+      "LatencyP50Ms": 0.03,
+      "LatencyP95Ms": 0.04,
+      "SplitEvaluated": "held_out_test",
+      "PipelineType": "BaselineHeuristic"
+    }
+  },
+  "TotalSamples": 232,
+  "IntentAccuracy": 0.875,
+  "IntentMacroF1": 0.8741,
+  "SlotExactMatchRate": 0.9181,
+  "UnsafeWriteRate": 0.0,
+  "ExecutionSafetyAdherenceRate": 0.8966,
+  "LatencyP50Ms": 227.4,
+  "LatencyP95Ms": 246.67,
+  "LatencyBreakdown": {
+    "MockedSTT": {
+      "P50Ms": 122.5,
+      "P95Ms": 130.0,
+      "MeasurementMode": "mocked_network_offline"
+    },
+    "Interpretation": {
+      "P50Ms": 0.1,
+      "P95Ms": 0.17,
+      "MeasurementMode": "deterministic_pipeline"
+    },
+    "ValidationAndDB": {
+      "P50Ms": 18.22,
+      "P95Ms": 30.87,
+      "MeasurementMode": "isolated_sqlite_instance"
+    },
+    "MockedTTS": {
+      "P50Ms": 89.0,
+      "P95Ms": 93.0,
+      "MeasurementMode": "mocked_network_offline"
+    },
+    "EndToEnd": {
+      "P50Ms": 227.4,
+      "P95Ms": 246.67,
+      "MeasurementMode": "combined_measured_pipeline"
+    }
+  }
+}
