@@ -1,11 +1,20 @@
 ## Current Milestone: All APIs Live — Voice Loop Fully Operational
 **Date**: October 19, 2026
 
+## Follow-up Feature Verification
+
+The product has since added interpreted/manual product and customer lifecycle actions, selective multilingual speech playback, and a persistent removal audit:
+
+- Product/customer add and removal requests are validated before local database writes. A new customer named in a credit command is created with the entered balance; repayments reduce existing debt.
+- Products are archived as write-offs. Non-zero-balance customers are marked inactive without losing their balance/history; zero-balance customer rows and aliases are removed while ledger history remains.
+- The dashboard **Archives** page uses `GET /api/archives` to show timestamp, entity/action, reason, quantity or balance, and originating command. Existing removal ledger rows are backfilled idempotently.
+- **Latest verified in this worktree**: 61 backend tests passed; `npm run build` succeeded. Frontend lint was not rerun for this update; the earlier lint result below is a historical milestone result, not a current claim.
+
 ---
 
 ## 1. Complete Test & Build Scorecard
 
-- **Backend Unit & Integration Tests**: **45 / 45 Tests Passing (100% OK)**
+- **Backend Unit & Integration Tests at the original milestone**: **45 / 45 Tests Passing (100% OK)**
   - `test_alias_integration.py`: 4 tests passed (verifying target IDs, rejecting conflicting mappings, handling ambiguous alias matches without guessing)
   - `test_evaluation_harness.py`: 5 tests passed (baseline heuristic, split integrity, 0.00% unsafe writes, isolated DB safety, reproducible JSON/CSV artifacts)
   - `test_gemini_understanding.py`: 5 tests passed
@@ -14,8 +23,8 @@
   - `test_transaction_ledger_api.py`: 5 tests passed
   - `test_trust_safety.py`: 5 tests passed (draft lifecycle, atomic commit, idempotency, insufficient stock safeguards)
   - `test_retail_accounting.py`: 4 tests passed (udhaar sales, repayments, overpayment prevention, SQL hisaab aggregation)
-- **Frontend Linter**: `npm run lint` -> **0 errors, 0 warnings (Clean)**
-- **Frontend Production Build**: `npm run build` -> **Built in 735ms** (`dist/` generated cleanly)
+- **Frontend Linter at the original milestone**: `npm run lint` -> **0 errors, 0 warnings (Clean)**
+- **Frontend Production Build at the original milestone**: `npm run build` -> **Built in 735ms** (`dist/` generated cleanly)
 
 ---
 

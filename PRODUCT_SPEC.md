@@ -50,9 +50,20 @@ KiranaSync eliminates these risks through the **Trust Engine Architecture**:
   - *"Kaunse items khatam hone wale hain?"* (`low_stock_query`)
   - *"Aaj ki total sale kitni hui?"* (`today_summary`)
   - *"Aaj ka hisaab batao"* (`day_close`)
-- **Execution**: Directly queries SQLite tables with deterministic SQL aggregation. Never generates numbers via LLM. Responds via clear UI card and Gnani Timbre TTS audio.
+- **Execution**: Directly queries SQLite tables with deterministic SQL aggregation. Never generates numbers via LLM. Stock and customer-balance answers are shown in the UI and spoken using Gnani Timbre TTS; other query results remain on screen.
 
-#### 6. Safe Correction & Reversals
+#### 6. Customer Creation and Credit
+- A credit entry for a previously unknown customer creates the customer record with the entered balance.
+- A repayment is interpreted as money the customer pays the shopkeeper, and reduces (never increases) the outstanding balance.
+- Voice interpretation is performed by Gemini, then validated locally before the database is changed.
+
+#### 7. Product and Customer Removal
+- Products may be removed manually or by voice for reasons such as expiration or recall. A removal requires confirmation, sets active stock to zero, records a write-off, and retains transaction history.
+- Customers may be removed manually or by voice. Removal requires confirmation when the outstanding balance is at least ₹1. A non-zero-balance account is archived with its balance and transaction history retained. A zero-balance customer is deleted from the active customer table while transaction history remains.
+- Every removal is written to a durable archive audit record with the time, entity, reason, stock/balance at removal, and originating command. The dashboard **Archives** page exposes these records; earlier removal ledger entries are backfilled during schema upgrade.
+- Previously archived products and customers can be reactivated by adding them again.
+
+#### 8. Safe Correction & Reversals
 - Pending drafts can be cancelled at any time with zero side effects.
 - Committed transactions can be reversed via explicit reversal entries (`Reversal`) preserving complete audit history.
 

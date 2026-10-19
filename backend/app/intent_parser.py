@@ -56,6 +56,8 @@ def ensure_transactions_schema(connection):
             connection.execute(
                 f"ALTER TABLE Transactions ADD COLUMN {column} {column_type}"
             )
+    from backend.app.db_setup import ensure_archive_schema
+    ensure_archive_schema(connection)
     connection.commit()
 
 
@@ -283,8 +285,17 @@ def search_product_online(clean_item_name):
 
 def get_db_records(table, column, db_path=None):
     conn = sqlite3.connect(db_path or DB_PATH)
+    from backend.app.db_setup import ensure_archive_schema
+    ensure_archive_schema(conn)
     cursor = conn.cursor()
-    cursor.execute(f'SELECT {column} FROM {table}')
+    allowed_records = {
+        ("Inventory", "ItemName"),
+        ("CustomerCredit", "CustomerName"),
+    }
+    if (table, column) not in allowed_records:
+        conn.close()
+        raise ValueError("Unsupported catalog table or column.")
+    cursor.execute(f'SELECT {column} FROM {table} WHERE IsActive = 1')
     records = [row[0] for row in cursor.fetchall()]
     conn.close()
     return records
@@ -365,7 +376,7 @@ def match_entity_with_score(query_text, db_records, threshold=70):
 
 def find_unresolved_inventory_variants(cursor, entity_name, raw_transcript):
     cursor.execute(
-        "SELECT ItemID, ItemName, StockQuantity, Price FROM Inventory"
+        "SELECT ItemID, ItemName, StockQuantity, Price FROM Inventory WHERE IsActive = 1"
     )
     inventory = cursor.fetchall()
     variant_pattern = re.compile(r"\s+\(MRP\s*₹\s*[\d,.]+\)\s*$", re.IGNORECASE)
@@ -549,7 +560,8 @@ def parse_and_execute(raw_transcript, quantity_override=None, interpretation=Non
         quantity_or_amount = interpretation.get("quantity")
         INTELLIGENCE_ACTIONS = {
             "query_hisaab", "query_low_stock", "query_stock",
-            "query_customer", "repayment", "multi_sell", "assistant_qa"
+            "query_customer", "repayment", "multi_sell", "assistant_qa",
+            "add_customer", "add_product", "remove_product", "remove_customer",
         }
         if intent not in {"sell", "restock", "credit", "unknown"} | INTELLIGENCE_ACTIONS:
             conn.close()
@@ -609,6 +621,103 @@ def parse_and_execute(raw_transcript, quantity_override=None, interpretation=Non
                 "action": "query_customer",
                 "message": res["message"],
                 "data": res
+            }
+
+        if intent in {"remove_product", "remove_customer"}:
+            is_product = intent == "remove_product"
+            catalog = db_items if is_product else db_customers
+            alias_res = alias_service.resolve_alias(clean_translated_entity or "")
+            if alias_res.get("Found") and alias_res.get("EntityType") == (
+                "Product" if is_product else "Customer"
+            ):
+                clean_translated_entity = alias_res["ResolvedName"]
+            matched_name = match_entity_with_score(clean_translated_entity, catalog, threshold=70)
+            if not matched_name:
+                conn.close()
+                return {
+                    "status": "failed",
+                    "action": "entity_not_found",
+                    "message": "Could not match an active product or customer. No changes were made.",
+                }
+            table, id_column, name_column = (
+                ("Inventory", "ItemID", "ItemName")
+                if is_product
+                else ("CustomerCredit", "CustomerID", "CustomerName")
+            )
+            cursor.execute(
+                f"SELECT {id_column}, {name_column}, "
+                f"{'StockQuantity' if is_product else 'OutstandingBalance'} "
+                f"FROM {table} WHERE {name_column} = ? AND IsActive = 1",
+                (matched_name,),
+            )
+            row = cursor.fetchone()
+            if not row:
+                conn.close()
+                return {
+                    "status": "failed",
+                    "action": "entity_not_found",
+                    "message": "That product or customer is no longer active. No changes were made.",
+                }
+            if not is_product and float(row[2] or 0) < 1:
+                conn.close()
+                from backend.app.services.entity_service import EntityService
+                return EntityService(target_db).archive_customer(
+                    row[0],
+                    reason=interpretation.get("reason", ""),
+                    raw_command=raw_transcript,
+                )
+            conn.close()
+            return {
+                "status": "pending_confirmation",
+                "action": "archive_entity",
+                "message": f"Confirm removal of {row[1]} from the active {'inventory' if is_product else 'udhaar list'}.",
+                "draft": {
+                    "EntityType": "Product" if is_product else "Customer",
+                    "EntityID": row[0],
+                    "EntityName": row[1],
+                    "QuantityOrBalance": row[2],
+                    "Reason": interpretation.get("reason", ""),
+                    "RawCommand": raw_transcript,
+                },
+            }
+
+        if intent == "add_customer":
+            if not isinstance(clean_translated_entity, str) or not clean_translated_entity.strip():
+                conn.close()
+                return {
+                    "status": "failed",
+                    "action": "entity_unrecognized",
+                    "message": "Could not identify a customer to add. No changes were made.",
+                }
+            customer_name = clean_translated_entity.strip()
+            if match_entity_with_score(customer_name, db_customers, threshold=90):
+                conn.close()
+                return {
+                    "status": "failed",
+                    "action": "customer_already_exists",
+                    "message": f"{customer_name} is already in the active customer list.",
+                }
+            cursor.execute(
+                "SELECT CustomerID FROM CustomerCredit WHERE lower(CustomerName) = lower(?) AND IsActive = 0",
+                (customer_name,),
+            )
+            archived_customer = cursor.fetchone()
+            if archived_customer:
+                cursor.execute(
+                    "UPDATE CustomerCredit SET IsActive = 1 WHERE CustomerID = ?",
+                    (archived_customer[0],),
+                )
+            else:
+                cursor.execute(
+                    "INSERT INTO CustomerCredit (CustomerName, OutstandingBalance, IsActive) VALUES (?, 0, 1)",
+                    (customer_name,),
+                )
+            conn.commit()
+            conn.close()
+            return {
+                "status": "success",
+                "action": "customer_added",
+                "message": f"Added {customer_name} to the active customer list.",
             }
 
         if intent == "repayment":
@@ -712,19 +821,19 @@ def parse_and_execute(raw_transcript, quantity_override=None, interpretation=Non
             }
         if alias_res.get("Found"):
             resolved_target = alias_res["ResolvedName"]
-            if alias_res["EntityType"] == "Product" and intent in {"sell", "restock"}:
+            if alias_res["EntityType"] == "Product" and intent in {"sell", "restock", "add_product"}:
                 clean_translated_entity = resolved_target
-            elif alias_res["EntityType"] == "Customer" and intent == "credit":
+            elif alias_res["EntityType"] == "Customer" and intent in {"credit", "add_customer"}:
                 clean_translated_entity = resolved_target
 
         target_item = (
             match_entity_with_score(clean_translated_entity, db_items, threshold=70)
-            if intent in {"sell", "restock"}
+            if intent in {"sell", "restock", "add_product"}
             else None
         )
         target_customer = (
             match_entity_with_score(clean_translated_entity, db_customers, threshold=70)
-            if intent == "credit"
+            if intent in {"credit", "add_customer"}
             else None
         )
     else:
@@ -750,6 +859,14 @@ def parse_and_execute(raw_transcript, quantity_override=None, interpretation=Non
             if quantity_override is not None
             else extract_quantity(english_meaning)
         )
+
+    if intent == "add_product" and target_item:
+        conn.close()
+        return {
+            "status": "failed",
+            "action": "product_already_exists",
+            "message": f"{target_item} is already active in inventory. Use a restock command to add stock.",
+        }
 
     if quantity_or_amount is None:
         conn.close()
@@ -785,8 +902,26 @@ def parse_and_execute(raw_transcript, quantity_override=None, interpretation=Non
         amount = quantity_or_amount
         if not target_customer:
             target_customer = final_unknown_entity or "Unknown Customer"
-            cursor.execute('INSERT INTO CustomerCredit (CustomerName, OutstandingBalance) VALUES (?, ?)', (target_customer, amount))
-            message = f"Created new account for {target_customer} with Rs {amount} balance."
+            cursor.execute(
+                "SELECT CustomerID, CustomerName, OutstandingBalance FROM CustomerCredit "
+                "WHERE lower(CustomerName) = lower(?) AND IsActive = 0",
+                (target_customer,),
+            )
+            archived_customer = cursor.fetchone()
+            if archived_customer:
+                target_customer = archived_customer[1]
+                new_bal = float(archived_customer[2] or 0) + amount
+                cursor.execute(
+                    "UPDATE CustomerCredit SET IsActive = 1, OutstandingBalance = ? WHERE CustomerID = ?",
+                    (new_bal, archived_customer[0]),
+                )
+                message = f"Restored {target_customer} and added Rs {amount}. New Balance: Rs {new_bal}."
+            else:
+                cursor.execute(
+                    'INSERT INTO CustomerCredit (CustomerName, OutstandingBalance, IsActive) VALUES (?, ?, 1)',
+                    (target_customer, amount),
+                )
+                message = f"Created new account for {target_customer} with Rs {amount} balance."
         else:
             cursor.execute('SELECT OutstandingBalance FROM CustomerCredit WHERE CustomerName = ?', (target_customer,))
             row = cursor.fetchone()
@@ -802,7 +937,7 @@ def parse_and_execute(raw_transcript, quantity_override=None, interpretation=Non
         conn.close()
         return {"status": "success", "action": "udhaar_added", "message": message}
 
-    elif intent == 'restock':
+    elif intent in {'restock', 'add_product'}:
         if target_item:
             cursor.execute(
                 'SELECT StockQuantity, Price FROM Inventory WHERE ItemName = ?',

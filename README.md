@@ -1,5 +1,7 @@
 # kiranasync
 
+KiranaSync is a local-first voice-enabled inventory and customer credit (*udhaar*) dashboard for kirana shops.
+
 ## Hindi-English voice commands
 
 Voice commands are transcribed by Gnani using its `en-IN` mode, which accepts mixed Hindi-English speech. If the English-script transcript has no recognizable quantity, the app also retries with Gnani's `hi-IN` mode. Gemini Flash-Lite then interprets both transcripts and extracts the action, product/customer, and whole-number quantity as structured JSON. The app validates these fields and performs all inventory and customer-balance changes locally; unclear commands or quantities are rejected without database changes.
@@ -12,14 +14,21 @@ When a spoken restock/new-product command names an item that is not in inventory
 
 If a sell/restock voice command matches multiple inventory variants of the same product, the app asks you to choose the exact item/MRP before changing stock.
 
+## Additions, removals, and audit
+
+Products and customers can be added or removed from the dashboard or through natural voice commands interpreted by Gemini. A credit entry for a new customer creates their customer record. Removing a product sets its active stock to zero, records a write-off, and preserves its transaction history. Removing a customer with an outstanding balance archives the account without discarding its balance or history; a zero-balance customer is deleted from the active customer table while ledger history remains.
+
+Product removals require confirmation. Customer removals require confirmation when the balance is at least ₹1. Use **Archives** in the dashboard to review removal time, entity, action, reason, stock or balance at removal, and the originating command. Existing removal ledger entries are imported during the database upgrade.
+
+Only stock and customer-balance query responses, removal confirmations/results, and new-product confirmation prompts/results are spoken. TTS uses the selected voice language; other command results remain on screen.
 
 ---
 
 ## Documentation & Developer Guide
 
-- **Developer & Contributor Handbook**: [`CONTRIBUTING.md`](file:///c:/Users/nitta/Downloads/kiranasync/kiranasync-main/CONTRIBUTING.md) (comprehensive guide on setup, hot-reload, voice flows, API contracts, testing, and Git workflow).
-- **Architecture & System Design**: [`ARCHITECTURE.md`](file:///c:/Users/nitta/Downloads/kiranasync/kiranasync-main/ARCHITECTURE.md)
-- **Product Specification & Trust Contract**: [`PRODUCT_SPEC.md`](file:///c:/Users/nitta/Downloads/kiranasync/kiranasync-main/PRODUCT_SPEC.md)
-- **Empirical Evaluation & Benchmark Report**: [`EVALUATION_REPORT.md`](file:///c:/Users/nitta/Downloads/kiranasync/kiranasync-main/EVALUATION_REPORT.md)
-- **Windows Packaging & Release**: [`README_WINDOWS.md`](file:///c:/Users/nitta/Downloads/kiranasync/kiranasync-main/README_WINDOWS.md)
-- **Build & Verification Status**: [`BUILD_STATUS.md`](file:///c:/Users/nitta/Downloads/kiranasync/kiranasync-main/BUILD_STATUS.md)
+- **Developer & Contributor Handbook**: [CONTRIBUTING.md](./CONTRIBUTING.md) (setup, voice flows, API contracts, testing, and Git workflow).
+- **Architecture & System Design**: [ARCHITECTURE.md](./ARCHITECTURE.md)
+- **Product Specification & Trust Contract**: [PRODUCT_SPEC.md](./PRODUCT_SPEC.md)
+- **Empirical Evaluation & Benchmark Report**: [EVALUATION_REPORT.md](./EVALUATION_REPORT.md)
+- **Windows Packaging & Release**: [README_WINDOWS.md](./README_WINDOWS.md)
+- **Build & Verification Status**: [BUILD_STATUS.md](./BUILD_STATUS.md)

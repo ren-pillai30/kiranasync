@@ -48,6 +48,12 @@ python overlay.py
   - `Ctrl + Shift + V`: Trigger voice recognition
   - `Ctrl + Shift + D`: Toggle full management dashboard
 
+Stock and customer udhaar/balance query answers, removal confirmations/results, and new-product confirmation prompts/results are spoken aloud. Gemini translates speech text into the language selected by the English/Hindi display toggle, and Gnani TTS synthesizes it in that language. Other command results are shown on screen without voice playback. The **Voice ON / Muted** button controls whether these responses are spoken.
+
+You can add and remove products or customers with the dashboard controls or by speaking naturally. Gemini interprets voice requests such as adding a product/customer or removing a recalled/expired product/customer. Adding an amount to a customer's account creates that customer in the table if they are not already present; a repayment is recognized only when the customer is paying the shopkeeper. Product removals require confirmation; customer removals require confirmation when the outstanding balance is ₹1 or more, and are handled directly below ₹1. A removed zero-balance customer is deleted from the customer table (their transaction history is retained); a non-zero balance and customer history are retained in an archived record. Removing a product archives it, sets remaining stock to zero, and records a write-off while retaining transaction history. Adding a previously archived product or customer reactivates its record.
+
+Open **Archives** from the dashboard to review the audit trail for removed products and customers, including when removed, reason, stock/balance at removal, and originating command. Existing removal transactions are imported into the audit list when the backend first upgrades the database.
+
 ---
 
 ## 4. Building the Windows Desktop Package
@@ -60,7 +66,7 @@ The resulting executable and bundled runtime assets will be generated in `dist/K
 ---
 
 ## 5. Verification & Testing
-Run all 37 backend tests offline without spending API credits:
+Run the backend unit and integration tests offline without spending API credits:
 ```powershell
 python -m unittest discover -s backend/tests -v
 ```

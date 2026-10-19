@@ -1,10 +1,31 @@
 import unittest
 from unittest.mock import patch, MagicMock
+from backend.app.main import app
 from backend.app.providers.gnani_tts import GnaniTTSProvider
 from backend.app.providers.gnani_stt import GnaniSTTProvider
 
 
 class GnaniProviderTests(unittest.TestCase):
+    @patch("backend.app.providers.gnani_tts.GnaniTTSProvider.synthesize")
+    @patch("backend.app.gemini_understanding.translate_for_speech")
+    def test_tts_endpoint_translates_and_synthesizes_selected_language(
+        self, translate, synthesize
+    ):
+        translate.return_value = "चीनी के 5 पैकेट बचे हैं।"
+        synthesize.return_value = (b"RIFFaudio", "audio/wav")
+
+        response = app.test_client().post(
+            "/api/voice/synthesize",
+            json={"text": "Sugar: 5 in stock.", "language_code": "hi-IN"},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.content_type, "audio/wav")
+        translate.assert_called_once_with("Sugar: 5 in stock.", "hi-IN")
+        synthesize.assert_called_once_with(
+            "चीनी के 5 पैकेट बचे हैं।",
+            language_code="hi-IN",
+        )
 
     # ---------------------------------------------------------------
     # TTS tests

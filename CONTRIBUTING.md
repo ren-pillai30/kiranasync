@@ -16,7 +16,7 @@ KiranaSync is a local desktop application designed for Indian kirana (small reta
 - **Command Understanding**: Gemini structured output selects a transcript and extracts an action, entity, and amount.
 - **Product Lookup**: DuckDuckGo search results are filtered for product relevance and used to present unverified MRP/price suggestions.
 
-Voice transactions are previewed for the user before the database is changed. New products and ambiguous inventory variants have their own confirmation/selection flows.
+Voice transactions are previewed for the user before the database is changed. New products and ambiguous inventory variants have their own confirmation/selection flows. Gemini interprets product/customer additions and removals; the backend validates the requested operation before writing. The dashboard's **Archives** view audits every removal, and only stock/balance queries plus the defined confirmation/result cases are spoken.
 
 ---
 
@@ -24,23 +24,23 @@ Voice transactions are previewed for the user before the database is changed. Ne
 
 | Path | Responsibility |
 | :--- | :--- |
-| [`README.md`](file:///c:/Users/nitta/Downloads/kiranasync/kiranasync-main/README.md) | Feature notes, supported voice languages, external API requirements, and user-facing behavior. |
-| [`overlay.py`](file:///c:/Users/nitta/Downloads/kiranasync/kiranasync-main/overlay.py) | Starts Flask in a background thread, opens the PyWebView overlay, and registers keyboard shortcuts. |
-| [`backend/app/main.py`](file:///c:/Users/nitta/Downloads/kiranasync/kiranasync-main/backend/app/main.py) | Flask app, HTTP endpoints, Gnani STT/TTS calls, Gemini orchestration, and request validation. |
-| [`backend/app/intent_parser.py`](file:///c:/Users/nitta/Downloads/kiranasync/kiranasync-main/backend/app/intent_parser.py) | Intent application, fuzzy matching, SQLite transactions, product/MRP lookup, and similar-name suggestions. |
-| [`backend/app/gemini_understanding.py`](file:///c:/Users/nitta/Downloads/kiranasync/kiranasync-main/backend/app/gemini_understanding.py) | Gemini prompt, API retries, structured-output parsing, and interpretation validation. |
-| [`backend/app/db_setup.py`](file:///c:/Users/nitta/Downloads/kiranasync/kiranasync-main/backend/app/db_setup.py) | Creates database tables and attempts to insert starter/demo inventory and a customer. |
-| [`backend/app/services/`](file:///c:/Users/nitta/Downloads/kiranasync/kiranasync-main/backend/app/services/) | Domain services: `command_service.py` (drafts), `transaction_service.py` (atomic mutations), `alias_service.py` (nicknames), `query_service.py` (analytics). |
-| [`backend/app/evaluation/`](file:///c:/Users/nitta/Downloads/kiranasync/kiranasync-main/backend/app/evaluation/) | Evaluation suite: `dataset.json`, `runner.py`, `production_evaluator.py`, `benchmark_cli.py`. |
-| [`backend/tests/`](file:///c:/Users/nitta/Downloads/kiranasync/kiranasync-main/backend/tests/) | Python unit and Flask API tests. External service calls are mocked in tests. |
-| [`frontend/src/App.jsx`](file:///c:/Users/nitta/Downloads/kiranasync/kiranasync-main/frontend/src/App.jsx) | Main React UI: language dictionaries, STT selector, dashboard, review modals, TTS playback, and product workflow. |
-| [`frontend/src/main.jsx`](file:///c:/Users/nitta/Downloads/kiranasync/kiranasync-main/frontend/src/main.jsx) | React bootstrap and stylesheet entry. |
-| [`frontend/src/App.css`](file:///c:/Users/nitta/Downloads/kiranasync/kiranasync-main/frontend/src/App.css) & [`frontend/src/index.css`](file:///c:/Users/nitta/Downloads/kiranasync/kiranasync-main/frontend/src/index.css) | Application and global styling. |
-| [`frontend/package.json`](file:///c:/Users/nitta/Downloads/kiranasync/kiranasync-main/frontend/package.json) | Frontend scripts and dependency manifest. |
-| [`backend/requirements.txt`](file:///c:/Users/nitta/Downloads/kiranasync/kiranasync-main/backend/requirements.txt) | Python dependencies. |
-| [`.env.example`](file:///c:/Users/nitta/Downloads/kiranasync/kiranasync-main/.env.example) | Names/defaults for environment variables; copy to a private root `.env` and fill in keys. |
-| [`catalog.json`](file:///c:/Users/nitta/Downloads/kiranasync/kiranasync-main/catalog.json) | Small sample product catalog used by parser-related features. |
-| [`kirana.db`](file:///c:/Users/nitta/Downloads/kiranasync/kiranasync-main/kirana.db) | SQLite database. It contains mutable inventory, customers, and transaction history; treat it as private data. |
+| [`README.md`](./README.md) | Feature notes, supported voice languages, external API requirements, and user-facing behavior. |
+| [`overlay.py`](./overlay.py) | Starts Flask in a background thread, opens the PyWebView overlay, and registers keyboard shortcuts. |
+| [`backend/app/main.py`](./backend/app/main.py) | Flask app, HTTP endpoints, Gnani STT/TTS calls, Gemini orchestration, and request validation. |
+| [`backend/app/intent_parser.py`](./backend/app/intent_parser.py) | Intent application, fuzzy matching, SQLite transactions, product/MRP lookup, and similar-name suggestions. |
+| [`backend/app/gemini_understanding.py`](./backend/app/gemini_understanding.py) | Gemini prompt, API retries, structured-output parsing, and interpretation validation. |
+| [`backend/app/db_setup.py`](./backend/app/db_setup.py) | Creates and upgrades database tables and attempts to insert starter/demo inventory and a customer. |
+| [`backend/app/services/`](./backend/app/services/) | Domain services: drafts, transactions, aliases, analytics, and entity removal/audit. |
+| [`backend/app/evaluation/`](./backend/app/evaluation/) | Evaluation suite: `dataset.json`, `runner.py`, `production_evaluator.py`, `benchmark_cli.py`. |
+| [`backend/tests/`](./backend/tests/) | Python unit and Flask API tests. External service calls are mocked in tests. |
+| [`frontend/src/App.jsx`](./frontend/src/App.jsx) | Main React UI: language dictionaries, dashboard, review modals, selective TTS, removal controls, and archive audit page. |
+| [`frontend/src/main.jsx`](./frontend/src/main.jsx) | React bootstrap and stylesheet entry. |
+| [`frontend/src/App.css`](./frontend/src/App.css) & [`frontend/src/index.css`](./frontend/src/index.css) | Application and global styling. |
+| [`frontend/package.json`](./frontend/package.json) | Frontend scripts and dependency manifest. |
+| [`backend/requirements.txt`](./backend/requirements.txt) | Python dependencies. |
+| [`.env.example`](./.env.example) | Names/defaults for environment variables; copy to a private root `.env` and fill in keys. |
+| [`catalog.json`](./catalog.json) | Small sample product catalog used by parser-related features. |
+| [`kirana.db`](./kirana.db) | Mutable SQLite data; treat as private and do not stage incidental changes. |
 
 ---
 
@@ -208,6 +208,12 @@ When an unknown product is restocked, the backend looks for relevant product res
 
 The product confirmation window lets the user review/edit the product name, set quantities per selected MRP, add an MRP manually, check sources, and confirm. The optional phonetic pronunciation changes spoken text only; it must not alter the product name used for lookup or saved to inventory.
 
+### 7.4 Product and Customer Lifecycle
+
+Product and customer additions/removals are interpreted by Gemini for voice requests and validated by backend logic before mutation. Manual dashboard controls are also available. A credit command naming a new customer creates that customer with the credit balance; a repayment means the customer is paying the shopkeeper.
+
+Removing a product requires confirmation, sets active stock to zero, writes a `WriteOff` ledger entry, and retains the product record/history. Removing a customer requires confirmation at balances of ₹1 or more. A non-zero-balance customer is marked inactive with balance/history retained; a zero-balance customer row and its aliases are deleted, while its ledger history remains. Every removal is separately persisted in `EntityArchive` with a source transaction link, timestamp, type/name, reason, quantity or balance, and originating command. Historical removal ledger rows are imported idempotently during schema upgrade. The dashboard **Archives** page reads these entries through `GET /api/archives`.
+
 ---
 
 ## 8. Important Backend API Routes
@@ -217,6 +223,7 @@ The product confirmation window lets the user review/edit the product name, set 
 | `GET /` | Serves `frontend/dist/index.html`. |
 | `GET /api/dashboard` | Returns inventory and customer credit data. |
 | `GET /api/ledger` | Returns transaction history. |
+| `GET /api/archives` | Returns removal audit records, newest first. |
 | `GET /api/analytics/hisaab` | Returns today's sales, cash collections, repayments, and outstanding udhaar. |
 | `GET /api/analytics/low-stock` | Lists products with stock under the reorder threshold ($\le 5$). |
 | `GET /api/query/balance?customer=...` | Retrieves outstanding udhaar balance for a specific customer. |
@@ -232,15 +239,17 @@ The product confirmation window lets the user review/edit the product name, set 
 | `POST /api/inventory/confirm-command` | Applies a reviewed sell/restock command for a selected inventory variant. |
 | `POST /api/inventory/confirm-restock` | Creates selected new product/MRP variants and corresponding transaction rows. |
 | `POST /api/inventory/add`; `/api/credit/add` | Direct add routes used by API clients; UI additions use the review flow. |
+| `POST /api/entities/archive` | Removes a product or customer through the entity service and records its audit entry. |
 | `POST /api/inventory/edit`; `/api/credit/edit` | Renames inventory items and customers. |
 
 ---
 
 ## 9. Database, Paths, and Data Safety
 
-SQLite tables are `Inventory`, `CustomerCredit`, `Transactions`, `PendingCommands`, and `Aliases`. 
+SQLite tables include `Inventory`, `CustomerCredit`, `Transactions`, `PendingCommands`, `Aliases`, and `EntityArchive`. `Inventory` and `CustomerCredit` receive an `IsActive` column during schema upgrade.
 - `Transactions` records include a timestamp, originating command/action, type, entity, quantity, and total amount.
 - `PendingCommands` tracks drafts through `PENDING`, `COMMITTED`, or `CANCELLED` states.
+- `EntityArchive` records product/customer removals independently of active entity rows; each entry links to its removal transaction where available.
 
 Database paths depend on the environment: in desktop packaged mode, the app uses `%LOCALAPPDATA%\KiranaSync\kirana.db`; in local development, it defaults to `./kirana.db`.
 
@@ -271,14 +280,15 @@ The application sends audio to Gnani for transcription, transcript candidates an
 
 | Change | Likely Files |
 | :--- | :--- |
-| Dashboard UI, language selector, modal, or TTS player | [`frontend/src/App.jsx`](file:///c:/Users/nitta/Downloads/kiranasync/kiranasync-main/frontend/src/App.jsx); styles in [`frontend/src/App.css`](file:///c:/Users/nitta/Downloads/kiranasync/kiranasync-main/frontend/src/App.css) or [`frontend/src/index.css`](file:///c:/Users/nitta/Downloads/kiranasync/kiranasync-main/frontend/src/index.css) |
-| STT/TTS/API route or response behavior | [`backend/app/main.py`](file:///c:/Users/nitta/Downloads/kiranasync/kiranasync-main/backend/app/main.py), [`backend/app/providers/`](file:///c:/Users/nitta/Downloads/kiranasync/kiranasync-main/backend/app/providers/) and [`backend/tests/test_transaction_ledger_api.py`](file:///c:/Users/nitta/Downloads/kiranasync/kiranasync-main/backend/tests/test_transaction_ledger_api.py) |
-| Draft lifecycle & atomic commits | [`backend/app/services/command_service.py`](file:///c:/Users/nitta/Downloads/kiranasync/kiranasync-main/backend/app/services/command_service.py), [`backend/app/services/transaction_service.py`](file:///c:/Users/nitta/Downloads/kiranasync/kiranasync-main/backend/app/services/transaction_service.py), [`backend/tests/test_trust_safety.py`](file:///c:/Users/nitta/Downloads/kiranasync/kiranasync-main/backend/tests/test_trust_safety.py) |
-| Spoken nicknames & aliases | [`backend/app/services/alias_service.py`](file:///c:/Users/nitta/Downloads/kiranasync/kiranasync-main/backend/app/services/alias_service.py) and [`backend/tests/test_alias_integration.py`](file:///c:/Users/nitta/Downloads/kiranasync/kiranasync-main/backend/tests/test_alias_integration.py) |
-| Intent validation, fuzzy matching, DB writes, product suggestions | [`backend/app/intent_parser.py`](file:///c:/Users/nitta/Downloads/kiranasync/kiranasync-main/backend/app/intent_parser.py) and [`backend/tests/test_intent_parser_interpretation.py`](file:///c:/Users/nitta/Downloads/kiranasync/kiranasync-main/backend/tests/test_intent_parser_interpretation.py) |
-| Gemini prompt, schema, candidate/quantity interpretation | [`backend/app/gemini_understanding.py`](file:///c:/Users/nitta/Downloads/kiranasync/kiranasync-main/backend/app/gemini_understanding.py) and [`backend/tests/test_gemini_understanding.py`](file:///c:/Users/nitta/Downloads/kiranasync/kiranasync-main/backend/tests/test_gemini_understanding.py) |
-| Tables or starter data | [`backend/app/db_setup.py`](file:///c:/Users/nitta/Downloads/kiranasync/kiranasync-main/backend/app/db_setup.py); preserve and back up existing DB data |
-| Runtime configuration or dependencies | [`.env.example`](file:///c:/Users/nitta/Downloads/kiranasync/kiranasync-main/.env.example) and/or [`backend/requirements.txt`](file:///c:/Users/nitta/Downloads/kiranasync/kiranasync-main/backend/requirements.txt) or [`frontend/package.json`](file:///c:/Users/nitta/Downloads/kiranasync/kiranasync-main/frontend/package.json); never add real secrets |
+| Dashboard UI, language selector, modal, or TTS player | [`frontend/src/App.jsx`](./frontend/src/App.jsx); styles in [`frontend/src/App.css`](./frontend/src/App.css) or [`frontend/src/index.css`](./frontend/src/index.css) |
+| STT/TTS/API route or response behavior | [`backend/app/main.py`](./backend/app/main.py), provider/service modules, and backend API tests |
+| Draft lifecycle & atomic commits | [`backend/app/services/command_service.py`](./backend/app/services/command_service.py), [`backend/app/services/transaction_service.py`](./backend/app/services/transaction_service.py), [`backend/tests/test_trust_safety.py`](./backend/tests/test_trust_safety.py) |
+| Spoken nicknames & aliases | [`backend/app/services/alias_service.py`](./backend/app/services/alias_service.py) and [`backend/tests/test_alias_integration.py`](./backend/tests/test_alias_integration.py) |
+| Entity removal and archive audit | [`backend/app/services/entity_service.py`](./backend/app/services/entity_service.py), [`backend/app/db_setup.py`](./backend/app/db_setup.py), and [`backend/tests/test_entity_service.py`](./backend/tests/test_entity_service.py) |
+| Intent validation, fuzzy matching, DB writes, product suggestions | [`backend/app/intent_parser.py`](./backend/app/intent_parser.py) and [`backend/tests/test_intent_parser_interpretation.py`](./backend/tests/test_intent_parser_interpretation.py) |
+| Gemini prompt, schema, candidate/quantity interpretation | [`backend/app/gemini_understanding.py`](./backend/app/gemini_understanding.py) and [`backend/tests/test_gemini_understanding.py`](./backend/tests/test_gemini_understanding.py) |
+| Tables or starter data | [`backend/app/db_setup.py`](./backend/app/db_setup.py); preserve and back up existing DB data |
+| Runtime configuration or dependencies | [`.env.example`](./.env.example), [`backend/requirements.txt`](./backend/requirements.txt), or [`frontend/package.json`](./frontend/package.json); never add real secrets |
 
 ---
 

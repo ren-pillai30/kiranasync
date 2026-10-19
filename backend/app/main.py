@@ -51,6 +51,10 @@ def transcribe_audio(audio_path, language_code="hi-IN"):
 def synthesize_voice():
     """Generates audio bytes from server-verified text using Gnani Timbre TTS."""
     from flask import Response
+    from backend.app.gemini_understanding import (
+        GeminiUnderstandingError,
+        translate_for_speech,
+    )
     data = request.get_json(silent=True) or {}
     text = data.get("text", "").strip()
     language_code = data.get("language_code", "hi-IN")
@@ -59,8 +63,11 @@ def synthesize_voice():
         return jsonify({'status': 'error', 'error': 'Text is required'}), 400
 
     try:
+        text = translate_for_speech(text, language_code)
         audio_bytes, content_type = tts_provider.synthesize(text, language_code=language_code)
         return Response(audio_bytes, mimetype=content_type)
+    except GeminiUnderstandingError as e:
+        return jsonify({'status': 'error', 'error': str(e)}), 503
     except Exception as e:
         return jsonify({'status': 'error', 'error': str(e)}), 503
 
@@ -74,12 +81,13 @@ def get_dashboard_data():
     from backend.app.intent_parser import DB_PATH
     
     conn = sqlite3.connect(DB_PATH)
+    ensure_transactions_schema(conn)
     cursor = conn.cursor()
     
-    cursor.execute('SELECT ItemID, ItemName, StockQuantity, Price FROM Inventory')
+    cursor.execute('SELECT ItemID, ItemName, StockQuantity, Price FROM Inventory WHERE IsActive = 1')
     inventory = [{'ItemID': row[0], 'ItemName': row[1], 'StockQuantity': row[2], 'Price': row[3]} for row in cursor.fetchall()]
     
-    cursor.execute('SELECT CustomerID, CustomerName, OutstandingBalance FROM CustomerCredit')
+    cursor.execute('SELECT CustomerID, CustomerName, OutstandingBalance FROM CustomerCredit WHERE IsActive = 1')
     credit = [{'CustomerID': row[0], 'CustomerName': row[1], 'OutstandingBalance': row[2]} for row in cursor.fetchall()]
 
     conn.close()
@@ -113,6 +121,16 @@ def get_transaction_ledger():
     ]
     conn.close()
     return jsonify({'status': 'success', 'transactions': transactions})
+
+@app.route('/api/archives', methods=['GET'])
+def get_entity_archives():
+    from backend.app.intent_parser import DB_PATH
+    from backend.app.services.entity_service import EntityService
+
+    return jsonify({
+        'status': 'success',
+        'archives': EntityService(DB_PATH).list_archives(),
+    })
 
 @app.route('/api/analytics/hisaab', methods=['GET'])
 def get_hisaab_summary():
@@ -234,7 +252,7 @@ def confirm_inventory_command():
         ensure_transactions_schema(conn)
         cursor = conn.cursor()
         cursor.execute(
-            'SELECT ItemName, StockQuantity, Price FROM Inventory WHERE ItemID = ?',
+            'SELECT ItemName, StockQuantity, Price FROM Inventory WHERE ItemID = ? AND IsActive = 1',
             (item_id,),
         )
         item = cursor.fetchone()
@@ -401,19 +419,45 @@ def add_inventory():
     import sqlite3
     from backend.app.intent_parser import DB_PATH
     
-    data = request.json
+    data = request.get_json(silent=True) or {}
     conn = sqlite3.connect(DB_PATH)
     ensure_transactions_schema(conn)
     cursor = conn.cursor()
-    cursor.execute('INSERT INTO Inventory (ItemName, StockQuantity, Price) VALUES (?, ?, ?)',
-                   (data['ItemName'], data['StockQuantity'], data['Price']))
+    item_name = str(data.get('ItemName', '')).strip()
+    try:
+        quantity = int(data.get('StockQuantity'))
+        price = float(data.get('Price'))
+    except (TypeError, ValueError):
+        conn.close()
+        return jsonify({'status': 'error', 'error': 'Enter a valid whole-number stock quantity and price.'}), 400
+    if not item_name or quantity < 0 or not math.isfinite(price) or price < 0:
+        conn.close()
+        return jsonify({'status': 'error', 'error': 'Enter a product name, non-negative stock, and valid price.'}), 400
+    cursor.execute(
+        'SELECT ItemID, IsActive FROM Inventory WHERE lower(ItemName) = lower(?)',
+        (item_name,),
+    )
+    existing = cursor.fetchone()
+    if existing and existing[1]:
+        conn.close()
+        return jsonify({'status': 'error', 'error': 'That product is already active in inventory.'}), 409
+    if existing:
+        cursor.execute(
+            'UPDATE Inventory SET ItemName = ?, StockQuantity = ?, Price = ?, IsActive = 1 WHERE ItemID = ?',
+            (item_name, quantity, price, existing[0]),
+        )
+    else:
+        cursor.execute(
+            'INSERT INTO Inventory (ItemName, StockQuantity, Price, IsActive) VALUES (?, ?, ?, 1)',
+            (item_name, quantity, price),
+        )
     record_transaction(
         cursor,
-        f"Added {data['StockQuantity']} {data['ItemName']} to inventory",
-        -float(data['Price']) * float(data['StockQuantity']),
+        f"Added {quantity} {item_name} to inventory",
+        -price * quantity,
         "Restock",
-        data['ItemName'],
-        data['StockQuantity'],
+        item_name,
+        quantity,
     )
     conn.commit()
     conn.close()
@@ -424,22 +468,80 @@ def add_credit():
     import sqlite3
     from backend.app.intent_parser import DB_PATH
     
-    data = request.json
+    data = request.get_json(silent=True) or {}
     conn = sqlite3.connect(DB_PATH)
     ensure_transactions_schema(conn)
     cursor = conn.cursor()
-    cursor.execute('INSERT INTO CustomerCredit (CustomerName, OutstandingBalance) VALUES (?, ?)',
-                   (data['CustomerName'], data['Amount']))
-    record_transaction(
-        cursor,
-        f"Added credit for {data['CustomerName']}",
-        data['Amount'],
-        "Credit",
-        data['CustomerName'],
+    customer_name = str(data.get('CustomerName', '')).strip()
+    try:
+        amount = float(data.get('Amount'))
+    except (TypeError, ValueError):
+        conn.close()
+        return jsonify({'status': 'error', 'error': 'Enter a valid starting balance.'}), 400
+    if not customer_name or not math.isfinite(amount) or amount < 0:
+        conn.close()
+        return jsonify({'status': 'error', 'error': 'Enter a customer name and non-negative balance.'}), 400
+    cursor.execute(
+        'SELECT CustomerID, OutstandingBalance, IsActive FROM CustomerCredit WHERE lower(CustomerName) = lower(?)',
+        (customer_name,),
     )
+    existing = cursor.fetchone()
+    if existing and existing[2]:
+        conn.close()
+        return jsonify({'status': 'error', 'error': 'That customer is already active.'}), 409
+    if existing:
+        cursor.execute(
+            'UPDATE CustomerCredit SET IsActive = 1, OutstandingBalance = ? WHERE CustomerID = ?',
+            (float(existing[1] or 0) + amount, existing[0]),
+        )
+    else:
+        cursor.execute(
+            'INSERT INTO CustomerCredit (CustomerName, OutstandingBalance, IsActive) VALUES (?, ?, 1)',
+            (customer_name, amount),
+        )
+    if amount > 0:
+        record_transaction(
+            cursor,
+            f"Added starting credit for {customer_name}",
+            amount,
+            "Credit",
+            customer_name,
+        )
     conn.commit()
     conn.close()
     return jsonify({'status': 'success'})
+
+@app.route('/api/entities/archive', methods=['POST'])
+def archive_entity():
+    from backend.app.intent_parser import DB_PATH
+    from backend.app.services.entity_service import EntityService
+
+    data = request.get_json(silent=True)
+    if not isinstance(data, dict):
+        return jsonify({'status': 'error', 'error': 'Confirm a valid product or customer removal.'}), 400
+    entity_type = data.get('EntityType')
+    try:
+        entity_id = int(data.get('EntityID'))
+    except (TypeError, ValueError):
+        return jsonify({'status': 'error', 'error': 'Choose a valid product or customer.'}), 400
+    if entity_type not in {'Product', 'Customer'} or entity_id <= 0:
+        return jsonify({'status': 'error', 'error': 'Choose a valid product or customer.'}), 400
+
+    service = EntityService(DB_PATH)
+    if entity_type == 'Product':
+        result = service.archive_inventory_item(
+            entity_id,
+            reason=data.get('Reason'),
+            raw_command=data.get('RawCommand'),
+        )
+    else:
+        result = service.archive_customer(
+            entity_id,
+            reason=data.get('Reason'),
+            raw_command=data.get('RawCommand'),
+        )
+    status_code = 200 if result.get('status') == 'success' else 404
+    return jsonify(result), status_code
 
 @app.route('/api/inventory/edit', methods=['POST'])
 def edit_inventory():
@@ -537,9 +639,22 @@ def confirm_restock():
             quantity = item['Quantity']
             variant_name = f"{item_name.strip()} (MRP ₹{price:g})"
             cursor.execute(
-                'INSERT INTO Inventory (ItemName, StockQuantity, Price) VALUES (?, ?, ?)',
-                (variant_name, quantity, price),
+                'SELECT ItemID, IsActive FROM Inventory WHERE lower(ItemName) = lower(?)',
+                (variant_name,),
             )
+            existing = cursor.fetchone()
+            if existing and existing[1]:
+                raise sqlite3.IntegrityError("An active product variant already exists.")
+            if existing:
+                cursor.execute(
+                    'UPDATE Inventory SET StockQuantity = ?, Price = ?, IsActive = 1 WHERE ItemID = ?',
+                    (quantity, price, existing[0]),
+                )
+            else:
+                cursor.execute(
+                    'INSERT INTO Inventory (ItemName, StockQuantity, Price, IsActive) VALUES (?, ?, ?, 1)',
+                    (variant_name, quantity, price),
+                )
             record_transaction(
                 cursor,
                 data.get('RawCommand') or 'Manual Confirmation',
@@ -557,7 +672,18 @@ def confirm_restock():
         }), 409
     finally:
         conn.close()
-    return jsonify({'status': 'success'})
+    added_names = ", ".join(
+        f"{item_name.strip()} (MRP ₹{item['Price']:g})"
+        for item in items
+    )
+    return jsonify({
+        'status': 'success',
+        'database_action': {
+            'status': 'success',
+            'action': 'product_added',
+            'message': f"Added {added_names} to inventory.",
+        },
+    })
 
 if __name__ == '__main__':
     app.run(host='127.0.0.1', port=5000, debug=True)

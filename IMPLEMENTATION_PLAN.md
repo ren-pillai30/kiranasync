@@ -1,5 +1,7 @@
 # KiranaSync 2.0 Implementation Plan
 
+> **Plan status:** The phase checklist below is the original implementation roadmap and is retained as historical planning context. Subsequent product work has added Gemini-interpreted/manual product and customer lifecycle operations, selective multilingual TTS, and a persistent removal audit. The current implementation and verification snapshot is maintained in [BUILD_STATUS.md](./BUILD_STATUS.md).
+
 ## Phase Structure & Milestones
 
 ### Phase 0: Audit & Baseline (Completed / In Progress)
