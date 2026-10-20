@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import RecordRTC, { StereoAudioRecorder } from 'recordrtc'
+import CallSimulator from './components/CallSimulator'
 
 // Localization Dictionary
 const text = {
@@ -171,6 +172,7 @@ export default function App() {
   const [hisaabData, setHisaabData] = useState(null);
   const [benchmarkData, setBenchmarkData] = useState(null);
   const [showEvalModal, setShowEvalModal] = useState(false);
+  const [showCallSimulator, setShowCallSimulator] = useState(false);
   
   const [showAddInv, setShowAddInv] = useState(false);
   const [invForm, setInvForm] = useState({ ItemName: '', StockQuantity: '', Price: '' });
@@ -650,7 +652,7 @@ export default function App() {
       vadIntervalRef.current = null;
     }
     if (audioContextRef.current) {
-      try { audioContextRef.current.close(); } catch {}
+      try { audioContextRef.current.close(); } catch { /* ignore */ }
       audioContextRef.current = null;
     }
     setAudioLevel(0);
@@ -895,6 +897,14 @@ export default function App() {
             <span>🎙️</span>
             <span>{isRecording ? 'Listening...' : 'Speak'}</span>
           </button>
+          <button
+            onClick={() => setShowCallSimulator(true)}
+            className="text-xs px-2.5 py-0.5 rounded border border-emerald-500/60 text-emerald-300 bg-emerald-500/20 hover:bg-emerald-500/30 font-semibold flex items-center space-x-1"
+            title="Simulate phone call"
+          >
+            <span>📞</span>
+            <span>Call</span>
+          </button>
         </div>
         <div className="window-controls flex space-x-1">
           <button className="control-btn minimize" onClick={handleMinimize} title="Minimize">&minus;</button>
@@ -906,6 +916,17 @@ export default function App() {
       <div className="flex-grow flex items-center justify-center p-6 pointer-events-none mt-10">
         <button id="voice-trigger" onClick={startRecording} className="hidden">Voice</button>
         <button id="dashboard-trigger" onClick={() => setShowDashboard(!showDashboard)} className="hidden">Dash</button>
+
+        {/* VIRTUAL CALL SIMULATOR MODAL */}
+        <CallSimulator
+          isOpen={showCallSimulator}
+          onClose={() => setShowCallSimulator(false)}
+          onRefreshStore={() => {
+            fetchDashboardData();
+            fetchLedgerData();
+          }}
+          existingCustomers={credit}
+        />
 
         {/* VOICE AI LAB BENCHMARK MODAL */}
         <AnimatePresence>
@@ -1435,6 +1456,14 @@ export default function App() {
                     className="px-3 py-1.5 bg-amber-600/20 hover:bg-amber-600/30 text-amber-300 border border-amber-500/40 rounded-lg text-xs font-semibold"
                   >
                     {lang === 'hi' ? 'आर्काइव' : 'Archives'}
+                  </button>
+                  <button
+                    onClick={() => setShowCallSimulator(true)}
+                    className="px-3 py-1.5 bg-emerald-600/30 hover:bg-emerald-600/50 text-emerald-300 border border-emerald-500/40 rounded-lg text-xs font-semibold flex items-center space-x-1"
+                    title="Simulate incoming customer phone calls"
+                  >
+                    <span>📞</span>
+                    <span>{lang === 'hi' ? 'कॉल सिमुलेटर' : 'Call Simulator'}</span>
                   </button>
                   <button onClick={() => setLang(lang === 'en' ? 'hi' : 'en')} className="px-4 py-2 bg-gray-800 hover:bg-gray-700 text-gray-300 rounded-lg text-sm font-medium border border-gray-600 transition-colors">
                     {t.toggleLang}
