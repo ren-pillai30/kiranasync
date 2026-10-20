@@ -26,7 +26,12 @@ class DesktopAPI:
             webview.windows[0].destroy()
 
 def run_flask():
-    app.run(host='127.0.0.1', port=5000, debug=False, use_reloader=False)
+    try:
+        import uvicorn
+        from backend.app.asgi import app as asgi_app
+        uvicorn.run(asgi_app, host='127.0.0.1', port=5000, log_level="warning")
+    except Exception:
+        app.run(host='127.0.0.1', port=5000, debug=False, use_reloader=False)
 
 def bind_hotkeys(window):
     """Listens for global hotkeys and clicks the hidden React trigger buttons."""
