@@ -124,3 +124,4 @@ export const text = {
     confirmProduct: "उत्पाद की पुष्टि करें",
   },
 };
+

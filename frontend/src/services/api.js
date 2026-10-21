@@ -108,3 +108,4 @@ export const api = {
       body: JSON.stringify({ text, language_code: languageCode }),
     }),
 };
+
