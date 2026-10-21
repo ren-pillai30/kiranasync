@@ -1,19 +1,7 @@
-import { useState, useEffect, useRef } from 'react';
+import { useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import RecordRTC, { StereoAudioRecorder } from 'recordrtc';
-
-const INDIAN_LANGUAGES = [
-  { code: 'hi-IN', label: 'Hindi (हिंदी)' },
-  { code: 'en-IN', label: 'Indian English' },
-  { code: 'ta-IN', label: 'Tamil (தமிழ்)' },
-  { code: 'te-IN', label: 'Telugu (తెలుగు)' },
-  { code: 'kn-IN', label: 'Kannada (ಕನ್ನಡ)' },
-  { code: 'ml-IN', label: 'Malayalam (മലയാളം)' },
-  { code: 'mr-IN', label: 'Marathi (मराठी)' },
-  { code: 'bn-IN', label: 'Bengali (বাংলা)' },
-  { code: 'gu-IN', label: 'Gujarati (ગુજરાતી)' },
-  { code: 'pa-IN', label: 'Punjabi (ਪੰਜਾਬੀ)' },
-];
+import { INDIAN_LANGUAGES } from '../constants/languages';
+import { useCallSession } from '../hooks/useCallSession';
 
 const SAMPLE_PROMPTS = [
   { label: 'Check Maggi stock', text: 'Maggi ka kitna stock hai aur price kya hai?' },
@@ -25,336 +13,39 @@ const SAMPLE_PROMPTS = [
 ];
 
 export default function CallSimulator({ isOpen, onClose, onRefreshStore, existingCustomers = [] }) {
-  const [callActive, setCallActive] = useState(false);
-  const [callStatus, setCallStatus] = useState('idle'); // idle | connecting | connected | speaking | listening | ended
-  const [callDuration, setCallDuration] = useState(0);
-  const [callerName, setCallerName] = useState('Ramesh');
-  const [languageCode, setLanguageCode] = useState('hi-IN');
-  const [transcripts, setTranscripts] = useState([]);
-  const [inputText, setInputText] = useState('');
-  const [isMuted, setIsMuted] = useState(false);
-  const [isMicRecording, setIsMicRecording] = useState(false);
-  const [audioLevel, setAudioLevel] = useState(0);
-  const [systemNotice, setSystemNotice] = useState(null);
+  const {
+    callActive,
+    callStatus,
+    callDuration,
+    callerName,
+    setCallerName,
+    languageCode,
+    setLanguageCode,
+    transcripts,
+    inputText,
+    setInputText,
+    isMuted,
+    setIsMuted,
+    isMicRecording,
+    audioLevel,
+    systemNotice,
+    setSystemNotice,
+    startCall,
+    hangUpCall,
+    sendTextMessage,
+    startMicRecording,
+    stopMicRecording,
+    formatTimer,
+  } = useCallSession({ onRefreshStore });
 
-  const wsRef = useRef(null);
-  const timerRef = useRef(null);
-  const recorderRef = useRef(null);
-  const audioContextRef = useRef(null);
-  const currentAudioRef = useRef(null);
   const transcriptEndRef = useRef(null);
-  const hangUpRef = useRef(null);
 
-  // Auto-scroll transcript log
+  // Auto-scroll transcript log on updates
   useEffect(() => {
     if (transcriptEndRef.current) {
       transcriptEndRef.current.scrollIntoView({ behavior: 'smooth' });
     }
   }, [transcripts]);
-
-  // Call duration timer
-  useEffect(() => {
-    if (callActive) {
-      timerRef.current = setInterval(() => {
-        setCallDuration((prev) => prev + 1);
-      }, 1000);
-    }
-    return () => {
-      if (timerRef.current) {
-        clearInterval(timerRef.current);
-        timerRef.current = null;
-      }
-    };
-  }, [callActive]);
-
-  // Clean up audio & recorder on unmount
-  useEffect(() => {
-    return () => {
-      if (hangUpRef.current) {
-        hangUpRef.current();
-      }
-    };
-  }, []);
-
-  const getWebSocketUrl = () => {
-    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    // If running under Vite dev server on port 5173, point WS to backend on 5000
-    if (window.location.port === '5173') {
-      return `${protocol}//127.0.0.1:5000/ws/call`;
-    }
-    return `${protocol}//${window.location.host}/ws/call`;
-  };
-
-  const playBase64Audio = (audioBase64) => {
-    if (isMuted || !audioBase64) return;
-    try {
-      if (currentAudioRef.current) {
-        currentAudioRef.current.pause();
-      }
-      const audio = new Audio(`data:audio/wav;base64,${audioBase64}`);
-      currentAudioRef.current = audio;
-      setCallStatus('speaking');
-      audio.onended = () => {
-        if (callActive) setCallStatus('connected');
-      };
-      audio.onerror = () => {
-        if (callActive) setCallStatus('connected');
-      };
-      audio.play().catch((err) => console.warn('Audio auto-play failed:', err));
-    } catch (err) {
-      console.warn('Playback error:', err);
-    }
-  };
-
-  const stopMicRecording = () => {
-    if (!recorderRef.current) return;
-
-    recorderRef.current.stopRecording(() => {
-      const blob = recorderRef.current.getBlob();
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        const base64data = reader.result.split(',')[1];
-        if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN && base64data) {
-          wsRef.current.send(
-            JSON.stringify({
-              type: 'audio_input',
-              audio_base64: base64data,
-              language_code: languageCode,
-            })
-          );
-        }
-      };
-      reader.readAsDataURL(blob);
-
-      if (recorderRef.current.camera) {
-        recorderRef.current.camera.getTracks().forEach((track) => track.stop());
-      }
-      recorderRef.current = null;
-      setIsMicRecording(false);
-      setAudioLevel(0);
-      if (callActive) setCallStatus('connected');
-    });
-  };
-
-  const hangUpCall = () => {
-    if (currentAudioRef.current) {
-      currentAudioRef.current.pause();
-    }
-    stopMicRecording();
-
-    if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
-      try {
-        wsRef.current.send(JSON.stringify({ type: 'end_call' }));
-        wsRef.current.close();
-      } catch (err) {
-        console.warn('Error closing websocket:', err);
-      }
-    }
-    setCallActive(false);
-    setCallStatus('idle');
-    setCallDuration(0);
-  };
-
-  useEffect(() => {
-    hangUpRef.current = hangUpCall;
-  });
-
-  const handleWebSocketMessage = (data) => {
-    const timestamp = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
-
-    if (data.type === 'call_connected') {
-      setTranscripts((prev) => [
-        ...prev,
-        {
-          id: Date.now().toString(),
-          role: 'assistant',
-          text: data.reply_text,
-          audioBase64: data.audio_base64,
-          timestamp,
-        },
-      ]);
-      if (data.audio_base64) {
-        playBase64Audio(data.audio_base64);
-      }
-    } else if (data.type === 'transcript') {
-      setTranscripts((prev) => [
-        ...prev,
-        {
-          id: Date.now().toString(),
-          role: data.role || 'customer',
-          text: data.text,
-          timestamp,
-        },
-      ]);
-    } else if (data.type === 'call_response') {
-      setTranscripts((prev) => [
-        ...prev,
-        {
-          id: Date.now().toString(),
-          role: 'assistant',
-          text: data.reply_text,
-          audioBase64: data.audio_base64,
-          actionType: data.action_type,
-          actionData: data.action_data,
-          dbResult: data.db_result,
-          timestamp,
-        },
-      ]);
-
-      if (data.audio_base64) {
-        playBase64Audio(data.audio_base64);
-      }
-
-      // If database was modified, trigger store refresh so main UI updates live
-      if (data.db_result && data.db_result.status === 'success') {
-        if (onRefreshStore) onRefreshStore();
-      }
-    } else if (data.type === 'call_ended') {
-      setTranscripts((prev) => [
-        ...prev,
-        {
-          id: Date.now().toString(),
-          role: 'system',
-          text: data.reply_text || 'Call completed.',
-          timestamp,
-        },
-      ]);
-      if (data.audio_base64) {
-        playBase64Audio(data.audio_base64);
-      }
-      setCallActive(false);
-      setCallStatus('ended');
-    } else if (data.type === 'error') {
-      setSystemNotice(data.error);
-    }
-  };
-
-  const startCall = () => {
-    setCallDuration(0);
-    setCallStatus('connecting');
-    setSystemNotice(null);
-    const wsUrl = getWebSocketUrl();
-
-    try {
-      const ws = new WebSocket(wsUrl);
-      wsRef.current = ws;
-
-      ws.onopen = () => {
-        setCallActive(true);
-        setCallStatus('connected');
-        ws.send(
-          JSON.stringify({
-            type: 'start_call',
-            customer_name: callerName || 'Customer',
-            language_code: languageCode,
-          })
-        );
-      };
-
-      ws.onmessage = (event) => {
-        try {
-          const data = JSON.parse(event.data);
-          handleWebSocketMessage(data);
-        } catch (e) {
-          console.error('Failed to parse WebSocket message:', e);
-        }
-      };
-
-      ws.onerror = (err) => {
-        console.error('Call WebSocket error:', err);
-        setSystemNotice('WebSocket connection failed. Ensure KiranaSync backend is running on port 5000.');
-        setCallStatus('idle');
-        setCallActive(false);
-      };
-
-      ws.onclose = () => {
-        setCallActive(false);
-        setCallStatus('ended');
-      };
-    } catch (err) {
-      console.error('Connection failed:', err);
-      setSystemNotice('Could not initiate call session.');
-      setCallStatus('idle');
-    }
-  };
-
-  const sendTextMessage = (textToSend) => {
-    const text = (textToSend || inputText).trim();
-    if (!text || !wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) return;
-
-    const timestamp = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
-    setTranscripts((prev) => [
-      ...prev,
-      {
-        id: Date.now().toString(),
-        role: 'customer',
-        text,
-        timestamp,
-      },
-    ]);
-
-    wsRef.current.send(
-      JSON.stringify({
-        type: 'text_input',
-        text,
-        language_code: languageCode,
-      })
-    );
-
-    setInputText('');
-  };
-
-  // MediaRecorder audio capture
-  const startMicRecording = async () => {
-    if (!callActive || !wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) {
-      alert('Please start the call first before speaking.');
-      return;
-    }
-
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-      audioContextRef.current = audioCtx;
-      const source = audioCtx.createMediaStreamSource(stream);
-      const analyser = audioCtx.createAnalyser();
-      analyser.fftSize = 256;
-      source.connect(analyser);
-
-      const dataArray = new Uint8Array(analyser.frequencyBinCount);
-      const levelInterval = setInterval(() => {
-        if (!recorderRef.current) {
-          clearInterval(levelInterval);
-          return;
-        }
-        analyser.getByteFrequencyData(dataArray);
-        const sum = dataArray.reduce((acc, val) => acc + val, 0);
-        const avg = sum / dataArray.length;
-        setAudioLevel(Math.min(100, Math.round((avg / 60) * 100)));
-      }, 100);
-
-      const recorder = new RecordRTC(stream, {
-        type: 'audio',
-        mimeType: 'audio/wav',
-        recorderType: StereoAudioRecorder,
-        numberOfAudioChannels: 1,
-        desiredSampRate: 16000,
-      });
-
-      recorder.startRecording();
-      recorderRef.current = recorder;
-      setIsMicRecording(true);
-      setCallStatus('listening');
-    } catch (err) {
-      console.error('Microphone error:', err);
-      setSystemNotice('Microphone access denied. You can still test via the text box below.');
-    }
-  };
-
-  const formatTimer = (seconds) => {
-    const mins = Math.floor(seconds / 60).toString().padStart(2, '0');
-    const secs = (seconds % 60).toString().padStart(2, '0');
-    return `${mins}:${secs}`;
-  };
 
   if (!isOpen) return null;
 
@@ -388,7 +79,9 @@ export default function CallSimulator({ isOpen, onClose, onRefreshStore, existin
               <button
                 onClick={() => setIsMuted(!isMuted)}
                 className={`text-xs px-2.5 py-1 rounded-lg border ${
-                  isMuted ? 'border-red-500/50 text-red-400 bg-red-500/10' : 'border-emerald-500/50 text-emerald-300 bg-emerald-500/10'
+                  isMuted
+                    ? 'border-red-500/50 text-red-400 bg-red-500/10'
+                    : 'border-emerald-500/50 text-emerald-300 bg-emerald-500/10'
                 }`}
                 title={isMuted ? 'Voice playback is muted' : 'Voice playback is active'}
               >
@@ -511,7 +204,7 @@ export default function CallSimulator({ isOpen, onClose, onRefreshStore, existin
                 </div>
                 <h4 className="text-base font-semibold text-gray-400">Ready to simulate customer calls</h4>
                 <p className="text-xs max-w-md text-gray-500">
-                  Click <strong className="text-emerald-400">"Simulate Call"</strong> above. Once connected, speak using
+                  Click <strong className="text-emerald-400">&quot;Simulate Call&quot;</strong> above. Once connected, speak using
                   your microphone or type below. Try asking for stock, ordering items on udhaar, or checking customer
                   credit.
                 </p>
@@ -550,16 +243,6 @@ export default function CallSimulator({ isOpen, onClose, onRefreshStore, existin
                     </div>
 
                     <p className="leading-relaxed whitespace-pre-wrap">{item.text}</p>
-
-                    {/* REPLAY AUDIO BUTTON */}
-                    {item.audioBase64 && (
-                      <button
-                        onClick={() => playBase64Audio(item.audioBase64)}
-                        className="mt-2 text-xs flex items-center space-x-1 text-violet-300 hover:text-white bg-violet-600/20 hover:bg-violet-600/40 px-2 py-0.5 rounded transition-colors"
-                      >
-                        <span>▶ Replay Voice</span>
-                      </button>
-                    )}
 
                     {/* STRUCTURED DATABASE ACTION CARD */}
                     {item.dbResult && item.dbResult.status === 'success' && (
