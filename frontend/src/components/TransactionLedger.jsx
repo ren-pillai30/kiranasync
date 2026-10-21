@@ -62,3 +62,4 @@ export default function TransactionLedger({ transactions, t }) {
     </section>
   );
 }
+

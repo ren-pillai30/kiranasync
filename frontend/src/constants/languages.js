@@ -10,3 +10,4 @@ export const INDIAN_LANGUAGES = [
   { code: 'gu-IN', label: 'ગુજરાતી (Gujarati)' },
   { code: 'pa-IN', label: 'ਪੰਜਾਬੀ (Punjabi)' },
 ];
+

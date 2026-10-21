@@ -150,3 +150,4 @@ export default function BenchmarkModal({ showEvalModal, onClose, benchmarkData }
     </AnimatePresence>
   );
 }
+
