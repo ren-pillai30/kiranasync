@@ -118,9 +118,10 @@ export default function App() {
         'customer_archived',
         'customer_deleted',
         'inventory_archived',
+        'measurement_mismatch',
       ].includes(data.database_action.action)
     ) {
-      playVoiceReceipt(data.database_action.message);
+      playVoiceReceipt(data.database_action.speech_message || data.database_action.message);
     }
     if (['customer_archived', 'customer_deleted', 'inventory_archived'].includes(data.database_action?.action)) {
       fetchArchives();
