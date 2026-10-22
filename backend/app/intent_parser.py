@@ -5,6 +5,12 @@ import re
 import json
 import difflib
 from number_parser import parse
+from backend.app.measurement_utils import (
+    extract_measurement,
+    extract_all_measurements,
+    strip_measurement,
+    analyze_measurement_matches,
+)
 
 try:
     from ddgs import DDGS
@@ -104,8 +110,11 @@ def load_fmcg_catalog():
         return {}
 
 def search_product_online(clean_item_name):
-    """Find a suggested MRP and source for a new inventory item."""
+    """Find a suggested MRP and source for a new inventory item, with measurement awareness."""
     corrected_name = clean_item_name.strip().title()
+    requested_meas = extract_measurement(clean_item_name)
+    base_product_name = strip_measurement(clean_item_name).strip()
+
     if not DDGS:
         return {
             "ItemName": corrected_name,
@@ -114,6 +123,10 @@ def search_product_online(clean_item_name):
             "PriceIsMRP": False,
             "SearchStatus": "unavailable",
             "SearchMessage": "Web search is unavailable. Enter the MRP manually.",
+            "SpeechMessage": "Web search is unavailable. Enter the MRP manually.",
+            "ExactMeasurementFound": None,
+            "RequestedMeasurement": requested_meas["display"] if requested_meas else None,
+            "AvailableMeasurements": [],
             "SearchResults": [],
         }
 
@@ -121,6 +134,8 @@ def search_product_online(clean_item_name):
         r"\band\b", "&", corrected_name, flags=re.IGNORECASE
     )
     query_names = [corrected_name, normalized_query_name]
+    if base_product_name and base_product_name.lower() != corrected_name.lower():
+        query_names.append(base_product_name.title())
     ignored_name_tokens = {
         "a", "an", "and", "for", "in", "of", "the", "with",
         "g", "gm", "gram", "grams", "kg", "kgs", "l", "ltr", "ml",
@@ -165,6 +180,10 @@ def search_product_online(clean_item_name):
             "PriceIsMRP": False,
             "SearchStatus": "error",
             "SearchMessage": "Could not retrieve web results. Enter and verify the MRP manually.",
+            "SpeechMessage": "Could not retrieve web results. Enter and verify the MRP manually.",
+            "ExactMeasurementFound": None,
+            "RequestedMeasurement": requested_meas["display"] if requested_meas else None,
+            "AvailableMeasurements": [],
             "SearchResults": [],
         }
 
@@ -214,8 +233,16 @@ def search_product_online(clean_item_name):
         ):
             continue
 
+        snippet_measurements = extract_all_measurements(snippet)
+        meas_labels = [m["display"] for m in snippet_measurements]
+
         search_results.append(
-            {"Title": title, "Snippet": body, "URL": source}
+            {
+                "Title": title,
+                "Snippet": body,
+                "URL": source,
+                "Measurements": meas_labels,
+            }
         )
 
         mrp_matches = mrp_pattern.findall(snippet)
@@ -237,12 +264,20 @@ def search_product_online(clean_item_name):
                 continue
             option = price_options.setdefault(
                 value,
-                {"Price": value, "PriceIsMRP": is_mrp, "Sources": []},
+                {
+                    "Price": value,
+                    "PriceIsMRP": is_mrp,
+                    "Sources": [],
+                    "Measurements": [],
+                },
             )
             option["PriceIsMRP"] = option["PriceIsMRP"] or is_mrp
             option["Sources"].append(
                 {"Title": title, "URL": source, "Snippet": body}
             )
+            for ml in meas_labels:
+                if ml not in option["Measurements"]:
+                    option["Measurements"].append(ml)
 
     sorted_options = sorted(
         price_options.values(),
@@ -251,6 +286,7 @@ def search_product_online(clean_item_name):
     price_options_list = [
         {
             **option,
+            "Measurement": option["Measurements"][0] if option.get("Measurements") else None,
             "Sources": option["Sources"][:3],
         }
         for option in sorted_options
@@ -259,12 +295,48 @@ def search_product_online(clean_item_name):
     selected_options = mrp_options or price_options_list
     price_is_mrp = bool(mrp_options)
     suggested_price = selected_options[0]["Price"] if selected_options else None
-    if mrp_options:
-        search_status = "found_mrp"
-    elif selected_options:
-        search_status = "found_price"
+
+    # Measurement match analysis
+    cand_texts = [f"{r['Title']} {r.get('Snippet', '')}" for r in search_results]
+    meas_analysis = analyze_measurement_matches(clean_item_name, cand_texts)
+
+    if meas_analysis["status"] == "measurement_mismatch":
+        search_status = "measurement_mismatch"
+        req_disp = meas_analysis["requested_measurement"]
+        avail_str = ", ".join(meas_analysis["other_measurements"])
+        search_message = (
+            f"Exact measurement ({req_disp}) is not available online. "
+            f"Other measurements found: {avail_str}. Verify product packaging before selecting."
+        )
+        speech_message = (
+            f"Exact measurement {req_disp} is not available. "
+            f"Other sizes like {avail_str} were found."
+        )
+    elif meas_analysis["status"] == "exact_matched":
+        req_disp = meas_analysis["requested_measurement"]
+        if mrp_options:
+            search_status = "found_mrp"
+        elif selected_options:
+            search_status = "found_price"
+        else:
+            search_status = "not_found" if search_results else "no_relevant_results"
+        search_message = f"Found exact measurement ({req_disp}) online. Verify it against the product packaging."
+        speech_message = f"Found {req_disp} for {corrected_name}."
     else:
-        search_status = "not_found" if search_results else "no_relevant_results"
+        if mrp_options:
+            search_status = "found_mrp"
+        elif selected_options:
+            search_status = "found_price"
+        else:
+            search_status = "not_found" if search_results else "no_relevant_results"
+        search_message = {
+            "found_mrp": "An MRP was found online. Verify it against the product packaging.",
+            "found_price": "An online price was found, but it may not be the MRP. Verify the product packaging.",
+            "found_currency": "An online amount was found, but it may not be the MRP. Verify the product packaging.",
+            "not_found": "No reliable MRP was found. Enter and verify it before adding.",
+            "no_relevant_results": "No web results matched this product name. Check the name and search again.",
+        }[search_status]
+        speech_message = search_message
 
     return {
         "ItemName": corrected_name,
@@ -273,13 +345,11 @@ def search_product_online(clean_item_name):
         "PriceIsMRP": price_is_mrp,
         "PriceOptions": price_options_list,
         "SearchStatus": search_status,
-        "SearchMessage": {
-            "found_mrp": "An MRP was found online. Verify it against the product packaging.",
-            "found_price": "An online price was found, but it may not be the MRP. Verify the product packaging.",
-            "found_currency": "An online amount was found, but it may not be the MRP. Verify the product packaging.",
-            "not_found": "No reliable MRP was found. Enter and verify it before adding.",
-            "no_relevant_results": "No web results matched this product name. Check the name and search again.",
-        }[search_status],
+        "SearchMessage": search_message,
+        "SpeechMessage": speech_message,
+        "ExactMeasurementFound": meas_analysis.get("exact_found"),
+        "RequestedMeasurement": meas_analysis.get("requested_measurement"),
+        "AvailableMeasurements": meas_analysis.get("other_measurements", []),
         "SearchResults": search_results[:3],
     }
 
@@ -884,16 +954,35 @@ def parse_and_execute(raw_transcript, quantity_override=None, interpretation=Non
         )
         if variants:
             conn.close()
+            req_m = extract_measurement(clean_translated_entity) or extract_measurement(raw_transcript)
+            meas_analysis = (
+                analyze_measurement_matches(req_m["display"], [v["ItemName"] for v in variants])
+                if req_m
+                else {"status": "none"}
+            )
+            if meas_analysis.get("status") == "measurement_mismatch":
+                req_disp = meas_analysis["requested_measurement"]
+                avail_str = ", ".join(meas_analysis["other_measurements"])
+                msg = f"Exact measurement ({req_disp}) is not in stock. Other sizes ({avail_str}) exist. Choose a variant."
+                speech = f"Exact measurement {req_disp} is not available. Other sizes like {avail_str} exist."
+            else:
+                msg = "More than one inventory variant matches. Choose the exact product before changing stock."
+                speech = msg
+
             return {
                 "status": "pending_selection",
                 "action": "select_inventory_item",
-                "message": "More than one inventory variant matches. Choose the exact product before changing stock.",
+                "message": msg,
+                "speech_message": speech,
                 "draft": {
                     "Intent": intent,
                     "Quantity": quantity_or_amount,
                     "RawCommand": raw_transcript,
                     "EntityName": final_unknown_entity,
                     "Candidates": variants,
+                    "RequestedMeasurement": meas_analysis.get("requested_measurement"),
+                    "AvailableMeasurements": meas_analysis.get("other_measurements", []),
+                    "MeasurementMismatch": meas_analysis.get("status") == "measurement_mismatch",
                 },
             }
 
@@ -966,6 +1055,7 @@ def parse_and_execute(raw_transcript, quantity_override=None, interpretation=Non
                 "status": "pending_confirmation",
                 "action": "confirm_restock",
                 "message": product_lookup["SearchMessage"],
+                "speech_message": product_lookup.get("SpeechMessage") or product_lookup["SearchMessage"],
                 "draft": {
                     "StockQuantity": quantity_or_amount,
                     "RawCommand": raw_transcript,

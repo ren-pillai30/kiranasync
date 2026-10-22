@@ -68,9 +68,24 @@ export default function ProductConfirmModal({
               <div className="flex space-x-4">
                 <p className="text-xs text-gray-500 font-semibold uppercase">{t.mrpOptions}</p>
               </div>
+
+              {pendingDraft.SearchStatus === 'measurement_mismatch' && (
+                <div className="p-3.5 bg-amber-500/15 border border-amber-500/40 rounded-xl text-amber-200 text-xs space-y-1.5 shadow-sm">
+                  <div className="font-bold flex items-center space-x-1.5 text-amber-300">
+                    <span>⚠️</span>
+                    <span>Exact measurement ({pendingDraft.RequestedMeasurement || 'requested'}) not available</span>
+                  </div>
+                  <p className="text-amber-200/90 leading-relaxed">
+                    Other measurements found online: <strong className="text-white font-mono">{pendingDraft.AvailableMeasurements?.join(', ')}</strong>. Verify product packaging before selecting.
+                  </p>
+                </div>
+              )}
+
               <p className="text-sm text-gray-300">
                 {pendingDraft.SearchStatus === 'searching'
                   ? t.searching
+                  : pendingDraft.SearchStatus === 'measurement_mismatch'
+                  ? t.exactMeasurementMismatch
                   : pendingDraft.PriceIsMRP
                   ? t.searchFound
                   : pendingDraft.PriceFound
@@ -112,13 +127,20 @@ export default function ProductConfirmModal({
                         />
                         <div className="flex-1 min-w-0">
                           <div className="flex justify-between items-center">
-                            <span className="font-semibold text-white">
-                              ₹{Number(option.Price).toLocaleString('en-IN')}
-                              {option.IsManual
-                                ? ` · ${t.manualMrp}`
-                                : option.PriceIsMRP
-                                ? ' · MRP'
-                                : ' · online price'}
+                            <span className="font-semibold text-white flex items-center flex-wrap gap-1">
+                              <span>₹{Number(option.Price).toLocaleString('en-IN')}</span>
+                              {option.Measurement && (
+                                <span className="px-1.5 py-0.5 rounded text-[10px] font-mono font-bold bg-amber-500/20 text-amber-300 border border-amber-500/30">
+                                  {option.Measurement}
+                                </span>
+                              )}
+                              <span className="text-xs text-gray-400">
+                                {option.IsManual
+                                  ? ` · ${t.manualMrp}`
+                                  : option.PriceIsMRP
+                                  ? ' · MRP'
+                                  : ' · online price'}
+                              </span>
                             </span>
                             <span className="text-xs text-gray-400">
                               {t.purchaseTotal}: ₹

@@ -259,6 +259,34 @@ export default function CallSimulator({ isOpen, onClose, onRefreshStore, existin
                         )}
                       </div>
                     )}
+
+                    {/* MEASUREMENT MISMATCH CALLOUT */}
+                    {(item.dbResult?.status === 'measurement_mismatch' ||
+                      (item.actionData?.available_measurements?.length > 0 &&
+                        item.actionData?.exact_measurement_available === false)) && (
+                      <div className="mt-3 p-2.5 rounded-xl bg-amber-500/15 border border-amber-500/40 text-amber-200 text-xs">
+                        <div className="font-semibold flex items-center space-x-1.5 mb-1 text-amber-300">
+                          <span>⚠️</span>
+                          <span>Measurement Unavailable in Stock:</span>
+                        </div>
+                        <p>
+                          Exact measurement{' '}
+                          <strong>
+                            {item.dbResult?.requested_measurement ||
+                              item.actionData?.requested_measurement}
+                          </strong>{' '}
+                          is not available.
+                        </p>
+                        <p className="mt-1 font-mono text-[11px] text-amber-300">
+                          Available sizes:{' '}
+                          {(
+                            item.dbResult?.other_measurements ||
+                            item.actionData?.available_measurements ||
+                            []
+                          ).join(', ')}
+                        </p>
+                      </div>
+                    )}
                   </div>
                 </div>
               ))

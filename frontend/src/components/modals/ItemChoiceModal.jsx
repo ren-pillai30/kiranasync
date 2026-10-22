@@ -24,6 +24,17 @@ export default function ItemChoiceModal({
             className="bg-gray-800 border border-amber-500/50 p-6 rounded-2xl shadow-2xl w-full max-w-[440px] max-h-[85vh] overflow-y-auto"
           >
             <h3 className="text-xl font-bold text-white mb-2">{t.selectProductTitle}</h3>
+            {pendingItemChoice.MeasurementMismatch && (
+              <div className="mb-4 p-3 bg-amber-500/15 border border-amber-500/40 rounded-xl text-amber-200 text-xs space-y-1">
+                <div className="font-bold flex items-center space-x-1.5 text-amber-300">
+                  <span>⚠️</span>
+                  <span>Exact measurement ({pendingItemChoice.RequestedMeasurement}) is not in stock</span>
+                </div>
+                <p className="text-amber-200/90">
+                  Other available sizes: <strong className="text-white font-mono">{pendingItemChoice.AvailableMeasurements?.join(', ')}</strong>. Please select an available size.
+                </p>
+              </div>
+            )}
             <p className="text-gray-400 text-sm mb-5">{t.selectProductDesc}</p>
             <p className="text-sm text-gray-300 mb-3">
               {pendingItemChoice.Intent === 'sell' ? 'Sale' : 'Restock'} · {pendingItemChoice.Quantity}

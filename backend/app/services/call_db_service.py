@@ -1,7 +1,14 @@
 import os
 import sqlite3
+import difflib
 from typing import Dict, List, Optional, Any
 from backend.app.intent_parser import DB_PATH, ensure_transactions_schema, record_transaction
+from backend.app.measurement_utils import (
+    extract_measurement,
+    strip_measurement,
+    analyze_measurement_matches,
+    are_measurements_equal,
+)
 
 try:
     from thefuzz import process as fuzz_process
@@ -78,6 +85,16 @@ class CallDBService:
             conn = self._get_connection()
             should_close = True
 
+        req_meas = extract_measurement(candidate_name)
+
+        def is_measurement_compatible(it_row):
+            if not req_meas:
+                return True
+            it_meas = extract_measurement(it_row["ItemName"])
+            if not it_meas:
+                return True
+            return are_measurements_equal(req_meas, it_meas)
+
         try:
             cursor = conn.cursor()
             cursor.execute(
@@ -89,21 +106,72 @@ class CallDBService:
 
             # 1. Exact case-insensitive match
             for it in items:
-                if it["ItemName"].lower() == clean_name:
+                if it["ItemName"].lower() == clean_name and is_measurement_compatible(it):
                     return dict(it)
 
             # 2. Substring match
             for it in items:
-                if clean_name in it["ItemName"].lower() or it["ItemName"].lower() in clean_name:
+                if is_measurement_compatible(it) and (
+                    clean_name in it["ItemName"].lower() or it["ItemName"].lower() in clean_name
+                ):
                     return dict(it)
 
             # 3. Fuzzy match if thefuzz is available
             if fuzz_process:
-                name_map = {it["ItemName"]: dict(it) for it in items}
-                best_match, score = fuzz_process.extractOne(candidate_name, list(name_map.keys()))
-                if score >= 65:
-                    return name_map[best_match]
+                compatible_items = [it for it in items if is_measurement_compatible(it)]
+                if compatible_items:
+                    name_map = {it["ItemName"]: dict(it) for it in compatible_items}
+                    best_match, score = fuzz_process.extractOne(candidate_name, list(name_map.keys()))
+                    if score >= 65:
+                        return name_map[best_match]
 
+            return None
+        finally:
+            if should_close:
+                conn.close()
+
+    def check_inventory_measurement_mismatch(
+        self, candidate_name: str, conn: Optional[sqlite3.Connection] = None
+    ) -> Optional[Dict[str, Any]]:
+        """
+        Checks if candidate_name mentions a measurement that doesn't exist in inventory,
+        but other sizes/measurements for that product DO exist.
+        """
+        req_meas = extract_measurement(candidate_name)
+        if not req_meas:
+            return None
+
+        base_name = strip_measurement(candidate_name).strip().lower()
+        if not base_name:
+            return None
+
+        should_close = False
+        if conn is None:
+            conn = self._get_connection()
+            should_close = True
+
+        try:
+            cursor = conn.cursor()
+            cursor.execute(
+                "SELECT ItemID, ItemName, StockQuantity, Price FROM Inventory WHERE IsActive = 1"
+            )
+            items = cursor.fetchall()
+            matching_variants = []
+            for it in items:
+                it_name = it["ItemName"].lower()
+                if base_name in it_name or difflib.SequenceMatcher(None, base_name, it_name).ratio() >= 0.7:
+                    matching_variants.append(it["ItemName"])
+
+            if not matching_variants:
+                return None
+
+            analysis = analyze_measurement_matches(candidate_name, matching_variants)
+            if analysis["status"] == "measurement_mismatch":
+                return {
+                    "requested_measurement": analysis["requested_measurement"],
+                    "other_measurements": analysis["other_measurements"],
+                    "matching_items": matching_variants,
+                }
             return None
         finally:
             if should_close:
@@ -186,6 +254,15 @@ class CallDBService:
 
                 matched = self.match_inventory_item(req_name, conn=conn)
                 if not matched:
+                    mismatch = self.check_inventory_measurement_mismatch(req_name, conn=conn)
+                    if mismatch:
+                        return {
+                            "status": "measurement_mismatch",
+                            "action": "measurement_mismatch",
+                            "message": f"Exact measurement ({mismatch['requested_measurement']}) is not available in stock. Other sizes in stock: {', '.join(mismatch['other_measurements'])}.",
+                            "requested_measurement": mismatch["requested_measurement"],
+                            "other_measurements": mismatch["other_measurements"],
+                        }
                     return {
                         "status": "error",
                         "message": f"Item '{req_name}' was not found in active inventory.",
