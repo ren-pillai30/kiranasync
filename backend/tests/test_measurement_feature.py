@@ -100,6 +100,106 @@ class TestMeasurementFeature(unittest.TestCase):
             if os.path.exists(db_path):
                 os.remove(db_path)
 
+    def test_voice_command_measurement_mismatch_does_not_transact(self):
+        # Store only has Tata Salt 1kg in inventory. Voice command asks for 1.5 kg salt.
+        fd, db_path = tempfile.mkstemp(suffix=".db")
+        os.close(fd)
+        try:
+            conn = sqlite3.connect(db_path)
+            conn.execute(
+                "CREATE TABLE Inventory (ItemID INTEGER PRIMARY KEY, ItemName TEXT, StockQuantity INTEGER, Price REAL, IsActive INTEGER DEFAULT 1)"
+            )
+            conn.execute(
+                "CREATE TABLE CustomerCredit (CustomerID INTEGER PRIMARY KEY, CustomerName TEXT, OutstandingBalance REAL, IsActive INTEGER DEFAULT 1)"
+            )
+            conn.execute(
+                "CREATE TABLE Transactions (rowid INTEGER PRIMARY KEY AUTOINCREMENT, Timestamp TEXT, CommandText TEXT, TotalAmount REAL, TransactionType TEXT, EntityName TEXT, Quantity INTEGER)"
+            )
+            conn.execute(
+                "INSERT INTO Inventory (ItemName, StockQuantity, Price, IsActive) VALUES ('Tata Salt 1kg', 10, 28.0, 1)"
+            )
+            conn.commit()
+            conn.close()
+
+            with patch("backend.app.intent_parser.DB_PATH", db_path):
+                res = intent_parser.parse_and_execute(
+                    "1.5 kg salt becho",
+                    interpretation={
+                        "action": "sell",
+                        "entity": "1.5 kg salt",
+                        "quantity": 1,
+                    },
+                    db_path=db_path,
+                )
+
+                self.assertEqual(res["status"], "failed")
+                self.assertEqual(res["action"], "measurement_mismatch")
+                self.assertIn("1.5 kg", res["message"])
+                self.assertIn("Only 1 kg is currently in the inventory", res["message"])
+                self.assertIn("1.5 kg", res["speech_message"])
+                self.assertIn("1 kg currently in the inventory", res["speech_message"])
+
+                # Verify 1 kg was NOT transacted
+                conn = sqlite3.connect(db_path)
+                stock = conn.execute("SELECT StockQuantity FROM Inventory WHERE ItemName = 'Tata Salt 1kg'").fetchone()[0]
+                txn_count = conn.execute("SELECT COUNT(*) FROM Transactions").fetchone()[0]
+                conn.close()
+
+                self.assertEqual(stock, 10, "Stock must remain 10 — 1 kg must NOT be transacted!")
+                self.assertEqual(txn_count, 0, "No transactions should be recorded on measurement mismatch!")
+
+        finally:
+            if os.path.exists(db_path):
+                os.remove(db_path)
+
+    def test_voice_command_exact_measurement_transacts_normally(self):
+        # Store has Tata Salt 1kg. Voice command asks for 1 kg salt.
+        fd, db_path = tempfile.mkstemp(suffix=".db")
+        os.close(fd)
+        try:
+            conn = sqlite3.connect(db_path)
+            conn.execute(
+                "CREATE TABLE Inventory (ItemID INTEGER PRIMARY KEY, ItemName TEXT, StockQuantity INTEGER, Price REAL, IsActive INTEGER DEFAULT 1)"
+            )
+            conn.execute(
+                "CREATE TABLE CustomerCredit (CustomerID INTEGER PRIMARY KEY, CustomerName TEXT, OutstandingBalance REAL, IsActive INTEGER DEFAULT 1)"
+            )
+            conn.execute(
+                "CREATE TABLE Transactions (rowid INTEGER PRIMARY KEY AUTOINCREMENT, Timestamp TEXT, CommandText TEXT, TotalAmount REAL, TransactionType TEXT, EntityName TEXT, Quantity INTEGER)"
+            )
+            conn.execute(
+                "INSERT INTO Inventory (ItemName, StockQuantity, Price, IsActive) VALUES ('Tata Salt 1kg', 10, 28.0, 1)"
+            )
+            conn.commit()
+            conn.close()
+
+            with patch("backend.app.intent_parser.DB_PATH", db_path):
+                res = intent_parser.parse_and_execute(
+                    "1 kg salt becho",
+                    interpretation={
+                        "action": "sell",
+                        "entity": "1 kg salt",
+                        "quantity": 1,
+                    },
+                    db_path=db_path,
+                )
+
+                self.assertEqual(res["status"], "success")
+
+                # Verify 1 kg was transacted
+                conn = sqlite3.connect(db_path)
+                stock = conn.execute("SELECT StockQuantity FROM Inventory WHERE ItemName = 'Tata Salt 1kg'").fetchone()[0]
+                txn_count = conn.execute("SELECT COUNT(*) FROM Transactions").fetchone()[0]
+                conn.close()
+
+                self.assertEqual(stock, 9, "Stock should decrement to 9!")
+                self.assertEqual(txn_count, 1, "Transaction should be recorded!")
+
+        finally:
+            if os.path.exists(db_path):
+                os.remove(db_path)
+
 
 if __name__ == "__main__":
     unittest.main()
+

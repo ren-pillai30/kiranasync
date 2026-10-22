@@ -10,6 +10,7 @@ from backend.app.measurement_utils import (
     extract_all_measurements,
     strip_measurement,
     analyze_measurement_matches,
+    check_inventory_item_measurement_mismatch,
 )
 
 try:
@@ -826,6 +827,10 @@ def parse_and_execute(raw_transcript, quantity_override=None, interpretation=Non
                 if not matched_item:
                     errors.append(f"'{prod_name}' not found")
                     continue
+                meas_mismatch = check_inventory_item_measurement_mismatch(cursor, prod_name, matched_item)
+                if meas_mismatch:
+                    errors.append(f"{prod_name}: {meas_mismatch['message']}")
+                    continue
                 cursor.execute("SELECT ItemID FROM Inventory WHERE ItemName = ?", (matched_item,))
                 row = cursor.fetchone()
                 if not row:
@@ -984,6 +989,29 @@ def parse_and_execute(raw_transcript, quantity_override=None, interpretation=Non
                     "AvailableMeasurements": meas_analysis.get("other_measurements", []),
                     "MeasurementMismatch": meas_analysis.get("status") == "measurement_mismatch",
                 },
+            }
+
+    # Verify measurement compatibility if measurement mentioned in voice command
+    item_to_check = target_item or (
+        match_entity_with_score(raw_transcript, db_items, threshold=70)
+        if extract_measurement(raw_transcript)
+        else None
+    )
+    if item_to_check:
+        meas_mismatch = check_inventory_item_measurement_mismatch(
+            cursor,
+            f"{clean_translated_entity} {raw_transcript}",
+            item_to_check,
+        )
+        if meas_mismatch:
+            conn.close()
+            return {
+                "status": "failed",
+                "action": "measurement_mismatch",
+                "message": meas_mismatch["message"],
+                "speech_message": meas_mismatch["speech_message"],
+                "requested_measurement": meas_mismatch["requested_measurement"],
+                "available_measurements": meas_mismatch["available_measurements"],
             }
 
     # --- EXECUTE TRANSACTIONS ---

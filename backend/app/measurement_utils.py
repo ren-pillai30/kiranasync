@@ -1,4 +1,5 @@
 import re
+import difflib
 from typing import Dict, List, Optional, Any, Set, Tuple
 
 # Mapping of units to (canonical_unit, multiplier_to_base, category)
@@ -177,4 +178,79 @@ def analyze_measurement_matches(
         "other_measurements": sorted_others,
         "status": status,
     }
+
+
+def check_inventory_item_measurement_mismatch(
+    cursor, requested_text: str, target_item: str
+) -> Optional[Dict[str, Any]]:
+    """
+    Checks if a requested voice command text mentions a measurement (e.g. 1.5 kg)
+    that does NOT match the inventory item's measurement (e.g. 1 kg) or any active variant.
+    Returns mismatch dict if incompatible, or None if compatible or no measurement requested.
+    """
+    if not requested_text or not target_item:
+        return None
+
+    req_meas = extract_measurement(requested_text)
+    if not req_meas:
+        return None
+
+    base_name = strip_measurement(target_item).strip()
+    if not base_name:
+        base_name = target_item
+
+    cursor.execute(
+        "SELECT ItemName, StockQuantity, Price FROM Inventory WHERE IsActive = 1"
+    )
+    all_items = cursor.fetchall()
+
+    matching_items = []
+    base_lower = base_name.lower()
+    for row in all_items:
+        it_name = row[0]
+        it_base = strip_measurement(it_name).strip().lower()
+        if (
+            base_lower in it_name.lower()
+            or it_name.lower() in base_lower
+            or (base_lower and base_lower in it_base)
+            or (it_base and it_base in base_lower)
+            or difflib.SequenceMatcher(None, base_lower, it_base).ratio() >= 0.75
+        ):
+            matching_items.append(it_name)
+
+    if not matching_items and target_item:
+        matching_items = [target_item]
+
+    analysis = analyze_measurement_matches(req_meas["display"], matching_items)
+    if analysis["status"] == "measurement_mismatch":
+        avail = analysis["other_measurements"]
+        if len(avail) == 1:
+            message = (
+                f"Exact measurement ({req_meas['display']}) is not available. "
+                f"Only {avail[0]} is currently in the inventory."
+            )
+            speech_message = (
+                f"Exact measurement {req_meas['display']} is not available. "
+                f"There is only {avail[0]} currently in the inventory."
+            )
+        else:
+            avail_str = ", ".join(avail)
+            message = (
+                f"Exact measurement ({req_meas['display']}) is not available. "
+                f"Only {avail_str} are currently in the inventory."
+            )
+            speech_message = (
+                f"Exact measurement {req_meas['display']} is not available. "
+                f"There are only {avail_str} currently in the inventory."
+            )
+        return {
+            "mismatch": True,
+            "requested_measurement": req_meas["display"],
+            "available_measurements": avail,
+            "message": message,
+            "speech_message": speech_message,
+        }
+
+    return None
+
 
