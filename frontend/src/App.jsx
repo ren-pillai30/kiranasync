@@ -156,11 +156,14 @@ export default function App() {
       setDbAction({ status: 'pending', message: data.database_action.message });
       setTimeout(() => setIsActive(false), 2500);
     } else if (data.database_action?.status === 'pending_selection') {
+      if (data.database_action?.message) {
+        playVoiceReceipt(data.database_action.speech_message || data.database_action.message);
+      }
       actions.setPendingItemChoice(data.database_action.draft);
       actions.setSelectedItemId(null);
       actions.setConfirmationError('');
       setDbAction({ status: 'pending', message: data.database_action.message });
-      setTimeout(() => setIsActive(false), 1500);
+      setTimeout(() => setIsActive(false), 2500);
     } else {
       setDbAction(data.database_action);
       setTimeout(() => setIsActive(false), 5000);

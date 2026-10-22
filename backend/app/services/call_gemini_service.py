@@ -62,6 +62,11 @@ LIVE STORE DATA:
 DOMAIN BEHAVIOR RULES:
 - When a customer asks if an item is available or its price:
   State clearly if it is in stock and its price. If stock is 0 or item does not exist, politely inform them.
+- When a customer asks for or orders an item with a specific measurement/size (e.g. "1 kg salt", "500ml oil", "2 litre milk"):
+  1. If the exact requested measurement is NOT available in active inventory, but other measurements/sizes of that product exist (e.g. only 300g, 500g, or 2 kg exist in catalog, but not 1 kg):
+     - In 'reply_text', clearly tell the customer that the exact measurement is not available, and highlight which other measurements/sizes are in stock (e.g. "1 kg salt available nahi hai, par hamare paas 500g aur 2 kg available hai. Kya aapko inme se chahiye?").
+     - Set action_type to "inquiry", inquiry_subject to "stock_measurement_mismatch", and in action_data include "requested_measurement" and "available_measurements". Do not execute an order for the wrong size without customer confirmation.
+  2. If the exact measurement is in stock, proceed with the order or inquiry as requested.
 - When a customer orders items:
   Set action_type to "order". In action_data, populate "items" with catalog item names and positive integer quantities.
   Check if the customer mentioned paying on udhaar / credit (e.g. "khate mein likh do", "put on udhaar", "Ramesh ke account me"), set payment_mode to "udhaar" and extract customer_name. Otherwise payment_mode is "cash".

@@ -65,6 +65,9 @@ def simulate_call_turn(request: SimulateCallRequest):
             action_data=action_data,
             raw_call_text=f"Call ({request.caller_name}): {request.user_input}",
         )
+        if db_result and db_result.get("status") == "measurement_mismatch":
+            reply_text = db_result.get("message", reply_text)
+            action_type = "measurement_mismatch"
 
     reply_text = gemini_result.get("reply_text", "")
     target_lang = gemini_result.get("detected_language_code") or request.language_code or "hi-IN"
@@ -246,6 +249,9 @@ async def call_websocket_endpoint(websocket: WebSocket):
                     action_data=action_data,
                     raw_call_text=f"Call ({session_data['caller_name']}): {user_text}",
                 )
+                if db_result and db_result.get("status") == "measurement_mismatch":
+                    reply_text = db_result.get("message", reply_text)
+                    action_type = "measurement_mismatch"
 
             # Record assistant turn in history
             session_data["conversation_history"].append({"role": "assistant", "text": reply_text})

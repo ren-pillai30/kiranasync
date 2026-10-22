@@ -190,6 +190,9 @@ export function useStoreActions({
             }
           : current
       );
+      if (result.SpeechMessage && playVoiceReceipt) {
+        playVoiceReceipt(result.SpeechMessage);
+      }
     } catch (error) {
       console.error('Product search error:', error);
       setConfirmationError(error.message || t.connError);

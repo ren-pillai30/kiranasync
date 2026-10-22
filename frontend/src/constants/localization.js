@@ -60,6 +60,8 @@ export const text = {
     selectProductDesc: "More than one version matches this command. Select the correct MRP/size before inventory is changed.",
     availableStock: "In stock",
     confirmProduct: "Confirm product",
+    exactMeasurementMismatch: "Exact measurement not found online. Other sizes are available below:",
+    otherMeasurementsAvailable: "Available sizes found",
   },
   hi: {
     title: "किरानासिंक लाइव डैशबोर्ड",
@@ -122,6 +124,8 @@ export const text = {
     selectProductDesc: "इस कमांड से एक से अधिक उत्पाद मिलते हैं। स्टॉक बदलने से पहले सही MRP/आकार चुनें।",
     availableStock: "उपलब्ध स्टॉक",
     confirmProduct: "उत्पाद की पुष्टि करें",
+    exactMeasurementMismatch: "सटीक माप ऑनलाइन नहीं मिला। अन्य माप नीचे उपलब्ध हैं:",
+    otherMeasurementsAvailable: "अन्य उपलब्ध माप",
   },
 };
 
