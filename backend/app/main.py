@@ -685,5 +685,75 @@ def confirm_restock():
         },
     })
 
+
+def ensure_feedback_schema(connection):
+    connection.execute(
+        """
+        CREATE TABLE IF NOT EXISTS StoreFeedback (
+            FeedbackID INTEGER PRIMARY KEY AUTOINCREMENT,
+            Timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+            Rating INTEGER,
+            Category TEXT,
+            Message TEXT,
+            Author TEXT
+        )
+        """
+    )
+    connection.commit()
+
+@app.route('/api/feedback', methods=['GET', 'POST'])
+def handle_store_feedback():
+    import sqlite3
+    from backend.app.intent_parser import DB_PATH
+
+    conn = sqlite3.connect(DB_PATH)
+    ensure_feedback_schema(conn)
+
+    if request.method == 'GET':
+        cursor = conn.cursor()
+        cursor.execute(
+            "SELECT FeedbackID, Timestamp, Rating, Category, Message, Author FROM StoreFeedback ORDER BY FeedbackID DESC LIMIT 50"
+        )
+        rows = [
+            {
+                "FeedbackID": r[0],
+                "Timestamp": r[1],
+                "Rating": r[2],
+                "Category": r[3],
+                "Message": r[4],
+                "Author": r[5] or "Store Cashier",
+            }
+            for r in cursor.fetchall()
+        ]
+        conn.close()
+        return jsonify({"status": "success", "feedback": rows})
+
+    data = request.get_json(silent=True) or {}
+    message = str(data.get("message") or "").strip()
+    if not message:
+        conn.close()
+        return jsonify({"status": "error", "error": "Feedback message cannot be empty."}), 400
+
+    try:
+        rating = int(data.get("rating", 5))
+        rating = max(1, min(5, rating))
+    except (ValueError, TypeError):
+        rating = 5
+
+    category = str(data.get("category") or "General").strip()
+    author = str(data.get("author") or "Store Cashier").strip()
+
+    cursor = conn.cursor()
+    cursor.execute(
+        "INSERT INTO StoreFeedback (Rating, Category, Message, Author) VALUES (?, ?, ?, ?)",
+        (rating, category, message, author),
+    )
+    conn.commit()
+    conn.close()
+    return jsonify({
+        "status": "success",
+        "message": "Thank you! Your feedback has been recorded.",
+    })
+
 if __name__ == '__main__':
     app.run(host='127.0.0.1', port=5000, debug=True)

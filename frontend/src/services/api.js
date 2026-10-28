@@ -107,5 +107,14 @@ export const api = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ text, language_code: languageCode }),
     }),
+
+  // Feedback
+  getFeedback: () => request('/api/feedback'),
+  submitFeedback: (payload) =>
+    request('/api/feedback', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    }),
 };
 
