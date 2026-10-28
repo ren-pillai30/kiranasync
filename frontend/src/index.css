@@ -7,3 +7,49 @@ body {
   font-family: system-ui, -apple-system, sans-serif;
   overflow: hidden;
 }
+
+/* Print styles for Kirana Bill */
+@media print {
+  body {
+    background-color: white !important;
+    color: black !important;
+    overflow: visible !important;
+  }
+
+  /* Hide everything except the bill */
+  body > * {
+    display: none !important;
+  }
+
+  .bill-print-wrapper {
+    display: block !important;
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    z-index: 99999;
+  }
+
+  .bill-printable {
+    display: block !important;
+    background: white !important;
+    color: black !important;
+    font-family: 'Courier New', monospace !important;
+    font-size: 11px !important;
+    padding: 8mm !important;
+    width: 80mm !important;
+    margin: 0 auto !important;
+    border: none !important;
+    box-shadow: none !important;
+  }
+
+  .bill-printable * {
+    color: black !important;
+    border-color: black !important;
+    background: transparent !important;
+  }
+
+  .bill-no-print {
+    display: none !important;
+  }
+}
