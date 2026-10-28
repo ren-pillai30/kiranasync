@@ -1,3 +1,22 @@
+
+GENERIC_COMMODITY_TERMS = {
+    "oil", "tel", "refined", "mustard oil", "sunflower oil", "cooking oil",
+    "soap", "sabun", "biscuit", "biscuits", "cookie", "cookies",
+    "rice", "chawal", "atta", "flour", "wheat",
+    "dal", "daal", "pulse", "pulses",
+    "shampoo", "paste", "toothpaste", "brush",
+    "chips", "namkeen", "snack", "snacks",
+    "milk", "doodh", "curd", "dahi", "ghee", "butter", "paneer",
+    "tea", "chai", "coffee",
+    "sugar", "cheeni", "shakkar",
+    "salt", "namak",
+    "masala", "mirch", "haldi", "dhaniya", "spices",
+    "noodle", "noodles", "maggi", "pasta",
+    "detergent", "powder", "surf",
+    "bread", "bun", "toast", "rusk",
+    "water", "pani", "soda", "cold drink", "juice",
+}
+
 import os
 import sys
 import sqlite3
@@ -450,49 +469,103 @@ def find_unresolved_inventory_variants(cursor, entity_name, raw_transcript):
         "SELECT ItemID, ItemName, StockQuantity, Price FROM Inventory WHERE IsActive = 1"
     )
     inventory = cursor.fetchall()
+    if not inventory:
+        return []
+
+    # If the user specified a measurement (e.g. "1 kg salt", "1.5 kg salt"), measurement matching takes priority
+    req_meas = extract_measurement(entity_name) or extract_measurement(raw_transcript)
     variant_pattern = re.compile(r"\s+\(MRP\s*₹\s*[\d,.]+\)\s*$", re.IGNORECASE)
     base_names = {}
     for row in inventory:
         base_name = variant_pattern.sub("", row[1]).strip()
         base_names.setdefault(base_name.casefold(), []).append(row)
 
-    query_base = variant_pattern.sub("", entity_name).strip()
+    clean_query = variant_pattern.sub("", entity_name).strip()
+    query_lower = clean_query.lower()
+    query_tokens = set(re.findall(r'[a-zA-Z0-9]+', query_lower))
+
+    # 1. First check explicit MRP variant ambiguity (e.g. Navratna Oil MRP 400 vs MRP 500)
     base_labels = {
         rows[0][1].casefold(): variant_pattern.sub("", rows[0][1]).strip()
         for rows in base_names.values()
     }
     matched_base = match_entity_with_score(
-        query_base,
+        clean_query,
         list(base_labels.values()),
         threshold=70,
     )
-    if not matched_base:
+    if matched_base:
+        variants = base_names.get(matched_base.casefold(), [])
+        if len(variants) >= 2:
+            transcript = raw_transcript.lower()
+            explicitly_priced = bool(find_currency_unit(transcript))
+            if explicitly_priced:
+                spoken_numbers = {
+                    float(value.replace(",", ""))
+                    for value in re.findall(r"\d+(?:[,.]\d{1,2})?", transcript)
+                }
+                priced_variants = [row for row in variants if float(row[3]) in spoken_numbers]
+                if len(priced_variants) == 1:
+                    return []
+            return [
+                {
+                    "ItemID": row[0],
+                    "ItemName": row[1],
+                    "StockQuantity": row[2],
+                    "Price": row[3],
+                }
+                for row in variants
+            ]
+
+    # If the user specified a measurement and it didn't match multiple MRP variants,
+    # let measurement compatibility and check_inventory_item_measurement_mismatch handle it.
+    if req_meas:
         return []
 
-    variants = base_names.get(matched_base.casefold(), [])
-    if len(variants) < 2:
-        return []
+    # 2. Check for broad generic category queries or multi-item matches (e.g. "oil", "tel", "soap", "biscuit")
+    is_generic = (
+        query_lower in GENERIC_COMMODITY_TERMS
+        or any(token in GENERIC_COMMODITY_TERMS for token in query_tokens)
+        or len(query_tokens) <= 1
+    )
 
-    transcript = raw_transcript.lower()
-    explicitly_priced = bool(find_currency_unit(transcript))
-    if explicitly_priced:
-        spoken_numbers = {
-            float(value.replace(",", ""))
-            for value in re.findall(r"\d+(?:[,.]\d{1,2})?", transcript)
-        }
-        priced_variants = [row for row in variants if float(row[3]) in spoken_numbers]
-        if len(priced_variants) == 1:
-            return []
+    matching_rows = []
+    for row in inventory:
+        item_name_lower = row[1].lower()
+        item_tokens = set(re.findall(r'[a-zA-Z0-9]+', item_name_lower))
+        if query_tokens and (query_tokens <= item_tokens or any(qt in item_tokens for qt in query_tokens if len(qt) >= 3)):
+            matching_rows.append(row)
 
-    return [
-        {
-            "ItemID": row[0],
-            "ItemName": row[1],
-            "StockQuantity": row[2],
-            "Price": row[3],
-        }
-        for row in variants
-    ]
+    if matching_rows:
+        # If there are 2 or more matching items, always require selection
+        if len(matching_rows) >= 2:
+            return [
+                {
+                    "ItemID": row[0],
+                    "ItemName": row[1],
+                    "StockQuantity": row[2],
+                    "Price": row[3],
+                }
+                for row in matching_rows
+            ]
+        # If there is exactly 1 matching item, but the user used a broad generic term
+        # (e.g. user said 'oil' but item is 'Fortune Sunflower Oil 1L'), require confirmation
+        # so the user can choose this variant or choose to add a brand new product
+        if len(matching_rows) == 1 and is_generic:
+            matched_row = matching_rows[0]
+            matched_tokens = set(re.findall(r'[a-zA-Z0-9]+', matched_row[1].lower()))
+            # If the inventory item has significant brand tokens missing from query
+            if len(matched_tokens - query_tokens) >= 1:
+                return [
+                    {
+                        "ItemID": matched_row[0],
+                        "ItemName": matched_row[1],
+                        "StockQuantity": matched_row[2],
+                        "Price": matched_row[3],
+                    }
+                ]
+
+    return []
 
 
 _QUANTITY_UNIT_PATTERN = (
@@ -936,12 +1009,20 @@ def parse_and_execute(raw_transcript, quantity_override=None, interpretation=Non
         )
 
     if intent == "add_product" and target_item:
-        conn.close()
-        return {
-            "status": "failed",
-            "action": "product_already_exists",
-            "message": f"{target_item} is already active in inventory. Use a restock command to add stock.",
-        }
+        query_lower = clean_translated_entity.strip().lower()
+        query_tokens = set(re.findall(r'[a-zA-Z0-9]+', query_lower))
+        is_generic = (
+            query_lower in GENERIC_COMMODITY_TERMS
+            or any(token in GENERIC_COMMODITY_TERMS for token in query_tokens)
+            or len(query_tokens) <= 1
+        )
+        if not is_generic and target_item.lower().strip() == clean_translated_entity.lower().strip():
+            conn.close()
+            return {
+                "status": "failed",
+                "action": "product_already_exists",
+                "message": f"{target_item} is already active in inventory. Use a restock command to add stock.",
+            }
 
     if quantity_or_amount is None:
         conn.close()
@@ -953,7 +1034,7 @@ def parse_and_execute(raw_transcript, quantity_override=None, interpretation=Non
 
     final_unknown_entity = clean_translated_entity
 
-    if intent in {"sell", "restock"} and target_item:
+    if intent in {"sell", "restock", "add_product"} and target_item:
         variants = find_unresolved_inventory_variants(
             cursor, clean_translated_entity, raw_transcript
         )
@@ -985,6 +1066,7 @@ def parse_and_execute(raw_transcript, quantity_override=None, interpretation=Non
                     "RawCommand": raw_transcript,
                     "EntityName": final_unknown_entity,
                     "Candidates": variants,
+                    "AllowNewProduct": True,
                     "RequestedMeasurement": meas_analysis.get("requested_measurement"),
                     "AvailableMeasurements": meas_analysis.get("other_measurements", []),
                     "MeasurementMismatch": meas_analysis.get("status") == "measurement_mismatch",

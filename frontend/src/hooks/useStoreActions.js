@@ -132,6 +132,47 @@ export function useStoreActions({
     }
   };
 
+  const handleAddNewProductFromChoice = async (entityName, quantity = 1) => {
+    const rawCmd = pendingItemChoice?.RawCommand || '';
+    setPendingItemChoice(null);
+    setSelectedItemId(null);
+    setConfirmationError('');
+
+    const draft = {
+      ItemName: entityName || '',
+      StockQuantity: quantity || 1,
+      Price: null,
+      PriceOptions: [],
+      RawCommand: rawCmd,
+      SearchStatus: 'idle',
+      SearchResults: [],
+    };
+    setPendingDraft(draft);
+    setManualMrp('');
+
+    if (entityName && entityName.trim()) {
+      setIsSearchingProduct(true);
+      try {
+        const result = await api.lookupProduct(entityName.trim());
+        setPendingDraft((current) => ({
+          ...current,
+          ...result,
+          StockQuantity: quantity || 1,
+          RawCommand: rawCmd,
+          PriceOptions: (result.PriceOptions || []).map((option, index) => ({
+            ...option,
+            Quantity: quantity || 1,
+            Selected: index === 0,
+          })),
+        }));
+      } catch (err) {
+        console.warn('Product lookup failed on new choice:', err);
+      } finally {
+        setIsSearchingProduct(false);
+      }
+    }
+  };
+
   const submitItemChoice = async () => {
     if (!pendingItemChoice || selectedItemId === null) return;
     setConfirmationError('');
@@ -274,6 +315,7 @@ export function useStoreActions({
     archiveEntity,
     submitConfirmation,
     submitItemChoice,
+    handleAddNewProductFromChoice,
     searchEditedProductName,
     addManualMrp,
   };

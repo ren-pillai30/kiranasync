@@ -6,6 +6,7 @@ export default function ItemChoiceModal({
   setSelectedItemId,
   confirmationError,
   submitItemChoice,
+  onAddNewProduct,
   onCancel,
   t,
 }) {
@@ -67,6 +68,18 @@ export default function ItemChoiceModal({
                 </label>
               ))}
             </div>
+            {pendingItemChoice.AllowNewProduct && onAddNewProduct && (
+              <button
+                onClick={() => onAddNewProduct(
+                  pendingItemChoice.EntityName || pendingItemChoice.RawCommand || '',
+                  pendingItemChoice.Quantity || 1
+                )}
+                className="mt-4 w-full py-2.5 rounded-xl border-2 border-dashed border-violet-500/50 bg-violet-500/10 hover:bg-violet-500/20 text-violet-300 hover:text-violet-200 font-semibold text-sm transition-all flex items-center justify-center space-x-2"
+              >
+                <span>+</span>
+                <span>Add as New Product Instead</span>
+              </button>
+            )}
             {confirmationError && (
               <p role="alert" className="text-sm text-red-400 mt-4">
                 {confirmationError}
