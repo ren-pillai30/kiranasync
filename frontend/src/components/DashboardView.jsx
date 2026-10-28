@@ -16,6 +16,9 @@ export default function DashboardView({
   onOpenSimulator,
   onOpenEvalModal,
   onOpenArchives,
+  onOpenBill,
+  onOpenFeedback,
+  onViewBill,
   hisaabData,
   inventory,
   showAddInv,
@@ -97,8 +100,24 @@ export default function DashboardView({
             🔬 Voice AI Lab
           </button>
           <button
+            onClick={onOpenBill}
+            className="px-3 py-1.5 bg-gray-800 hover:bg-gray-700 text-gray-200 border border-gray-600 rounded-lg text-xs font-semibold flex items-center space-x-1.5 shadow-sm transition-all"
+            title="Create commercial Kirana bill"
+          >
+            <span>🧾</span>
+            <span>{lang === 'hi' ? 'बिल बनाएं' : 'Kirana Bill'}</span>
+          </button>
+          <button
+            onClick={onOpenFeedback}
+            className="px-3 py-1.5 bg-amber-600/20 hover:bg-amber-600/30 text-amber-300 border border-amber-500/40 rounded-lg text-xs font-semibold flex items-center space-x-1.5 shadow-sm transition-all"
+            title="Provide store feedback"
+          >
+            <span>💬</span>
+            <span>{lang === 'hi' ? 'प्रतिक्रिया' : 'Feedback'}</span>
+          </button>
+          <button
             onClick={onOpenArchives}
-            className="px-3 py-1.5 bg-amber-600/20 hover:bg-amber-600/30 text-amber-300 border border-amber-500/40 rounded-lg text-xs font-semibold"
+            className="px-3 py-1.5 bg-gray-800 hover:bg-gray-700 text-gray-300 border border-gray-700 rounded-lg text-xs font-semibold"
           >
             {lang === 'hi' ? 'आर्काइव' : 'Archives'}
           </button>
@@ -162,7 +181,7 @@ export default function DashboardView({
       </div>
 
       {/* TRANSACTION LEDGER */}
-      <TransactionLedger transactions={transactions} t={t} />
+      <TransactionLedger transactions={transactions} t={t} onViewBill={onViewBill} />
     </motion.div>
   );
 }

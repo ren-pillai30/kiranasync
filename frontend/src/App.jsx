@@ -17,6 +17,8 @@ import ItemChoiceModal from './components/modals/ItemChoiceModal';
 import EntityRemovalModal from './components/modals/EntityRemovalModal';
 import ArchivesModal from './components/modals/ArchivesModal';
 import BenchmarkModal from './components/modals/BenchmarkModal';
+import BillModal from './components/modals/BillModal';
+import FeedbackModal from './components/modals/FeedbackModal';
 
 export default function App() {
   const [lang, setLang] = useState('en');
@@ -39,6 +41,9 @@ export default function App() {
   const [benchmarkData, setBenchmarkData] = useState(null);
   const [showEvalModal, setShowEvalModal] = useState(false);
   const [showCallSimulator, setShowCallSimulator] = useState(false);
+  const [showBillModal, setShowBillModal] = useState(false);
+  const [showFeedbackModal, setShowFeedbackModal] = useState(false);
+  const [billData, setBillData] = useState({ billItems: [], customerName: 'Walk-in Customer', paymentMode: 'cash', customerBalance: 0 });
   const [isMuted, setIsMuted] = useState(false);
 
   const fetchDashboardData = useCallback(async () => {
@@ -226,6 +231,23 @@ export default function App() {
     };
   }, [fetchDashboardData, stopActiveAudio]);
 
+  const handleOpenBill = (data = {}) => {
+    setBillData({
+      billItems: data.billItems || (inventory.length > 0 ? [
+        {
+          item_name: inventory[0].ItemName,
+          quantity: 1,
+          unit_price: Number(inventory[0].Price || 0),
+          item_total: Number(inventory[0].Price || 0),
+        }
+      ] : []),
+      customerName: data.customerName || 'Walk-in Customer',
+      paymentMode: data.paymentMode || 'cash',
+      customerBalance: data.customerBalance || 0,
+    });
+    setShowBillModal(true);
+  };
+
   const handleMinimize = () => {
     if (window.pywebview && window.pywebview.api) {
       window.pywebview.api.minimize();
@@ -248,6 +270,8 @@ export default function App() {
         isRecording={voiceRecorder.isRecording}
         startRecording={voiceRecorder.startRecording}
         onOpenSimulator={() => setShowCallSimulator(true)}
+        onOpenBill={() => handleOpenBill()}
+        onOpenFeedback={() => setShowFeedbackModal(true)}
         handleMinimize={handleMinimize}
         handleClose={handleClose}
       />
@@ -269,7 +293,22 @@ export default function App() {
           isOpen={showCallSimulator}
           onClose={() => setShowCallSimulator(false)}
           onRefreshStore={refreshAll}
+          onOpenBill={(data) => handleOpenBill(data)}
           existingCustomers={credit}
+        />
+
+        <BillModal
+          isOpen={showBillModal}
+          onClose={() => setShowBillModal(false)}
+          billItems={billData.billItems}
+          customerName={billData.customerName}
+          paymentMode={billData.paymentMode}
+          customerBalance={billData.customerBalance}
+        />
+
+        <FeedbackModal
+          isOpen={showFeedbackModal}
+          onClose={() => setShowFeedbackModal(false)}
         />
 
         <BenchmarkModal
@@ -302,6 +341,7 @@ export default function App() {
           setSelectedItemId={actions.setSelectedItemId}
           confirmationError={actions.confirmationError}
           submitItemChoice={actions.submitItemChoice}
+          onAddNewProduct={actions.handleAddNewProductFromChoice}
           onCancel={() => {
             actions.setPendingItemChoice(null);
             actions.setSelectedItemId(null);
@@ -347,6 +387,9 @@ export default function App() {
               isRecording={voiceRecorder.isRecording}
               startRecording={voiceRecorder.startRecording}
               onOpenSimulator={() => setShowCallSimulator(true)}
+              onOpenBill={() => handleOpenBill()}
+              onOpenFeedback={() => setShowFeedbackModal(true)}
+              onViewBill={(data) => handleOpenBill(data)}
               onOpenEvalModal={async () => {
                 try {
                   const data = await api.getBenchmark();
