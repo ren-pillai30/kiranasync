@@ -100,6 +100,8 @@ async def call_websocket_endpoint(websocket: WebSocket):
         "language_code": "hi-IN",
         "conversation_history": [],
         "call_active": True,
+        "order_items": [],
+        "total_bill": 0.0,
     }
 
     try:
@@ -253,6 +255,19 @@ async def call_websocket_endpoint(websocket: WebSocket):
                     reply_text = db_result.get("message", reply_text)
                     action_type = "measurement_mismatch"
 
+            # Accumulate bill items when order succeeds
+            if db_result and db_result.get("status") == "success" and db_result.get("action") == "order_placed":
+                for it in (db_result.get("items") or []):
+                    session_data["order_items"].append({
+                        "item_name": it.get("item_name", ""),
+                        "quantity": it.get("quantity", 1),
+                        "unit_price": it.get("unit_price", 0),
+                        "item_total": it.get("item_total", 0),
+                    })
+                session_data["total_bill"] = sum(
+                    it["item_total"] for it in session_data["order_items"]
+                )
+
             # Record assistant turn in history
             session_data["conversation_history"].append({"role": "assistant", "text": reply_text})
 
@@ -273,6 +288,10 @@ async def call_websocket_endpoint(websocket: WebSocket):
                 "action_data": action_data,
                 "db_result": db_result,
                 "language_code": detected_lang,
+                "current_bill": {
+                    "items": session_data["order_items"],
+                    "total": session_data["total_bill"],
+                },
             })
 
     except WebSocketDisconnect:

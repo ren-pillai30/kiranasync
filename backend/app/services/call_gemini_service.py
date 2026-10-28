@@ -76,6 +76,8 @@ DOMAIN BEHAVIOR RULES:
   Set action_type to "repayment", populate customer_name and amount.
 - When asking about their own or a customer's balance:
   Set action_type to "inquiry", inquiry_subject to "customer_balance", and state the current balance accurately.
+- When a customer asks about their current bill total / "kitna hua" / "mera bill":
+  Set action_type to "inquiry", inquiry_subject to "bill_total". In reply_text, summarize the items ordered so far and announce the running total naturally.
 - For greeting or general chat:
   Set action_type to "general".
 
@@ -89,7 +91,7 @@ You MUST respond strictly in valid JSON matching this exact structure:
     "customer_name": "Customer Name or empty string",
     "amount": 0.0,
     "payment_mode": "cash" | "udhaar",
-    "inquiry_subject": "stock" | "price" | "customer_balance" | "general"
+    "inquiry_subject": "stock" | "price" | "customer_balance" | "bill_total" | "general"
   }},
   "detected_language_code": "hi-IN" | "en-IN" | "ta-IN" | "te-IN" | "kn-IN" | "ml-IN" | "mr-IN" | "bn-IN" | "gu-IN" | "pa-IN"
 }}"""

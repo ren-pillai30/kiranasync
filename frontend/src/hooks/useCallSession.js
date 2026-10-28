@@ -13,6 +13,7 @@ export function useCallSession({ onRefreshStore, initialCallerName = 'Ramesh', i
   const [isMicRecording, setIsMicRecording] = useState(false);
   const [audioLevel, setAudioLevel] = useState(0);
   const [systemNotice, setSystemNotice] = useState(null);
+  const [currentBill, setCurrentBill] = useState({ items: [], total: 0 });
 
   const wsRef = useRef(null);
   const timerRef = useRef(null);
@@ -175,6 +176,14 @@ export function useCallSession({ onRefreshStore, initialCallerName = 'Ramesh', i
       if (data.db_result && data.db_result.status === 'success') {
         if (onRefreshStore) onRefreshStore();
       }
+
+      // Track running bill from session
+      if (data.current_bill) {
+        setCurrentBill({
+          items: data.current_bill.items || [],
+          total: data.current_bill.total || 0,
+        });
+      }
     } else if (data.type === 'call_ended') {
       setTranscripts((prev) => [
         ...prev,
@@ -199,6 +208,7 @@ export function useCallSession({ onRefreshStore, initialCallerName = 'Ramesh', i
     setCallDuration(0);
     setCallStatus('connecting');
     setSystemNotice(null);
+    setCurrentBill({ items: [], total: 0 });
     const wsUrl = getWebSocketUrl();
 
     try {
@@ -344,6 +354,7 @@ export function useCallSession({ onRefreshStore, initialCallerName = 'Ramesh', i
     startMicRecording,
     stopMicRecording,
     formatTimer,
+    currentBill,
   };
 }
 

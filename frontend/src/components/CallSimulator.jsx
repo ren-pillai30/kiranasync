@@ -6,13 +6,14 @@ import { useCallSession } from '../hooks/useCallSession';
 const SAMPLE_PROMPTS = [
   { label: 'Check Maggi stock', text: 'Maggi ka kitna stock hai aur price kya hai?' },
   { label: 'Order on cash', text: 'Mujhe 2 packet Tata Salt aur 1 Maggi chahiye.' },
+  { label: 'Check Total Bill', text: 'Mera total bill kitna hua?' },
   { label: 'Order on Udhaar', text: '2 Maggi aur 1kg Sugar Ramesh ke udhaar khate mein likh do.' },
   { label: 'Check Ramesh Udhaar', text: 'Ramesh ka kitna udhaar baaki hai?' },
   { label: 'Log ₹200 Udhaar', text: 'Ramesh ke khate mein 200 rupaye udhaar likh do.' },
   { label: 'Customer Repayment', text: 'Ramesh ne 100 rupaye jama kar diye hain.' },
 ];
 
-export default function CallSimulator({ isOpen, onClose, onRefreshStore, existingCustomers = [] }) {
+export default function CallSimulator({ isOpen, onClose, onRefreshStore, onOpenBill, existingCustomers = [] }) {
   const {
     callActive,
     callStatus,
@@ -36,6 +37,7 @@ export default function CallSimulator({ isOpen, onClose, onRefreshStore, existin
     startMicRecording,
     stopMicRecording,
     formatTimer,
+    currentBill,
   } = useCallSession({ onRefreshStore });
 
   const transcriptEndRef = useRef(null);
@@ -191,6 +193,39 @@ export default function CallSimulator({ isOpen, onClose, onRefreshStore, existin
               <span>⚠️ {systemNotice}</span>
               <button onClick={() => setSystemNotice(null)} className="text-amber-300 font-bold ml-2">
                 &times;
+              </button>
+            </div>
+          )}
+
+          {/* LIVE BILL / ORDER SUMMARY BANNER */}
+          {currentBill?.items?.length > 0 && (
+            <div className="px-6 py-2.5 bg-emerald-950/40 border-b border-emerald-500/30 flex items-center justify-between">
+              <div className="flex items-center space-x-2 text-xs">
+                <span className="text-base">🧾</span>
+                <span className="font-semibold text-emerald-300">
+                  Call Order Running Total:
+                </span>
+                <span className="font-mono font-bold text-white text-sm">
+                  ₹{Number(currentBill.total || 0).toLocaleString('en-IN')}
+                </span>
+                <span className="text-gray-400">
+                  ({currentBill.items.length} item{currentBill.items.length > 1 ? 's' : ''})
+                </span>
+              </div>
+              <button
+                onClick={() => {
+                  if (onOpenBill) {
+                    onOpenBill({
+                      billItems: currentBill.items,
+                      customerName: callerName || 'Customer',
+                      paymentMode: 'cash',
+                    });
+                  }
+                }}
+                className="px-3 py-1 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-xs font-semibold flex items-center space-x-1.5 shadow-sm transition-all"
+              >
+                <span>🧾</span>
+                <span>View / Print Kirana Bill</span>
               </button>
             </div>
           )}
