@@ -4,51 +4,51 @@ export default function HisaabBanner({ hisaabData }) {
   return (
     <div className="grid grid-cols-4 gap-4 mb-6">
       {/* TODAY'S SALES */}
-      <div className="bg-gray-800/90 border border-gray-700/80 p-4 rounded-xl shadow-sm flex flex-col justify-between">
-        <div className="flex items-center justify-between text-gray-400 text-xs mb-2">
-          <span className="uppercase font-semibold tracking-wider">Today's Sales</span>
-          <span className="text-base">📈</span>
+      <div className="bg-[#FFFDF9] border border-[#E2D9C8] p-4 rounded-xl shadow-xs hover:shadow-md transition-all flex flex-col justify-between border-t-4 border-t-[#991B1B]">
+        <div className="flex items-center justify-between text-[#78716C] text-xs mb-2">
+          <span className="uppercase font-bold tracking-wider text-[10px]">Today's Sales</span>
+          <span className="text-base p-1 rounded-md bg-[#FEF3C7]">📈</span>
         </div>
-        <div className="text-2xl font-bold font-mono text-emerald-400">
+        <div className="text-2xl font-black font-mono text-[#991B1B]">
           ₹{Number(hisaabData.TotalRevenue || 0).toLocaleString('en-IN')}
         </div>
-        <span className="text-[11px] text-gray-400 mt-1">Gross counter volume</span>
+        <span className="text-[11px] text-[#78716C] mt-1 font-medium">Gross counter volume</span>
       </div>
 
       {/* CASH COLLECTED */}
-      <div className="bg-gray-800/90 border border-gray-700/80 p-4 rounded-xl shadow-sm flex flex-col justify-between">
-        <div className="flex items-center justify-between text-gray-400 text-xs mb-2">
-          <span className="uppercase font-semibold tracking-wider">Cash in Register</span>
-          <span className="text-base">💵</span>
+      <div className="bg-[#FFFDF9] border border-[#E2D9C8] p-4 rounded-xl shadow-xs hover:shadow-md transition-all flex flex-col justify-between border-t-4 border-t-emerald-700">
+        <div className="flex items-center justify-between text-[#78716C] text-xs mb-2">
+          <span className="uppercase font-bold tracking-wider text-[10px]">Cash in Register</span>
+          <span className="text-base p-1 rounded-md bg-emerald-50">💵</span>
         </div>
-        <div className="text-2xl font-bold font-mono text-blue-400">
+        <div className="text-2xl font-black font-mono text-emerald-800">
           ₹{Number(hisaabData.CashCollected || 0).toLocaleString('en-IN')}
         </div>
-        <span className="text-[11px] text-gray-400 mt-1">Physical cash drawer</span>
+        <span className="text-[11px] text-[#78716C] mt-1 font-medium">Physical cash drawer</span>
       </div>
 
       {/* REPAYMENTS */}
-      <div className="bg-gray-800/90 border border-gray-700/80 p-4 rounded-xl shadow-sm flex flex-col justify-between">
-        <div className="flex items-center justify-between text-gray-400 text-xs mb-2">
-          <span className="uppercase font-semibold tracking-wider">Udhaar Recovered</span>
-          <span className="text-base">🔄</span>
+      <div className="bg-[#FFFDF9] border border-[#E2D9C8] p-4 rounded-xl shadow-xs hover:shadow-md transition-all flex flex-col justify-between border-t-4 border-t-amber-600">
+        <div className="flex items-center justify-between text-[#78716C] text-xs mb-2">
+          <span className="uppercase font-bold tracking-wider text-[10px]">Udhaar Recovered</span>
+          <span className="text-base p-1 rounded-md bg-amber-50">🔄</span>
         </div>
-        <div className="text-2xl font-bold font-mono text-amber-400">
+        <div className="text-2xl font-black font-mono text-[#B45309]">
           ₹{Number(hisaabData.RepaymentsTotal || 0).toLocaleString('en-IN')}
         </div>
-        <span className="text-[11px] text-gray-400 mt-1">Credit repayments received</span>
+        <span className="text-[11px] text-[#78716C] mt-1 font-medium">Credit repayments received</span>
       </div>
 
       {/* TOTAL OUTSTANDING DEBT */}
-      <div className="bg-gray-800/90 border border-gray-700/80 p-4 rounded-xl shadow-sm flex flex-col justify-between">
-        <div className="flex items-center justify-between text-gray-400 text-xs mb-2">
-          <span className="uppercase font-semibold tracking-wider">Total Customer Udhaar</span>
-          <span className="text-base">📒</span>
+      <div className="bg-[#FFFDF9] border border-[#E2D9C8] p-4 rounded-xl shadow-xs hover:shadow-md transition-all flex flex-col justify-between border-t-4 border-t-red-600">
+        <div className="flex items-center justify-between text-[#78716C] text-xs mb-2">
+          <span className="uppercase font-bold tracking-wider text-[10px]">Total Customer Udhaar</span>
+          <span className="text-base p-1 rounded-md bg-red-50">📒</span>
         </div>
-        <div className="text-2xl font-bold font-mono text-rose-400">
+        <div className="text-2xl font-black font-mono text-red-700">
           ₹{Number(hisaabData.TotalOutstandingDebt || 0).toLocaleString('en-IN')}
         </div>
-        <span className="text-[11px] text-gray-400 mt-1">Total pending debt across khata</span>
+        <span className="text-[11px] text-[#78716C] mt-1 font-medium">Total pending debt across khata</span>
       </div>
     </div>
   );

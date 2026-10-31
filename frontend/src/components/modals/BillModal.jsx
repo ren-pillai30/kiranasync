@@ -66,7 +66,7 @@ function roundOff(amount) {
 function DashedLine({ className = "" }) {
   return (
     <div
-      className={`border-t border-dashed border-gray-600 my-2 ${className}`}
+      className={`border-t border-dashed border-[#D8CEBA] my-2 ${className}`}
     />
   );
 }
@@ -82,7 +82,7 @@ export default function BillModal({
   customerBalance = 0,
 }) {
   const [invoiceNo] = useState(generateInvoiceNo);
-  const { date, time } = useMemo(formatDateTime, []);
+  const { date, time } = useMemo(() => formatDateTime(), []);
 
   // ── Calculations ────────────────────────────────────────────────────────
   const subtotal = useMemo(
@@ -99,9 +99,9 @@ export default function BillModal({
 
   // ── Payment mode label & colors ─────────────────────────────────────────
   const modeConfig = {
-    cash: { label: "💵 CASH", bg: "bg-emerald-600/20", text: "text-emerald-400", border: "border-emerald-500/40" },
-    udhaar: { label: "📒 UDHAAR (CREDIT)", bg: "bg-amber-600/20", text: "text-amber-400", border: "border-amber-500/40" },
-    upi: { label: "📱 UPI", bg: "bg-violet-600/20", text: "text-violet-400", border: "border-violet-500/40" },
+    cash: { label: "💵 CASH", bg: "bg-emerald-100", text: "text-emerald-900", border: "border-emerald-300" },
+    udhaar: { label: "📒 UDHAAR (CREDIT)", bg: "bg-red-100", text: "text-red-900", border: "border-red-300" },
+    upi: { label: "📱 UPI", bg: "bg-[#FEF3C7]", text: "text-[#92400E]", border: "border-[#FDE68A]" },
   };
   const mode = modeConfig[paymentMode] ?? modeConfig.cash;
 
@@ -114,7 +114,7 @@ export default function BillModal({
     <AnimatePresence>
       {isOpen && (
         <motion.div
-          className="fixed inset-0 z-50 flex items-center justify-center p-4"
+          className="fixed inset-0 z-[100] flex items-center justify-center p-4 pointer-events-auto"
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}
@@ -122,7 +122,7 @@ export default function BillModal({
         >
           {/* Backdrop */}
           <motion.div
-            className="absolute inset-0 bg-black/70 backdrop-blur-sm"
+            className="absolute inset-0 bg-black/70 backdrop-blur-sm cursor-pointer pointer-events-auto"
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
@@ -131,36 +131,47 @@ export default function BillModal({
 
           {/* Modal */}
           <motion.div
-            className="relative w-full max-w-md max-h-[90vh] flex flex-col bg-gray-950 rounded-xl shadow-2xl border border-gray-800 overflow-hidden"
-            initial={{ scale: 0.9, opacity: 0, y: 30 }}
+            className="relative w-full max-w-md max-h-[90vh] flex flex-col bg-[#FAF7F2] rounded-2xl shadow-2xl border-2 border-[#991B1B] overflow-hidden pointer-events-auto z-10"
+            initial={{ scale: 0.92, opacity: 0, y: 25 }}
             animate={{ scale: 1, opacity: 1, y: 0 }}
-            exit={{ scale: 0.9, opacity: 0, y: 30 }}
+            exit={{ scale: 0.92, opacity: 0, y: 25 }}
             transition={{ type: "spring", damping: 25, stiffness: 350 }}
+            onClick={(e) => e.stopPropagation()}
           >
+            {/* Top Close Button */}
+            <button
+              type="button"
+              onClick={onClose}
+              className="absolute top-3 right-3 text-stone-400 hover:text-stone-900 text-2xl font-bold z-20 w-8 h-8 flex items-center justify-center rounded-lg hover:bg-stone-200/60 transition-all cursor-pointer"
+              title="Close"
+            >
+              &times;
+            </button>
+
             {/* Scrollable Bill Content */}
-            <div className="bill-printable overflow-y-auto flex-1 p-5 font-mono text-sm text-gray-300">
+            <div className="bill-printable overflow-y-auto custom-scrollbar flex-1 p-5 font-mono text-sm text-stone-800 bg-[#FFFDF9] m-3 rounded-xl border border-[#E2D9C8] shadow-xs">
               {/* ─── Store Header ─────────────────────────────── */}
               <div className="text-center mb-1">
-                <h2 className="text-lg font-bold text-white tracking-wide uppercase">
+                <h2 className="text-lg font-black text-stone-900 tracking-wide uppercase">
                   {storeName}
                 </h2>
-                <p className="text-xs text-gray-500 leading-snug mt-0.5">
+                <p className="text-xs text-[#78716C] leading-snug mt-0.5">
                   123, Main Market Road, Near Bus Stand
                   <br />
                   Bangalore, Karnataka - 560001
                 </p>
-                <p className="text-xs text-gray-500 mt-0.5">
+                <p className="text-xs text-[#78716C] mt-0.5">
                   Ph: +91 98765 43210
                 </p>
-                <p className="text-[10px] text-gray-600 mt-0.5 tracking-wide">
+                <p className="text-[10px] text-[#A8A29E] mt-0.5 tracking-wide">
                   GSTIN: 29AXXXX1234X1ZX &nbsp;|&nbsp; FSSAI: 10020XXXXXX
                 </p>
               </div>
 
-              <DashedLine className="border-gray-500" />
+              <DashedLine className="border-[#D8CEBA]" />
 
               {/* ─── Cash Memo Title ──────────────────────────── */}
-              <p className="text-center text-xs font-semibold text-gray-400 tracking-widest uppercase">
+              <p className="text-center text-xs font-bold text-[#991B1B] tracking-widest uppercase">
                 — Cash Memo / Bill —
               </p>
 
@@ -169,27 +180,27 @@ export default function BillModal({
               {/* ─── Bill Meta ────────────────────────────────── */}
               <div className="space-y-0.5 text-xs">
                 <div className="flex justify-between">
-                  <span className="text-gray-500">Invoice No.</span>
-                  <span className="text-gray-200 font-semibold">{invoiceNo}</span>
+                  <span className="text-[#78716C]">Invoice No.</span>
+                  <span className="text-stone-900 font-bold">{invoiceNo}</span>
                 </div>
                 <div className="flex justify-between">
-                  <span className="text-gray-500">Date</span>
-                  <span className="text-gray-300">{date}</span>
+                  <span className="text-[#78716C]">Date</span>
+                  <span className="text-stone-800">{date}</span>
                 </div>
                 <div className="flex justify-between">
-                  <span className="text-gray-500">Time</span>
-                  <span className="text-gray-300">{time}</span>
+                  <span className="text-[#78716C]">Time</span>
+                  <span className="text-stone-800">{time}</span>
                 </div>
                 <div className="flex justify-between">
-                  <span className="text-gray-500">Customer</span>
-                  <span className="text-gray-200 font-medium">{customerName}</span>
+                  <span className="text-[#78716C]">Customer</span>
+                  <span className="text-stone-900 font-bold">{customerName}</span>
                 </div>
               </div>
 
               <DashedLine />
 
               {/* ─── Items Table Header ───────────────────────── */}
-              <div className="grid grid-cols-[1.5rem_1fr_3.5rem_2.5rem_4rem] gap-x-1 text-[11px] font-semibold text-gray-400 uppercase tracking-wider mb-1">
+              <div className="grid grid-cols-[1.5rem_1fr_3.5rem_2.5rem_4rem] gap-x-1 text-[11px] font-bold text-[#57534E] uppercase tracking-wider mb-1">
                 <span>#</span>
                 <span>Item</span>
                 <span className="text-right">Rate</span>
@@ -197,28 +208,28 @@ export default function BillModal({
                 <span className="text-right">Amt ₹</span>
               </div>
 
-              <div className="border-t border-gray-700 mb-1" />
+              <div className="border-t border-[#E2D9C8] mb-1" />
 
               {/* ─── Item Rows ────────────────────────────────── */}
               {billItems.length === 0 ? (
-                <p className="text-center text-gray-600 text-xs py-2 italic">
+                <p className="text-center text-[#78716C] text-xs py-2 italic">
                   No items
                 </p>
               ) : (
                 billItems.map((item, idx) => (
                   <div
                     key={idx}
-                    className="grid grid-cols-[1.5rem_1fr_3.5rem_2.5rem_4rem] gap-x-1 text-xs py-0.5 text-gray-300 leading-tight"
+                    className="grid grid-cols-[1.5rem_1fr_3.5rem_2.5rem_4rem] gap-x-1 text-xs py-0.5 text-stone-800 leading-tight"
                   >
-                    <span className="text-gray-500">{idx + 1}</span>
-                    <span className="truncate">{item.item_name}</span>
+                    <span className="text-[#78716C]">{idx + 1}</span>
+                    <span className="truncate font-semibold text-stone-900">{item.item_name}</span>
                     <span className="text-right tabular-nums">
                       {Number(item.unit_price).toFixed(2)}
                     </span>
                     <span className="text-right tabular-nums">
                       {item.quantity}
                     </span>
-                    <span className="text-right tabular-nums font-medium text-gray-200">
+                    <span className="text-right tabular-nums font-bold text-stone-900">
                       {Number(item.item_total).toFixed(2)}
                     </span>
                   </div>
@@ -230,39 +241,39 @@ export default function BillModal({
               {/* ─── Totals ───────────────────────────────────── */}
               <div className="space-y-0.5 text-xs">
                 <div className="flex justify-between">
-                  <span className="text-gray-500">Subtotal</span>
-                  <span className="text-gray-300 tabular-nums">
+                  <span className="text-[#78716C]">Subtotal</span>
+                  <span className="text-stone-800 tabular-nums">
                     ₹{subtotal.toFixed(2)}
                   </span>
                 </div>
                 <div className="flex justify-between">
-                  <span className="text-gray-500">GST ({gstRate}%)</span>
-                  <span className="text-gray-300 tabular-nums">
+                  <span className="text-[#78716C]">GST ({gstRate}%)</span>
+                  <span className="text-stone-800 tabular-nums">
                     ₹{gstAmount.toFixed(2)}
                   </span>
                 </div>
                 {roundOffAmt !== 0 && (
                   <div className="flex justify-between">
-                    <span className="text-gray-500">Round Off</span>
-                    <span className="text-gray-300 tabular-nums">
+                    <span className="text-[#78716C]">Round Off</span>
+                    <span className="text-stone-800 tabular-nums">
                       {roundOffAmt > 0 ? "+" : ""}
                       ₹{roundOffAmt.toFixed(2)}
                     </span>
                   </div>
                 )}
-                <div className="border-t border-gray-700 my-1" />
-                <div className="flex justify-between text-sm font-bold">
-                  <span className="text-white">GRAND TOTAL</span>
-                  <span className="text-emerald-400 tabular-nums">
+                <div className="border-t border-[#D8CEBA] my-1" />
+                <div className="flex justify-between text-sm font-black">
+                  <span className="text-stone-900">GRAND TOTAL</span>
+                  <span className="text-[#991B1B] tabular-nums">
                     ₹{grandTotal.toFixed(2)}
                   </span>
                 </div>
               </div>
 
               {/* ─── Amount in Words ──────────────────────────── */}
-              <p className="text-[10px] text-gray-500 mt-1 italic leading-snug">
+              <p className="text-[10px] text-[#78716C] mt-1 italic leading-snug">
                 Amount in words:{" "}
-                <span className="text-gray-400">{numberToWords(grandTotal)}</span>
+                <span className="text-stone-900 font-semibold">{numberToWords(grandTotal)}</span>
               </p>
 
               <DashedLine />
@@ -280,27 +291,27 @@ export default function BillModal({
               {paymentMode === "udhaar" && (
                 <>
                   <DashedLine />
-                  <div className="border border-dashed border-amber-500/30 rounded-lg p-3 bg-amber-950/20">
-                    <p className="text-center text-xs font-bold text-amber-400 tracking-wide uppercase mb-2">
+                  <div className="border border-dashed border-red-300 rounded-lg p-3 bg-red-50">
+                    <p className="text-center text-xs font-bold text-red-900 tracking-wide uppercase mb-2">
                       📒 Khata / Credit Ledger
                     </p>
                     <div className="space-y-1 text-xs">
                       <div className="flex justify-between">
-                        <span className="text-gray-400">Previous Balance</span>
-                        <span className="text-gray-300 tabular-nums">
+                        <span className="text-[#78716C]">Previous Balance</span>
+                        <span className="text-stone-800 tabular-nums">
                           ₹{Number(customerBalance).toFixed(2)}
                         </span>
                       </div>
                       <div className="flex justify-between">
-                        <span className="text-gray-400">Current Bill (+)</span>
-                        <span className="text-amber-400 tabular-nums font-medium">
+                        <span className="text-[#78716C]">Current Bill (+)</span>
+                        <span className="text-red-700 tabular-nums font-bold">
                           ₹{grandTotal.toFixed(2)}
                         </span>
                       </div>
-                      <div className="border-t border-amber-500/20 my-1" />
+                      <div className="border-t border-red-200 my-1" />
                       <div className="flex justify-between font-bold text-sm">
-                        <span className="text-amber-300">New Balance</span>
-                        <span className="text-amber-300 tabular-nums">
+                        <span className="text-red-900">New Balance</span>
+                        <span className="text-red-900 tabular-nums">
                           ₹{newBalance.toFixed(2)}
                         </span>
                       </div>
@@ -313,32 +324,33 @@ export default function BillModal({
 
               {/* ─── Footer / Thank You ──────────────────────── */}
               <div className="text-center space-y-1 mt-1 mb-2">
-                <p className="text-xs text-gray-400 italic">
+                <p className="text-xs text-[#78716C] italic font-semibold">
                   "Thank you for shopping with us!"
                 </p>
-                <p className="text-[10px] text-gray-600">
+                <p className="text-[10px] text-[#A8A29E]">
                   Goods once sold will not be taken back.
                   <br />
                   Subject to Bangalore jurisdiction only.
                 </p>
-                <p className="text-[10px] text-gray-700 mt-2 tracking-widest">
+                <p className="text-[10px] text-[#991B1B] font-bold mt-2 tracking-widest">
                   ★ ★ ★ Powered by KiranaSync ★ ★ ★
                 </p>
               </div>
             </div>
 
             {/* ─── Action Buttons (outside scrollable area) ──── */}
-            <div className="flex border-t border-gray-800 shrink-0">
+            <div className="flex border-t border-[#E2D9C8] shrink-0 bg-[#FAF7F2] p-3.5 gap-3 pointer-events-auto">
               <button
+                type="button"
                 onClick={handlePrint}
-                className="flex-1 flex items-center justify-center gap-2 py-3 text-sm font-semibold text-emerald-400 hover:bg-emerald-500/10 active:bg-emerald-500/20 transition-colors cursor-pointer"
+                className="flex-1 flex items-center justify-center gap-2 py-3 px-4 rounded-xl text-xs font-bold text-white bg-[#991B1B] hover:bg-[#B91C1C] transition-all cursor-pointer shadow-xs"
               >
                 🖨️ Print Bill
               </button>
-              <div className="w-px bg-gray-800" />
               <button
+                type="button"
                 onClick={onClose}
-                className="flex-1 flex items-center justify-center gap-2 py-3 text-sm font-semibold text-gray-400 hover:bg-gray-800 active:bg-gray-700 transition-colors cursor-pointer"
+                className="flex-1 flex items-center justify-center gap-2 py-3 px-4 rounded-xl text-xs font-bold text-stone-800 bg-[#FFFDF9] hover:bg-[#F4EFE6] border border-[#D8CEBA] transition-all cursor-pointer shadow-2xs"
               >
                 ✕ Close
               </button>

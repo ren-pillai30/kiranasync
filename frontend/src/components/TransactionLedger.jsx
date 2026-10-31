@@ -22,37 +22,37 @@ export default function TransactionLedger({ transactions, t, onViewBill }) {
   };
 
   return (
-    <section className="mt-8">
-      <div className="flex justify-between items-center mb-4">
+    <section className="mt-7">
+      <div className="flex justify-between items-center mb-3">
         <div>
-          <h3 className="text-lg font-bold text-gray-100 flex items-center space-x-2">
+          <h3 className="text-base font-bold text-stone-900 flex items-center space-x-2">
             <span>📜</span>
             <span>{t.ledgerTitle}</span>
           </h3>
-          <p className="text-xs text-gray-400">All registered counter transactions, sales, and credit logs</p>
+          <p className="text-xs text-[#78716C]">All registered counter transactions, sales, and credit logs</p>
         </div>
-        <span className="text-xs font-mono bg-gray-800 text-gray-300 px-2.5 py-1 rounded-lg border border-gray-700">
+        <span className="text-xs font-mono font-bold bg-[#FEF3C7] text-[#92400E] px-2.5 py-1 rounded-lg border border-[#FDE68A] shadow-2xs">
           {transactions.length} Records
         </span>
       </div>
 
-      <div className="bg-gray-800/90 rounded-xl overflow-hidden border border-gray-700 max-h-80 shadow-inner">
-        <table className="w-full min-w-[760px] text-left text-sm text-gray-300">
-          <thead className="bg-gray-900/90 text-gray-400 uppercase text-[11px] tracking-wider sticky top-0 border-b border-gray-700">
+      <div className="bg-[#FFFDF9] rounded-xl overflow-y-auto max-h-80 border border-[#E2D9C8] shadow-xs custom-scrollbar">
+        <table className="w-full min-w-[760px] text-left text-sm text-stone-700">
+          <thead className="bg-[#F4EFE6] text-[#57534E] uppercase text-[11px] tracking-wider sticky top-0 border-b border-[#E2D9C8] font-bold z-10">
             <tr>
-              <th className="px-4 py-3">{t.ledgerDate}</th>
-              <th className="px-4 py-3">{t.ledgerType}</th>
-              <th className="px-4 py-3">{t.ledgerEntity}</th>
-              <th className="px-4 py-3 text-right">{t.ledgerQuantity}</th>
-              <th className="px-4 py-3 text-right">{t.ledgerAmount}</th>
-              <th className="px-4 py-3">{t.ledgerDetails}</th>
-              <th className="px-3 py-3 text-center">Receipt</th>
+              <th className="px-4 py-2.5">{t.ledgerDate}</th>
+              <th className="px-4 py-2.5">{t.ledgerType}</th>
+              <th className="px-4 py-2.5">{t.ledgerEntity}</th>
+              <th className="px-4 py-2.5 text-right">{t.ledgerQuantity}</th>
+              <th className="px-4 py-2.5 text-right">{t.ledgerAmount}</th>
+              <th className="px-4 py-2.5">{t.ledgerDetails}</th>
+              <th className="px-3 py-2.5 text-center">Receipt</th>
             </tr>
           </thead>
-          <tbody className="divide-y divide-gray-700/50">
+          <tbody className="divide-y divide-[#F0EAE0]">
             {transactions.length === 0 ? (
               <tr>
-                <td colSpan="7" className="px-4 py-8 text-center text-gray-500">
+                <td colSpan="7" className="px-4 py-8 text-center text-[#78716C] italic text-xs">
                   {t.ledgerEmpty}
                 </td>
               </tr>
@@ -64,8 +64,8 @@ export default function TransactionLedger({ transactions, t, onViewBill }) {
                 const isRepay = transaction.TransactionType === 'Repayment';
 
                 return (
-                  <tr key={transaction.TxnID} className="hover:bg-gray-700/30 transition-colors">
-                    <td className="px-4 py-3 whitespace-nowrap text-xs text-gray-400 font-mono">
+                  <tr key={transaction.TxnID} className="hover:bg-[#FAF6EE] transition-colors">
+                    <td className="px-4 py-2.5 whitespace-nowrap text-xs text-[#78716C] font-mono">
                       {transaction.Timestamp
                         ? new Date(`${transaction.Timestamp.replace(' ', 'T')}Z`).toLocaleString('en-IN', {
                             day: '2-digit',
@@ -75,35 +75,35 @@ export default function TransactionLedger({ transactions, t, onViewBill }) {
                           })
                         : '—'}
                     </td>
-                    <td className="px-4 py-3">
+                    <td className="px-4 py-2.5">
                       <span
-                        className={`text-xs px-2 py-0.5 rounded-full font-medium inline-block ${
+                        className={`text-xs px-2.5 py-0.5 rounded-full font-bold inline-block ${
                           isSale
-                            ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/30'
+                            ? 'bg-emerald-50 text-emerald-800 border border-emerald-300'
                             : isCredit
-                            ? 'bg-amber-500/15 text-amber-400 border border-amber-500/30'
+                            ? 'bg-red-50 text-red-800 border border-red-300'
                             : isRestock
-                            ? 'bg-blue-500/15 text-blue-400 border border-blue-500/30'
+                            ? 'bg-stone-100 text-stone-800 border border-stone-300'
                             : isRepay
-                            ? 'bg-purple-500/15 text-purple-400 border border-purple-500/30'
-                            : 'bg-gray-700 text-gray-300'
+                            ? 'bg-[#FEF3C7] text-[#92400E] border border-[#FDE68A]'
+                            : 'bg-stone-100 text-stone-700'
                         }`}
                       >
                         {transaction.TransactionType}
                       </span>
                     </td>
-                    <td className="px-4 py-3 font-medium text-white">{transaction.EntityName || '—'}</td>
-                    <td className="px-4 py-3 text-right font-mono">{transaction.Quantity ?? '—'}</td>
-                    <td className="px-4 py-3 text-right whitespace-nowrap font-mono font-semibold">
+                    <td className="px-4 py-2.5 font-semibold text-stone-900">{transaction.EntityName || '—'}</td>
+                    <td className="px-4 py-2.5 text-right font-mono text-stone-700">{transaction.Quantity ?? '—'}</td>
+                    <td className="px-4 py-2.5 text-right whitespace-nowrap font-mono font-bold">
                       <span
                         className={
                           isSale || isRepay
-                            ? 'text-emerald-400'
+                            ? 'text-emerald-700'
                             : isRestock
-                            ? 'text-rose-400'
+                            ? 'text-stone-800'
                             : isCredit
-                            ? 'text-amber-400'
-                            : 'text-gray-300'
+                            ? 'text-red-700'
+                            : 'text-stone-700'
                         }
                       >
                         {isSale || isRepay ? '+' : ''}
@@ -111,20 +111,20 @@ export default function TransactionLedger({ transactions, t, onViewBill }) {
                         ₹{Math.abs(Number(transaction.TotalAmount || 0)).toLocaleString('en-IN')}
                       </span>
                     </td>
-                    <td className="px-4 py-3 max-w-xs truncate text-xs text-gray-400" title={transaction.CommandText || ''}>
+                    <td className="px-4 py-2.5 max-w-xs truncate text-xs text-[#78716C]" title={transaction.CommandText || ''}>
                       {transaction.CommandText || '—'}
                     </td>
-                    <td className="px-3 py-3 text-center">
+                    <td className="px-3 py-2.5 text-center">
                       {(isSale || isCredit) ? (
                         <button
                           onClick={() => handleRowBill(transaction)}
-                          className="px-2 py-1 text-xs bg-gray-700/80 hover:bg-emerald-600/30 hover:border-emerald-500/40 text-gray-300 hover:text-emerald-300 rounded border border-gray-600 transition-all font-medium"
+                          className="px-2.5 py-1 text-xs bg-[#FFFDF7] hover:bg-[#991B1B] text-stone-800 hover:text-white rounded-md border border-[#D8CEBA] hover:border-[#991B1B] font-bold transition-all shadow-2xs"
                           title="Generate printable invoice receipt"
                         >
                           🧾 Bill
                         </button>
                       ) : (
-                        <span className="text-gray-600 text-xs">—</span>
+                        <span className="text-stone-400 text-xs">—</span>
                       )}
                     </td>
                   </tr>

@@ -276,19 +276,8 @@ export default function App() {
         handleClose={handleClose}
       />
 
-      <div className="flex-grow flex items-center justify-center p-6 pointer-events-none mt-10">
-        <button id="voice-trigger" onClick={voiceRecorder.startRecording} className="hidden">
-          Voice
-        </button>
-        <button
-          id="dashboard-trigger"
-          onClick={() => setShowDashboard(!showDashboard)}
-          className="hidden"
-        >
-          Dash
-        </button>
-
-        {/* MODALS */}
+      {/* INTERACTIVE MODALS & VOICE HUD */}
+      <div className="pointer-events-auto">
         <CallSimulator
           isOpen={showCallSimulator}
           onClose={() => setShowCallSimulator(false)}
@@ -374,6 +363,19 @@ export default function App() {
           t={t}
           stopAndProcessRecording={voiceRecorder.stopAndProcessRecording}
         />
+      </div>
+
+      <div className="flex-grow flex items-center justify-center p-6 pointer-events-none mt-10">
+        <button id="voice-trigger" onClick={voiceRecorder.startRecording} className="hidden">
+          Voice
+        </button>
+        <button
+          id="dashboard-trigger"
+          onClick={() => setShowDashboard(!showDashboard)}
+          className="hidden"
+        >
+          Dash
+        </button>
 
         {/* MAIN DASHBOARD */}
         <AnimatePresence>

@@ -21,25 +21,37 @@ export default function ProductConfirmModal({
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm pointer-events-auto"
+          className="fixed inset-0 z-[100] flex items-center justify-center bg-black/70 backdrop-blur-sm pointer-events-auto p-4 cursor-pointer"
+          onClick={onCancel}
         >
           <motion.div
-            initial={{ scale: 0.9, y: 20 }}
+            initial={{ scale: 0.95, y: 16 }}
             animate={{ scale: 1, y: 0 }}
-            className="bg-gray-800 border border-blue-500/50 p-6 rounded-2xl shadow-2xl w-[400px] max-h-[85vh] overflow-y-auto"
+            className="relative bg-[#FAF7F2] border-2 border-[#991B1B] p-6 rounded-2xl shadow-2xl w-[420px] max-h-[85vh] overflow-y-auto custom-scrollbar text-stone-900 cursor-auto pointer-events-auto"
+            onClick={(e) => e.stopPropagation()}
           >
+            {/* Top Close Button */}
+            <button
+              type="button"
+              onClick={onCancel}
+              className="absolute top-3 right-3 text-stone-400 hover:text-stone-900 text-2xl font-bold w-8 h-8 flex items-center justify-center rounded-lg hover:bg-stone-200/60 transition-all cursor-pointer"
+              title="Close"
+            >
+              &times;
+            </button>
+
             <div className="flex items-center space-x-3 mb-2">
-              <span className="text-2xl">🔍</span>
-              <h3 className="text-xl font-bold text-white">{t.confirmTitle}</h3>
+              <span className="text-2xl p-1 rounded-lg bg-[#FEF3C7]">🔍</span>
+              <h3 className="text-xl font-black text-stone-900">{t.confirmTitle}</h3>
             </div>
-            <p className="text-gray-400 text-sm mb-6">{t.confirmDesc}</p>
+            <p className="text-[#78716C] text-xs mb-5 font-medium">{t.confirmDesc}</p>
 
             <div className="space-y-4">
               <div>
-                <label className="text-xs text-gray-500 font-semibold uppercase">{t.thItem}</label>
+                <label className="text-[11px] text-[#78716C] font-bold uppercase tracking-wider">{t.thItem}</label>
                 <input
                   type="text"
-                  className="w-full bg-gray-700 text-white p-3 rounded-xl mt-1 border border-gray-600 focus:border-blue-500 outline-none"
+                  className="w-full bg-[#FFFDF9] text-stone-900 p-2.5 rounded-xl mt-1 border border-[#D8CEBA] focus:border-[#991B1B] focus:ring-2 focus:ring-[#991B1B]/20 outline-none text-sm font-semibold transition-all"
                   value={pendingDraft.ItemName}
                   onChange={(e) => {
                     setPendingDraft({
@@ -59,29 +71,29 @@ export default function ProductConfirmModal({
                   type="button"
                   onClick={searchEditedProductName}
                   disabled={!pendingDraft.ItemName.trim() || isSearchingProduct}
-                  className="mt-2 px-3 py-2 rounded-lg bg-blue-500/20 text-blue-300 hover:bg-blue-500/30 disabled:opacity-40 text-sm"
+                  className="mt-2 px-3 py-1.5 rounded-lg bg-[#991B1B] hover:bg-[#B91C1C] text-white disabled:opacity-40 text-xs font-bold transition-all shadow-xs"
                 >
                   {isSearchingProduct ? t.searching : t.searchAgain}
                 </button>
-                <p className="text-xs text-gray-500 mt-1">{t.editNameToSearch}</p>
+                <p className="text-[11px] text-[#78716C] mt-1 font-medium">{t.editNameToSearch}</p>
               </div>
               <div className="flex space-x-4">
-                <p className="text-xs text-gray-500 font-semibold uppercase">{t.mrpOptions}</p>
+                <p className="text-[11px] text-[#78716C] font-bold uppercase tracking-wider">{t.mrpOptions}</p>
               </div>
 
               {pendingDraft.SearchStatus === 'measurement_mismatch' && (
-                <div className="p-3.5 bg-amber-500/15 border border-amber-500/40 rounded-xl text-amber-200 text-xs space-y-1.5 shadow-sm">
-                  <div className="font-bold flex items-center space-x-1.5 text-amber-300">
+                <div className="p-3.5 bg-red-50 border border-red-300 rounded-xl text-red-900 text-xs space-y-1.5 shadow-2xs">
+                  <div className="font-bold flex items-center space-x-1.5 text-red-800">
                     <span>⚠️</span>
                     <span>Exact measurement ({pendingDraft.RequestedMeasurement || 'requested'}) not available</span>
                   </div>
-                  <p className="text-amber-200/90 leading-relaxed">
-                    Other measurements found online: <strong className="text-white font-mono">{pendingDraft.AvailableMeasurements?.join(', ')}</strong>. Verify product packaging before selecting.
+                  <p className="text-red-900/90 leading-relaxed font-medium">
+                    Other measurements found online: <strong className="text-red-950 font-mono">{pendingDraft.AvailableMeasurements?.join(', ')}</strong>. Verify product packaging before selecting.
                   </p>
                 </div>
               )}
 
-              <p className="text-sm text-gray-300">
+              <p className="text-xs text-stone-700 font-semibold">
                 {pendingDraft.SearchStatus === 'searching'
                   ? t.searching
                   : pendingDraft.SearchStatus === 'measurement_mismatch'
@@ -96,16 +108,16 @@ export default function ProductConfirmModal({
                   ? pendingDraft.SearchMessage
                   : t.lookupUnavailable}
               </p>
-              <p className="text-xs text-gray-400">{t.productVariantNote}</p>
+              <p className="text-[11px] text-[#78716C]">{t.productVariantNote}</p>
               {pendingDraft.PriceOptions?.length > 0 ? (
-                <div className="space-y-3">
+                <div className="space-y-2.5">
                   {pendingDraft.PriceOptions.map((option, index) => (
                     <div
                       key={`${option.Price}-${index}`}
-                      className={`block p-3 rounded-xl border ${
+                      className={`block p-3 rounded-xl border transition-all ${
                         option.Selected
-                          ? 'border-blue-500 bg-blue-500/10'
-                          : 'border-gray-700 bg-gray-700/40'
+                          ? 'border-2 border-[#991B1B] bg-[#FFFDF9] shadow-xs'
+                          : 'border border-[#D8CEBA] bg-[#F4EFE6]'
                       }`}
                     >
                       <div className="flex items-start gap-3">
@@ -123,18 +135,18 @@ export default function ProductConfirmModal({
                               ),
                             }))
                           }
-                          className="mt-1 accent-blue-500"
+                          className="mt-1 accent-[#991B1B]"
                         />
                         <div className="flex-1 min-w-0">
                           <div className="flex justify-between items-center">
-                            <span className="font-semibold text-white flex items-center flex-wrap gap-1">
+                            <span className="font-bold text-stone-900 flex items-center flex-wrap gap-1.5 text-sm">
                               <span>₹{Number(option.Price).toLocaleString('en-IN')}</span>
                               {option.Measurement && (
-                                <span className="px-1.5 py-0.5 rounded text-[10px] font-mono font-bold bg-amber-500/20 text-amber-300 border border-amber-500/30">
+                                <span className="px-1.5 py-0.5 rounded text-[10px] font-mono font-bold bg-[#FEF3C7] text-[#92400E] border border-[#FDE68A]">
                                   {option.Measurement}
                                 </span>
                               )}
-                              <span className="text-xs text-gray-400">
+                              <span className="text-xs text-[#78716C] font-normal">
                                 {option.IsManual
                                   ? ` · ${t.manualMrp}`
                                   : option.PriceIsMRP
@@ -142,7 +154,7 @@ export default function ProductConfirmModal({
                                   : ' · online price'}
                               </span>
                             </span>
-                            <span className="text-xs text-gray-400">
+                            <span className="text-xs text-[#78716C] font-mono font-semibold">
                               {t.purchaseTotal}: ₹
                               {(
                                 Number(option.Price) * Number(option.Quantity)
@@ -150,7 +162,7 @@ export default function ProductConfirmModal({
                             </span>
                           </div>
                           <div className="mt-2">
-                            <label className="text-xs text-gray-400">{t.quantityForMrp}</label>
+                            <label className="text-[11px] font-semibold text-[#78716C]">{t.quantityForMrp}</label>
                             <input
                               type="number"
                               min="1"
@@ -167,26 +179,26 @@ export default function ProductConfirmModal({
                                 }))
                               }
                               onClick={(event) => event.stopPropagation()}
-                              className="block w-full bg-gray-700 text-white p-2 rounded-lg mt-1 border border-gray-600"
+                              className="block w-full bg-[#FFFDF9] text-stone-900 p-2 rounded-lg mt-1 border border-[#D8CEBA] text-sm font-semibold focus:outline-none focus:border-[#991B1B]"
                             />
                           </div>
                           {option.Sources?.length > 0 && (
-                            <p className="text-xs text-gray-500 mt-2">{t.mrpSources}</p>
+                            <p className="text-[11px] font-bold text-[#78716C] mt-2">{t.mrpSources}</p>
                           )}
                           {option.Sources?.map((source, sourceIndex) => (
-                            <div key={`${source.URL}-${sourceIndex}`} className="mt-2 text-xs">
+                            <div key={`${source.URL}-${sourceIndex}`} className="mt-1 text-xs">
                               {source.URL ? (
                                 <a
                                   href={source.URL}
                                   target="_blank"
                                   rel="noreferrer"
                                   onClick={(event) => event.stopPropagation()}
-                                  className="text-blue-400 underline"
+                                  className="text-[#991B1B] hover:underline font-semibold"
                                 >
                                   {source.Title || source.URL}
                                 </a>
                               ) : (
-                                <span className="text-gray-300">{source.Title}</span>
+                                <span className="text-stone-700">{source.Title}</span>
                               )}
                             </div>
                           ))}
@@ -196,10 +208,10 @@ export default function ProductConfirmModal({
                   ))}
                 </div>
               ) : (
-                <p className="text-sm text-gray-400">{t.noPriceOptions}</p>
+                <p className="text-xs text-[#78716C] italic">{t.noPriceOptions}</p>
               )}
-              <div className="border-t border-gray-700 pt-3">
-                <label className="text-xs text-gray-400">{t.addAnotherMrp}</label>
+              <div className="border-t border-[#E2D9C8] pt-3">
+                <label className="text-xs font-bold text-[#78716C]">{t.addAnotherMrp}</label>
                 <div className="flex gap-2 mt-1">
                   <input
                     type="number"
@@ -208,13 +220,13 @@ export default function ProductConfirmModal({
                     value={manualMrp}
                     onChange={(event) => setManualMrp(event.target.value)}
                     placeholder={t.mrpPlace}
-                    className="flex-1 min-w-0 bg-gray-700 text-white p-2 rounded-lg border border-gray-600"
+                    className="flex-1 min-w-0 bg-[#FFFDF9] text-stone-900 p-2 rounded-lg border border-[#D8CEBA] text-sm font-semibold focus:outline-none focus:border-[#991B1B]"
                   />
                   <button
                     type="button"
                     onClick={addManualMrp}
                     disabled={!(Number(manualMrp) > 0)}
-                    className="px-3 rounded-lg bg-blue-500/20 text-blue-300 disabled:opacity-40"
+                    className="px-3 rounded-lg bg-[#991B1B] hover:bg-[#B91C1C] text-white font-bold text-xs disabled:opacity-40 transition-all shadow-xs"
                   >
                     {t.addMrp}
                   </button>
@@ -222,11 +234,11 @@ export default function ProductConfirmModal({
               </div>
               {pendingDraft.PriceOptions?.length === 0 &&
                 pendingDraft.SearchResults?.length > 0 && (
-                  <div className="border-t border-gray-700 pt-3">
-                    <p className="text-xs text-gray-400 font-semibold uppercase mb-2">
+                  <div className="border-t border-[#E2D9C8] pt-3">
+                    <p className="text-xs text-[#78716C] font-bold uppercase mb-2">
                       {t.sourceLabel}
                     </p>
-                    <ul className="space-y-2">
+                    <ul className="space-y-1.5">
                       {pendingDraft.SearchResults.map((source, index) => (
                         <li key={`${source.URL}-${index}`} className="text-xs">
                           {source.URL ? (
@@ -234,34 +246,36 @@ export default function ProductConfirmModal({
                               href={source.URL}
                               target="_blank"
                               rel="noreferrer"
-                              className="text-blue-400 hover:text-blue-300 underline"
+                              className="text-[#991B1B] hover:underline font-semibold"
                             >
                               {source.Title || source.URL}
                             </a>
                           ) : (
-                            <span className="text-gray-300">{source.Title}</span>
+                            <span className="text-stone-700">{source.Title}</span>
                           )}
-                          {source.Snippet && <p className="text-gray-500 mt-1">{source.Snippet}</p>}
+                          {source.Snippet && <p className="text-[#78716C] text-[11px] mt-0.5">{source.Snippet}</p>}
                         </li>
                       ))}
                     </ul>
                   </div>
                 )}
               {confirmationError && (
-                <p role="alert" className="text-sm text-red-400">
+                <p role="alert" className="text-xs text-red-600 font-semibold bg-red-50 p-2.5 rounded-lg border border-red-200">
                   {confirmationError}
                 </p>
               )}
             </div>
 
-            <div className="mt-8 flex space-x-3">
+            <div className="mt-6 flex space-x-3 gap-1">
               <button
+                type="button"
                 onClick={onCancel}
-                className="w-1/3 py-3 rounded-xl bg-gray-700 hover:bg-gray-600 text-gray-300 font-medium transition-colors"
+                className="w-1/3 py-3 px-4 rounded-xl bg-[#FFFDF9] hover:bg-[#F4EFE6] text-stone-800 font-bold border border-[#D8CEBA] transition-all text-xs shadow-2xs cursor-pointer"
               >
                 {t.cancelBtn}
               </button>
               <button
+                type="button"
                 onClick={submitConfirmation}
                 disabled={
                   !pendingDraft.ItemName.trim() ||
@@ -273,7 +287,7 @@ export default function ProductConfirmModal({
                       Number.isInteger(Number(option.Quantity))
                   )
                 }
-                className="w-2/3 py-3 rounded-xl bg-blue-600 hover:bg-blue-500 disabled:opacity-40 disabled:cursor-not-allowed text-white font-semibold shadow-lg shadow-blue-500/20 transition-all"
+                className="w-2/3 py-3 px-4 rounded-xl bg-[#991B1B] hover:bg-[#B91C1C] disabled:opacity-40 disabled:cursor-not-allowed text-white font-bold text-xs shadow-xs transition-all cursor-pointer"
               >
                 {t.confirmAddBtn}
               </button>
@@ -284,4 +298,3 @@ export default function ProductConfirmModal({
     </AnimatePresence>
   );
 }
-

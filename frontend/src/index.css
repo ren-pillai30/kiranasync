@@ -1,11 +1,78 @@
 @import "tailwindcss";
 
+:root {
+  --pos-red-primary: #991b1b;
+  --pos-red-dark: #7f1d1d;
+  --pos-red-accent: #dc2626;
+  --pos-red-hover: #b91c1c;
+  --pos-red-light: #fef2f2;
+  --pos-red-border: #fca5a5;
+
+  --pos-eggshell: #fbf9f4;
+  --pos-eggshell-card: #fffdf9;
+  --pos-eggshell-warm: #f4efe6;
+  --pos-eggshell-yellow: #fef3c7;
+  --pos-eggshell-yellow-border: #fde68a;
+  --pos-eggshell-border: #e2d9c8;
+  --pos-eggshell-darker: #ede5d6;
+
+  --pos-ink-main: #1c1917;
+  --pos-ink-muted: #57534e;
+  --pos-ink-subtle: #78716c;
+}
+
 body {
   margin: 0;
   background-color: transparent !important;
-  color: white;
-  font-family: system-ui, -apple-system, sans-serif;
+  color: var(--pos-ink-main);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
   overflow: hidden;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Noticeable and tactile button hover animations */
+button {
+  transition: transform 0.18s cubic-bezier(0.34, 1.56, 0.64, 1),
+              box-shadow 0.18s ease-out,
+              background-color 0.18s ease-out,
+              border-color 0.18s ease-out,
+              opacity 0.15s ease-out;
+  cursor: pointer;
+}
+
+button:hover:not(:disabled) {
+  transform: translateY(-2px) scale(1.02);
+  box-shadow: 0 6px 14px -2px rgba(153, 27, 27, 0.22), 0 2px 6px -1px rgba(0, 0, 0, 0.08);
+}
+
+button:active:not(:disabled) {
+  transform: translateY(1px) scale(0.97);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12);
+}
+
+/* Custom scrollbars for all scrollable tables and panels */
+.custom-scrollbar::-webkit-scrollbar,
+::-webkit-scrollbar {
+  width: 7px;
+  height: 7px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-track,
+::-webkit-scrollbar-track {
+  background: #f4efe6;
+  border-radius: 9999px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb,
+::-webkit-scrollbar-thumb {
+  background: #d8ceba;
+  border-radius: 9999px;
+  border: 1.5px solid #f4efe6;
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb:hover,
+::-webkit-scrollbar-thumb:hover {
+  background: #991b1b;
 }
 
 /* Print styles for Kirana Bill */

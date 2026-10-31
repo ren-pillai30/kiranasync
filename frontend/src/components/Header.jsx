@@ -14,26 +14,26 @@ export default function Header({
   handleClose,
 }) {
   return (
-    <header className="overlay-header absolute top-0 left-0 w-full flex justify-between items-center px-4 py-2 bg-gray-950/95 backdrop-blur-md border-b border-gray-800 pointer-events-auto z-50 shadow-md">
+    <header className="overlay-header absolute top-0 left-0 w-full flex justify-between items-center px-5 py-2.5 bg-[#991B1B] border-b border-[#7F1D1D] pointer-events-auto z-50 shadow-md select-none">
       {/* BRAND & POS COUNTER BADGE */}
-      <div className="flex items-center space-x-3">
+      <div className="flex items-center gap-3.5 flex-wrap">
         <div className="flex items-center space-x-2">
-          <span className="text-sm font-black text-white tracking-widest uppercase">
-            KIRANA<span className="text-emerald-400">SYNC</span>
+          <span className="text-sm font-black text-[#FFFDF7] tracking-wider uppercase drop-shadow-xs">
+            KIRANA<span className="text-[#FEF3C7]">SYNC</span>
           </span>
-          <span className="text-[10px] uppercase font-semibold px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 flex items-center space-x-1">
-            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
+          <span className="text-[10px] uppercase font-bold px-2 py-0.5 rounded-md bg-[#FEF3C7] text-[#92400E] border border-[#FDE68A] flex items-center space-x-1.5 shadow-xs">
+            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
             <span>POS COUNTER #1</span>
           </span>
         </div>
 
-        <div className="h-4 w-px bg-gray-700"></div>
+        <div className="h-4 w-px bg-red-800"></div>
 
         {/* LANGUAGE SELECT */}
         <select
           value={selectedLangCode}
           onChange={(e) => setSelectedLangCode(e.target.value)}
-          className="bg-gray-900 text-gray-200 text-xs px-2 py-1 rounded-lg border border-gray-700 focus:outline-none focus:border-emerald-500 cursor-pointer font-medium"
+          className="bg-[#FFFDF7] text-stone-800 text-xs px-3 py-1.5 rounded-lg border border-[#FDE68A] focus:outline-none focus:ring-2 focus:ring-[#FEF3C7] cursor-pointer font-semibold shadow-xs hover:border-amber-400 transition-all"
           title="Select Spoken Language"
         >
           {INDIAN_LANGUAGES.map((l) => (
@@ -45,11 +45,12 @@ export default function Header({
 
         {/* AUDIO MUTE TOGGLE */}
         <button
+          type="button"
           onClick={() => setIsMuted(!isMuted)}
-          className={`text-xs px-2.5 py-1 rounded-lg border font-medium transition-all ${
+          className={`text-xs px-3 py-1.5 rounded-lg border font-semibold transition-all shadow-xs cursor-pointer ${
             isMuted
-              ? 'border-red-500/50 text-red-400 bg-red-500/10 hover:bg-red-500/20'
-              : 'border-emerald-500/50 text-emerald-300 bg-emerald-500/10 hover:bg-emerald-500/20'
+              ? 'border-red-300 text-red-950 bg-red-100 hover:bg-red-200'
+              : 'border-[#FDE68A] text-[#78350F] bg-[#FEF3C7] hover:bg-[#FDE68A]'
           }`}
           title={isMuted ? 'Audio feedback is muted' : 'Audio feedback is active (Gnani Timbre)'}
         >
@@ -58,11 +59,12 @@ export default function Header({
 
         {/* VOICE COMMAND BUTTON */}
         <button
+          type="button"
           onClick={startRecording}
-          className={`text-xs px-3 py-1 rounded-lg border transition-all font-semibold flex items-center space-x-1.5 ${
+          className={`text-xs px-3.5 py-1.5 rounded-lg border transition-all font-bold flex items-center space-x-1.5 shadow-sm cursor-pointer ${
             isRecording
-              ? 'border-red-500 text-white bg-red-600 animate-pulse shadow-md shadow-red-600/30'
-              : 'border-emerald-500/60 text-white bg-emerald-600 hover:bg-emerald-500 shadow-sm'
+              ? 'border-red-400 text-white bg-red-600 animate-pulse shadow-md shadow-red-900/50'
+              : 'border-[#FDE68A] text-[#78350F] bg-[#FEF3C7] hover:bg-[#FDE68A] hover:border-amber-400'
           }`}
           title="Click to speak command or press Ctrl+Shift+V"
         >
@@ -72,8 +74,9 @@ export default function Header({
 
         {/* QUICK BILL GENERATOR BUTTON */}
         <button
+          type="button"
           onClick={onOpenBill}
-          className="text-xs px-3 py-1 rounded-lg border border-gray-700 text-gray-200 bg-gray-900 hover:bg-gray-800 hover:border-gray-600 font-semibold flex items-center space-x-1.5 transition-all"
+          className="text-xs px-3.5 py-1.5 rounded-lg border border-[#E2D9C8] text-stone-800 bg-[#FFFDF7] hover:bg-[#F4EFE6] hover:border-stone-400 font-semibold flex items-center space-x-1.5 shadow-xs transition-all cursor-pointer"
           title="Create or print commercial Kirana cash memo"
         >
           <span>🧾</span>
@@ -82,8 +85,9 @@ export default function Header({
 
         {/* PHONE CALL SIMULATOR */}
         <button
+          type="button"
           onClick={onOpenSimulator}
-          className="text-xs px-3 py-1 rounded-lg border border-violet-500/40 text-violet-300 bg-violet-500/10 hover:bg-violet-500/20 font-semibold flex items-center space-x-1.5 transition-all"
+          className="text-xs px-3.5 py-1.5 rounded-lg border border-red-300/80 text-red-950 bg-red-100 hover:bg-red-200 hover:border-red-400 font-semibold flex items-center space-x-1.5 shadow-xs transition-all cursor-pointer"
           title="Simulate incoming customer phone call"
         >
           <span>📞</span>
@@ -92,8 +96,9 @@ export default function Header({
 
         {/* STORE FEEDBACK BUTTON */}
         <button
+          type="button"
           onClick={onOpenFeedback}
-          className="text-xs px-3 py-1 rounded-lg border border-amber-500/40 text-amber-300 bg-amber-500/10 hover:bg-amber-500/20 font-semibold flex items-center space-x-1.5 transition-all"
+          className="text-xs px-3.5 py-1.5 rounded-lg border border-[#FDE68A] text-[#92400E] bg-[#FFFDF7] hover:bg-[#FEF3C7] hover:border-amber-400 font-semibold flex items-center space-x-1.5 shadow-xs transition-all cursor-pointer"
           title="Leave store manager feedback or report issue"
         >
           <span>💬</span>
@@ -102,16 +107,18 @@ export default function Header({
       </div>
 
       {/* WINDOW CONTROLS */}
-      <div className="window-controls flex space-x-1.5">
+      <div className="window-controls flex items-center space-x-2 pl-3">
         <button
-          className="control-btn minimize w-7 h-7 flex items-center justify-center rounded-lg bg-gray-800 hover:bg-gray-700 text-gray-400 hover:text-white text-sm"
+          type="button"
+          className="control-btn minimize w-7 h-7 flex items-center justify-center rounded-lg bg-red-900/80 hover:bg-red-800 text-red-100 hover:text-white text-sm font-bold shadow-xs transition-all cursor-pointer"
           onClick={handleMinimize}
           title="Minimize"
         >
           &minus;
         </button>
         <button
-          className="control-btn close w-7 h-7 flex items-center justify-center rounded-lg bg-gray-800 hover:bg-red-600 text-gray-400 hover:text-white text-sm"
+          type="button"
+          className="control-btn close w-7 h-7 flex items-center justify-center rounded-lg bg-red-900/80 hover:bg-red-600 text-red-100 hover:text-white text-sm font-bold shadow-xs transition-all cursor-pointer"
           onClick={handleClose}
           title="Close"
         >
