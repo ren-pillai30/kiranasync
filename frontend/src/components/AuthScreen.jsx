@@ -39,7 +39,7 @@ export default function AuthScreen({ onAuthenticated }) {
       <form onSubmit={submit} className="w-full max-w-md rounded-2xl bg-white p-7 shadow-2xl">
         <h1 className="text-2xl font-bold text-slate-900">KiranaSync</h1>
         <p className="mt-1 text-sm text-slate-500">
-          {mode === 'login' ? 'Sign in to your store' : 'Create the first store account'}
+          {mode === 'login' ? 'Sign in to your store' : 'Create your store account'}
         </p>
 
         {mode === 'register' && (
@@ -61,7 +61,7 @@ export default function AuthScreen({ onAuthenticated }) {
           {submitting ? 'Please wait...' : mode === 'login' ? 'Sign in' : 'Create store'}
         </button>
         <button type="button" onClick={() => { setMode(mode === 'login' ? 'register' : 'login'); setError(''); }} className="mt-4 w-full text-sm font-medium text-emerald-700">
-          {mode === 'login' ? 'Create the first store account' : 'Already have an account? Sign in'}
+          {mode === 'login' ? 'Create a store account' : 'Already have an account? Sign in'}
         </button>
       </form>
     </div>

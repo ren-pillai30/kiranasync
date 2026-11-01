@@ -1,3 +1,5 @@
+import os
+
 from flask import jsonify, request
 from flask_login import LoginManager, current_user, login_user, logout_user
 
@@ -63,7 +65,8 @@ def register_auth_routes(app):
 
     @app.route("/api/auth/register", methods=["POST"])
     def auth_register():
-        if User.query.first() is not None:
+        public_registration = os.getenv("ALLOW_PUBLIC_REGISTRATION", "").strip().lower() in {"1", "true", "yes"}
+        if User.query.first() is not None and not public_registration:
             return jsonify({"status": "error", "error": "Registration is disabled."}), 403
 
         data = request.get_json(silent=True) or {}
