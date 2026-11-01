@@ -69,11 +69,6 @@ def require_authenticated_session():
         return None
     if request.path.startswith("/api/") and not current_user.is_authenticated:
         return jsonify({"status": "error", "error": "Authentication required."}), 401
-    if request.path.startswith("/api/") and os.getenv("DATABASE_URL"):
-        return jsonify({
-            "status": "error",
-            "error": "PostgreSQL store-data migration is still required.",
-        }), 503
 
 from backend.app.providers.gnani_stt import GnaniSTTProvider
 from backend.app.providers.gnani_tts import GnaniTTSProvider
