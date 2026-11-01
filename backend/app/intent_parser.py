@@ -47,6 +47,10 @@ except ImportError:
 
 def get_writable_db_path():
     """Returns a persistent, writable path for SQLite database."""
+    configured_path = os.getenv("KIRANA_DB_PATH")
+    if configured_path:
+        os.makedirs(os.path.dirname(os.path.abspath(configured_path)), exist_ok=True)
+        return configured_path
     if hasattr(sys, '_MEIPASS'):
         app_data = os.environ.get('LOCALAPPDATA', os.path.expanduser('~'))
         target_dir = os.path.join(app_data, 'KiranaSync')
@@ -411,10 +415,34 @@ def match_entity_with_score(query_text, db_records, threshold=70):
     def normalized_tokens(value):
         return set(re.findall(r'\w+', str(value).lower()))
 
-    if process and fuzz:
+    normalized_query = ' '.join(normalized_tokens(query_text))
+    exact_match = next(
+        (
+            record for record in db_records
+            if ' '.join(normalized_tokens(record)) == normalized_query
+        ),
+        None,
+    )
+    if exact_match:
+        return exact_match
+
+    meaningful_query_tokens = normalized_tokens(query_text) - GENERIC_COMMODITY_TERMS
+    if process and fuzz and not meaningful_query_tokens:
         match = process.extractOne(query_text, db_records, scorer=fuzz.token_set_ratio)
         if match and match[1] >= threshold:
             return match[0]
+
+    if process and fuzz and meaningful_query_tokens:
+        best_record, best_score = None, 0
+        for record in db_records:
+            meaningful_record_tokens = normalized_tokens(record) - GENERIC_COMMODITY_TERMS
+            if meaningful_query_tokens.isdisjoint(meaningful_record_tokens):
+                continue
+            candidate = process.extractOne(query_text, [record], scorer=fuzz.token_set_ratio)
+            if candidate and candidate[1] > best_score:
+                best_record, best_score = record, candidate[1]
+        if best_record and best_score >= threshold:
+            return best_record
 
     query_tokens = normalized_tokens(query_text)
     if not query_tokens:
@@ -425,6 +453,10 @@ def match_entity_with_score(query_text, db_records, threshold=70):
     for record in db_records:
         record_tokens = normalized_tokens(record)
         if not record_tokens:
+            continue
+        if meaningful_query_tokens and meaningful_query_tokens.isdisjoint(
+            record_tokens - GENERIC_COMMODITY_TERMS
+        ):
             continue
         shared_tokens = query_tokens & record_tokens
         if query_tokens <= record_tokens or record_tokens <= query_tokens:
@@ -448,6 +480,10 @@ def match_entity_with_score(query_text, db_records, threshold=70):
     best_token_score = 0
     for record in db_records:
         record_tokens = normalized_tokens(record)
+        if meaningful_query_tokens and meaningful_query_tokens.isdisjoint(
+            record_tokens - GENERIC_COMMODITY_TERMS
+        ):
+            continue
         token_score = max(
             (
                 100 * difflib.SequenceMatcher(None, query_token, record_token).ratio()
@@ -533,6 +569,10 @@ def find_unresolved_inventory_variants(cursor, entity_name, raw_transcript):
     for row in inventory:
         item_name_lower = row[1].lower()
         item_tokens = set(re.findall(r'[a-zA-Z0-9]+', item_name_lower))
+        meaningful_query_tokens = query_tokens - GENERIC_COMMODITY_TERMS
+        meaningful_item_tokens = item_tokens - GENERIC_COMMODITY_TERMS
+        if meaningful_query_tokens and meaningful_query_tokens.isdisjoint(meaningful_item_tokens):
+            continue
         if query_tokens and (query_tokens <= item_tokens or any(qt in item_tokens for qt in query_tokens if len(qt) >= 3)):
             matching_rows.append(row)
 
@@ -595,6 +635,7 @@ def has_quantity_marker(text_string):
 
 def extract_explicit_quantity(text_string):
     """Extract a quantity when the transcript explicitly contains one."""
+    text_string = _strip_trailing_command_words(text_string)
     quantity_marker = find_quantity_marker(text_string)
     quantity_text = (
         text_string[:quantity_marker.start()]
@@ -609,6 +650,101 @@ def extract_explicit_quantity(text_string):
     digits = re.findall(r'\d+', parsed_text)
     if digits:
         return int(digits[0])
+    romanized_quantity = _parse_romanized_indian_number(quantity_text)
+    if romanized_quantity is not None:
+        return romanized_quantity
+    return None
+
+
+_ROMANIZED_NUMBER_WORDS = {
+    "zero": 0, "shunya": 0, "sunya": 0,
+    "one": 1, "ek": 1, "ick": 1,
+    "two": 2, "do": 2,
+    "three": 3, "teen": 3, "tin": 3,
+    "four": 4, "char": 4, "chaar": 4,
+    "five": 5, "panch": 5, "paanch": 5,
+    "six": 6, "chah": 6, "chhah": 6, "cheh": 6,
+    "seven": 7, "saat": 7,
+    "eight": 8, "aath": 8, "ath": 8,
+    "nine": 9, "nau": 9, "no": 9,
+    "ten": 10, "das": 10, "dus": 10,
+    "eleven": 11, "gyarah": 11, "gyaarah": 11,
+    "twelve": 12, "barah": 12, "baarah": 12,
+    "thirteen": 13, "terah": 13,
+    "fourteen": 14, "chaudah": 14, "chaudah": 14,
+    "fifteen": 15, "pandrah": 15, "pandra": 15,
+    "sixteen": 16, "solah": 16, "solah": 16,
+    "seventeen": 17, "satrah": 17, "satara": 17,
+    "eighteen": 18, "atharah": 18, "athara": 18,
+    "nineteen": 19, "unnis": 19, "unnees": 19, "unnees": 19,
+    "twenty": 20, "bees": 20, "bis": 20,
+    "twenty one": 21, "ikkis": 21, "ikis": 21,
+    "twenty two": 22, "baees": 22, "bais": 22,
+    "twenty three": 23, "teees": 23, "teis": 23,
+    "twenty four": 24, "chaubees": 24, "chaubis": 24,
+    "twenty five": 25, "pachees": 25, "pachis": 25,
+    "twenty six": 26, "chhabbees": 26, "chhabbis": 26,
+    "twenty seven": 27, "sattais": 27, "sattais": 27,
+    "twenty eight": 28, "atthai": 28, "athais": 28,
+    "twenty nine": 29, "untees": 29, "untis": 29,
+    "thirty": 30, "tees": 30, "tis": 30,
+    "thirty one": 31, "iktees": 31, "ikattis": 31,
+    "thirty two": 32, "battees": 32, "battis": 32,
+    "thirty three": 33, "taintis": 33, "taintees": 33,
+    "thirty four": 34, "chauntis": 34, "chauntees": 34,
+    "thirty five": 35, "paintis": 35, "paintees": 35,
+    "thirty six": 36, "chhattees": 36, "chhatish": 36,
+    "thirty seven": 37, "saintees": 37, "saintees": 37,
+    "thirty eight": 38, "adtees": 38, "artis": 38,
+    "thirty nine": 39, "untaalis": 39, "untalis": 39,
+    "forty": 40, "chalis": 40, "chaalis": 40,
+    "forty one": 41, "iktalis": 41, "iktyalis": 41,
+    "forty two": 42, "bayalis": 42, "bayalis": 42,
+    "forty three": 43, "tainatalis": 43, "tentalis": 43,
+    "forty four": 44, "chauvaalis": 44, "chavalis": 44,
+    "forty five": 45, "paintalis": 45, "pentaalis": 45,
+    "forty six": 46, "chhiyaalis": 46, "chiyalis": 46,
+    "forty seven": 47, "sainatalis": 47, "santalis": 47,
+    "forty eight": 48, "adhiyalis": 48, "arhtalis": 48,
+    "forty nine": 49, "unchas": 49,
+    "fifty": 50, "pachas": 50, "pachaas": 50,
+    "sixty": 60, "saath": 60,
+    "sixty one": 61, "iksath": 61, "iksaath": 61,
+    "sixty two": 62, "baasath": 62, "basath": 62,
+    "sixty three": 63, "tirsath": 63, "tirsaath": 63,
+    "sixty four": 64, "chaunsath": 64, "chausaath": 64, "chonsath": 64,
+    "sixty five": 65, "paainsath": 65, "painsath": 65,
+    "sixty six": 66, "chiyaansath": 66, "chhiyasath": 66,
+    "sixty seven": 67, "sarsath": 67, "sarsaath": 67,
+    "sixty eight": 68, "arsath": 68, "adhaasath": 68,
+    "sixty nine": 69, "unhattar": 69, "unhattar": 69,
+    "seventy": 70, "sattar": 70,
+    "eighty": 80, "assi": 80,
+    "ninety": 90, "nabbe": 90,
+    "hundred": 100, "sau": 100,
+}
+
+
+def _strip_trailing_command_words(text_string):
+    return re.sub(
+        r"\s+(?:bech(?:o|na)?|bik(?:i|na)?|de(?:na)?|dijiye|do)\s*$",
+        "",
+        text_string.strip(),
+        flags=re.IGNORECASE,
+    )
+
+
+def _parse_romanized_indian_number(text_string):
+    words = re.findall(r"[a-z]+", text_string.lower())
+    while words:
+        for size in range(len(words), 0, -1):
+            phrase = " ".join(words[:size])
+            if phrase in _ROMANIZED_NUMBER_WORDS:
+                value = _ROMANIZED_NUMBER_WORDS[phrase]
+                if value == 0 and words:
+                    continue
+                return value
+        words.pop(0)
     return None
 
 def extract_quantity(text_string):
@@ -702,6 +838,9 @@ def parse_and_execute(raw_transcript, quantity_override=None, interpretation=Non
         intent = interpretation.get("action")
         clean_translated_entity = interpretation.get("entity")
         quantity_or_amount = interpretation.get("quantity")
+        explicit_quantity = extract_explicit_quantity(raw_transcript)
+        if explicit_quantity is not None and intent in {"sell", "restock", "credit", "add_product"}:
+            quantity_or_amount = explicit_quantity
         INTELLIGENCE_ACTIONS = {
             "query_hisaab", "query_low_stock", "query_stock",
             "query_customer", "repayment", "multi_sell", "assistant_qa",
@@ -1099,101 +1238,82 @@ def parse_and_execute(raw_transcript, quantity_override=None, interpretation=Non
     # --- EXECUTE TRANSACTIONS ---
     if intent == 'credit' or target_customer:
         amount = quantity_or_amount
-        if not target_customer:
-            target_customer = final_unknown_entity or "Unknown Customer"
-            cursor.execute(
-                "SELECT CustomerID, CustomerName, OutstandingBalance FROM CustomerCredit "
-                "WHERE lower(CustomerName) = lower(?) AND IsActive = 0",
-                (target_customer,),
-            )
-            archived_customer = cursor.fetchone()
-            if archived_customer:
-                target_customer = archived_customer[1]
-                new_bal = float(archived_customer[2] or 0) + amount
-                cursor.execute(
-                    "UPDATE CustomerCredit SET IsActive = 1, OutstandingBalance = ? WHERE CustomerID = ?",
-                    (new_bal, archived_customer[0]),
-                )
-                message = f"Restored {target_customer} and added Rs {amount}. New Balance: Rs {new_bal}."
-            else:
-                cursor.execute(
-                    'INSERT INTO CustomerCredit (CustomerName, OutstandingBalance, IsActive) VALUES (?, ?, 1)',
-                    (target_customer, amount),
-                )
-                message = f"Created new account for {target_customer} with Rs {amount} balance."
-        else:
-            cursor.execute('SELECT OutstandingBalance FROM CustomerCredit WHERE CustomerName = ?', (target_customer,))
-            row = cursor.fetchone()
-            current_bal = row[0] if row else 0
-            new_bal = current_bal + amount
-            cursor.execute('UPDATE CustomerCredit SET OutstandingBalance = ? WHERE CustomerName = ?', (new_bal, target_customer))
-            message = f"Added Rs {amount} to {target_customer}. New Balance: Rs {new_bal}."
-
-        record_transaction(
-            cursor, raw_transcript, amount, "Credit", target_customer
-        )
-        conn.commit()
         conn.close()
-        return {"status": "success", "action": "udhaar_added", "message": message}
+        customer_name = target_customer or final_unknown_entity or clean_translated_entity
+        return {
+            "status": "pending_confirmation",
+            "action": "confirm_credit",
+            "message": f"Confirm adding Rs {amount:g} to {customer_name}.",
+            "draft": {
+                "Intent": "credit",
+                "CustomerName": customer_name,
+                "Amount": amount,
+                "RawCommand": raw_transcript,
+            },
+        }
 
     elif intent in {'restock', 'add_product'}:
         if target_item:
             cursor.execute(
-                'SELECT StockQuantity, Price FROM Inventory WHERE ItemName = ?',
+                'SELECT ItemID, StockQuantity, Price FROM Inventory WHERE ItemName = ?',
                 (target_item,),
             )
             row = cursor.fetchone()
-            current_stock = int(row[0]) if row else 0
-            purchase_amount = float(row[1]) * quantity_or_amount if row else 0
-            new_stock = current_stock + quantity_or_amount
-            cursor.execute('UPDATE Inventory SET StockQuantity = ? WHERE ItemName = ?', (new_stock, target_item))
-            record_transaction(
-                cursor,
-                raw_transcript,
-                -purchase_amount,
-                "Restock",
-                target_item,
-                quantity_or_amount,
-            )
-            conn.commit()
             conn.close()
-            return {"status": "success", "action": "inventory_restocked", "message": f"Restocked {quantity_or_amount} {target_item}. Total stock: {new_stock}."}
+            new_stock = int(row[1]) + quantity_or_amount if row else quantity_or_amount
+            return {
+                "status": "pending_confirmation",
+                "action": "confirm_restock",
+                "message": f"Confirm restocking {quantity_or_amount} {target_item}. Total stock after restock: {new_stock}.",
+                "draft": {
+                    "Intent": "restock",
+                    "ItemID": row[0] if row else None,
+                    "ItemName": target_item,
+                    "Quantity": quantity_or_amount,
+                    "CurrentStock": int(row[1]) if row else 0,
+                    "RawCommand": raw_transcript,
+                },
+            }
         else:
-            product_lookup = search_product_online(final_unknown_entity)
             conn.close()
             return {
                 "status": "pending_confirmation",
                 "action": "confirm_restock",
-                "message": product_lookup["SearchMessage"],
-                "speech_message": product_lookup.get("SpeechMessage") or product_lookup["SearchMessage"],
+                "message": f"Confirm adding {quantity_or_amount} units of new product {final_unknown_entity}.",
                 "draft": {
+                    "ItemName": final_unknown_entity,
                     "StockQuantity": quantity_or_amount,
+                    "Price": None,
+                    "PriceFound": False,
+                    "PriceOptions": [],
+                    "SearchStatus": "idle",
                     "RawCommand": raw_transcript,
-                    **product_lookup,
                 }
             }
 
     else:
         if target_item:
-            cursor.execute('SELECT StockQuantity, Price FROM Inventory WHERE ItemName = ?', (target_item,))
+            cursor.execute('SELECT ItemID, StockQuantity, Price FROM Inventory WHERE ItemName = ?', (target_item,))
             result = cursor.fetchone()
-            if result and int(result[0]) >= quantity_or_amount:
-                new_stock = int(result[0]) - quantity_or_amount
-                cursor.execute('UPDATE Inventory SET StockQuantity = ? WHERE ItemName = ?', (new_stock, target_item))
-                record_transaction(
-                    cursor,
-                    raw_transcript,
-                    result[1] * quantity_or_amount,
-                    "Sale",
-                    target_item,
-                    quantity_or_amount,
-                )
-                conn.commit()
+            if result and int(result[1]) >= quantity_or_amount:
                 conn.close()
-                return {"status": "success", "action": "inventory_updated", "message": f"Sold {quantity_or_amount} {target_item}. Stock left: {new_stock}."}
+                new_stock = int(result[1]) - quantity_or_amount
+                return {
+                    "status": "pending_confirmation",
+                    "action": "confirm_sale",
+                    "message": f"Confirm selling {quantity_or_amount} {target_item}. Stock left after sale: {new_stock}.",
+                    "draft": {
+                        "Intent": "sell",
+                        "ItemID": result[0],
+                        "ItemName": target_item,
+                        "Quantity": quantity_or_amount,
+                        "CurrentStock": int(result[1]),
+                        "RawCommand": raw_transcript,
+                    },
+                }
             elif result:
                 conn.close()
-                return {"status": "failed", "action": "out_of_stock", "message": f"Not enough {target_item} in stock! Only {result[0]} left."}
+                return {"status": "failed", "action": "out_of_stock", "message": f"Not enough {target_item} in stock! Only {result[1]} left."}
         else:
             conn.close()
             return {

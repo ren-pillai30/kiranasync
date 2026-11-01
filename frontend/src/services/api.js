@@ -1,4 +1,6 @@
-const API_BASE = 'http://127.0.0.1:5000';
+const API_BASE = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'
+  ? (window.location.port === '5173' ? 'http://127.0.0.1:5000' : '')
+  : '';
 
 async function request(endpoint, options = {}) {
   const url = `${API_BASE}${endpoint}`;
@@ -45,6 +47,13 @@ export const api = {
 
   confirmInventoryCommand: (data) =>
     request('/api/inventory/confirm-command', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data),
+    }),
+
+  confirmTransaction: (data) =>
+    request('/api/transactions/confirm', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(data),
@@ -117,4 +126,3 @@ export const api = {
       body: JSON.stringify(payload),
     }),
 };
-

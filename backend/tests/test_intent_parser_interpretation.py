@@ -34,7 +34,11 @@ class IntentParserInterpretationTests(unittest.TestCase):
                     TotalAmount INTEGER
                 );
                 INSERT INTO Inventory (ItemName, StockQuantity, Price)
-                VALUES ('Sugar 1kg', 5, 10);
+                VALUES
+                    ('Sugar 1kg', 5, 10),
+                    ('Toothpaste', 110, 33),
+                    ('Biscoff Biscuit', 20, 60),
+                    ('GoodDay Biscuit', 30, 20);
                 INSERT INTO CustomerCredit (CustomerName, OutstandingBalance)
                 VALUES ('Ramesh', 20);
                 """
@@ -63,20 +67,80 @@ class IntentParserInterpretationTests(unittest.TestCase):
             },
         )
 
-        self.assertEqual(result["status"], "success")
+        self.assertEqual(result["status"], "pending_confirmation")
+        self.assertEqual(result["draft"]["Intent"], "sell")
         with closing(sqlite3.connect(self.database_path)) as connection:
             stock = connection.execute(
                 "SELECT StockQuantity FROM Inventory WHERE ItemName = 'Sugar 1kg'"
             ).fetchone()[0]
-        self.assertEqual(stock, 3)
+            transaction_count = connection.execute("SELECT COUNT(*) FROM Transactions").fetchone()[0]
+        self.assertEqual((stock, transaction_count), (5, 0))
+
+    def test_explicit_transcript_quantity_overrides_model_quantity(self):
+        result = intent_parser.parse_and_execute(
+            "12 toothpaste bech do",
+            interpretation={
+                "action": "sell",
+                "entity": "Toothpaste",
+                "quantity": 2,
+            },
+        )
+
+        self.assertEqual(result["status"], "pending_confirmation")
+        self.assertEqual(result["action"], "confirm_sale")
+        self.assertEqual(result["draft"]["Quantity"], 12)
         with closing(sqlite3.connect(self.database_path)) as connection:
-            transaction = connection.execute(
-                """
-                SELECT TransactionType, EntityName, Quantity, TotalAmount
-                FROM Transactions
-                """
-            ).fetchone()
-        self.assertEqual(transaction, ("Sale", "Sugar 1kg", 2, 20))
+            stock = connection.execute(
+                "SELECT StockQuantity FROM Inventory WHERE ItemName = 'Toothpaste'"
+            ).fetchone()[0]
+            transaction_count = connection.execute(
+                "SELECT COUNT(*) FROM Transactions WHERE EntityName = 'Toothpaste'"
+            ).fetchone()[0]
+        self.assertEqual((stock, transaction_count), (110, 0))
+
+    def test_romanized_hindi_quantity_is_not_confused_with_command_word(self):
+        result = intent_parser.parse_and_execute(
+            "chaunsath toothpaste bech do",
+            interpretation={
+                "action": "sell",
+                "entity": "Toothpaste",
+                "quantity": 2,
+            },
+        )
+
+        self.assertEqual(result["status"], "pending_confirmation")
+        self.assertEqual(result["action"], "confirm_sale")
+        self.assertEqual(result["draft"]["Quantity"], 64)
+        self.assertEqual(
+            intent_parser.extract_explicit_quantity("chaunsath toothpaste bech do"),
+            64,
+        )
+
+    def test_restock_does_not_fuzzy_match_different_brand(self):
+        result = intent_parser.parse_and_execute(
+            "50 goodday biscuit aayi hai",
+            interpretation={
+                "action": "restock",
+                "entity": "GoodDay Biscuit",
+                "quantity": 50,
+            },
+        )
+
+        self.assertEqual(result["status"], "pending_confirmation")
+        self.assertEqual(result["draft"]["ItemName"], "GoodDay Biscuit")
+
+        result = intent_parser.parse_and_execute(
+            "50 new biscuit aayi hai",
+            interpretation={
+                "action": "restock",
+                "entity": "New Biscuit",
+                "quantity": 50,
+            },
+        )
+
+        self.assertEqual(result["status"], "pending_confirmation")
+        self.assertEqual(result["draft"]["ItemName"], "New Biscuit")
+        self.assertEqual(result["draft"]["SearchStatus"], "idle")
 
     def test_validated_restock_is_added_to_ledger(self):
         result = intent_parser.parse_and_execute(
@@ -88,15 +152,14 @@ class IntentParserInterpretationTests(unittest.TestCase):
             },
         )
 
-        self.assertEqual(result["status"], "success")
+        self.assertEqual(result["status"], "pending_confirmation")
+        self.assertEqual(result["draft"]["Intent"], "restock")
         with closing(sqlite3.connect(self.database_path)) as connection:
-            transaction = connection.execute(
-                """
-                SELECT TransactionType, EntityName, Quantity, TotalAmount
-                FROM Transactions
-                """
-            ).fetchone()
-        self.assertEqual(transaction, ("Restock", "Sugar 1kg", 2, -20))
+            stock = connection.execute(
+                "SELECT StockQuantity FROM Inventory WHERE ItemName = 'Sugar 1kg'"
+            ).fetchone()[0]
+            transaction_count = connection.execute("SELECT COUNT(*) FROM Transactions").fetchone()[0]
+        self.assertEqual((stock, transaction_count), (5, 0))
 
     def test_remove_product_waits_for_confirmation_and_keeps_stock_unchanged(self):
         result = intent_parser.parse_and_execute(
@@ -148,12 +211,13 @@ class IntentParserInterpretationTests(unittest.TestCase):
             },
         )
 
-        self.assertEqual(result["status"], "success")
+        self.assertEqual(result["status"], "pending_confirmation")
+        self.assertEqual(result["draft"]["Intent"], "credit")
         with closing(sqlite3.connect(self.database_path)) as connection:
             customer = connection.execute(
-                "SELECT OutstandingBalance, IsActive FROM CustomerCredit WHERE CustomerName = 'श्याम'"
+                "SELECT OutstandingBalance FROM CustomerCredit WHERE CustomerName = 'श्याम'"
             ).fetchone()
-        self.assertEqual(customer, (1564, 1))
+        self.assertIsNone(customer)
 
     def test_voice_remove_customer_waits_for_confirmation(self):
         result = intent_parser.parse_and_execute(
@@ -297,9 +361,9 @@ class IntentParserInterpretationTests(unittest.TestCase):
 
         self.assertEqual(result["status"], "pending_confirmation")
         self.assertEqual(result["draft"]["ItemName"], "New Tea")
-        self.assertEqual(result["draft"]["Price"], 24.5)
+        self.assertIsNone(result["draft"]["Price"])
         self.assertEqual(result["draft"]["StockQuantity"], 3)
-        self.assertEqual(len(result["draft"]["SearchResults"]), 1)
+        self.assertEqual(result["draft"]["SearchStatus"], "idle")
         with closing(sqlite3.connect(self.database_path)) as connection:
             item_count = connection.execute(
                 "SELECT COUNT(*) FROM Inventory WHERE ItemName = 'New Tea'"

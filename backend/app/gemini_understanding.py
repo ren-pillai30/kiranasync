@@ -140,6 +140,7 @@ def understand_command(transcript, hindi_transcript=None, inventory=None, custom
         "- For credit/add_customer/repayment/remove_customer/query_customer, entity must be the best matching customer name from the catalog if one matches; otherwise the customer's name.\n"
         "- For a new customer credit, preserve the spoken customer name exactly when it is not in the catalog; do not turn it into a lookup or repayment request.\n"
         "- quantity must contain only positive whole-number digits as a string (e.g., '2', '50', '100'), or empty string if absent or unclear.\n"
+        "- Convert spoken quantities, including Romanized Hindi/Hinglish number words, to digits. Only the requested sale/restock amount is quantity; trailing command words such as 'do', 'dijiye', or 'de do' mean 'please do it' and must never become the quantity.\n"
         "- spoken_response: CRITICAL — You MUST reply in the EXACT SAME language and script as the transcript. "
         "Tamil input -> reply ONLY in Tamil script. Telugu input -> Telugu script only. "
         "Malayalam input -> Malayalam script only. Hindi/Hinglish -> Hindi (Devanagari). "

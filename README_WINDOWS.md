@@ -28,9 +28,9 @@ GEMINI_MODEL=gemini-3.5-flash-lite
 
 ### 1. Backend Setup
 ```powershell
-cd backend
-pip install -r requirements.txt
-python -m app.main
+cd C:\Users\Aryan\kiranasync
+pip install -r backend/requirements.txt
+python -m backend.app.main
 ```
 
 ### 2. Frontend Setup

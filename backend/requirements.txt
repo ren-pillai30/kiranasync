@@ -6,3 +6,4 @@ number-parser
 pywebview
 ddgs
 keyboard
+gunicorn==23.0.0

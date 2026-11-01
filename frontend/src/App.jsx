@@ -19,6 +19,7 @@ import ArchivesModal from './components/modals/ArchivesModal';
 import BenchmarkModal from './components/modals/BenchmarkModal';
 import BillModal from './components/modals/BillModal';
 import FeedbackModal from './components/modals/FeedbackModal';
+import TransactionConfirmModal from './components/modals/TransactionConfirmModal';
 
 export default function App() {
   const [lang, setLang] = useState('en');
@@ -134,6 +135,14 @@ export default function App() {
 
     if (data.database_action && data.database_action.status === 'pending_confirmation') {
       const draft = data.database_action.draft;
+      if (draft?.Intent && ['sell', 'restock', 'credit'].includes(draft.Intent)) {
+        playVoiceReceipt(data.database_action.message);
+        actions.setPendingTransaction(draft);
+        actions.setConfirmationError('');
+        setDbAction({ status: 'pending', message: data.database_action.message });
+        setTimeout(() => setIsActive(false), 2500);
+        return;
+      }
       if (draft?.EntityType) {
         playVoiceReceipt(data.database_action.message);
         actions.setPendingRemoval(draft);
@@ -337,6 +346,16 @@ export default function App() {
             actions.setConfirmationError('');
           }}
           t={t}
+        />
+
+        <TransactionConfirmModal
+          pendingTransaction={actions.pendingTransaction}
+          confirmationError={actions.confirmationError}
+          onConfirm={actions.confirmTransaction}
+          onCancel={() => {
+            actions.setPendingTransaction(null);
+            actions.setConfirmationError('');
+          }}
         />
 
         <EntityRemovalModal

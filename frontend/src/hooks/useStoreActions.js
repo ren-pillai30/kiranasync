@@ -16,6 +16,7 @@ export function useStoreActions({
   const [pendingDraft, setPendingDraft] = useState(null);
   const [pendingItemChoice, setPendingItemChoice] = useState(null);
   const [pendingRemoval, setPendingRemoval] = useState(null);
+  const [pendingTransaction, setPendingTransaction] = useState(null);
   const [selectedItemId, setSelectedItemId] = useState(null);
   const [confirmationError, setConfirmationError] = useState('');
   const [isSearchingProduct, setIsSearchingProduct] = useState(false);
@@ -194,6 +195,23 @@ export function useStoreActions({
     }
   };
 
+  const confirmTransaction = async () => {
+    if (!pendingTransaction) return;
+    setConfirmationError('');
+    try {
+      const result = pendingTransaction.Intent === 'credit'
+        ? await api.confirmTransaction(pendingTransaction)
+        : await api.confirmInventoryCommand(pendingTransaction);
+      setPendingTransaction(null);
+      setDbAction(result.database_action);
+      if (playVoiceReceipt) playVoiceReceipt(result.database_action.message);
+      onRefreshAll();
+    } catch (error) {
+      console.error('Transaction confirmation failed:', error);
+      setConfirmationError(error.message || t.connError);
+    }
+  };
+
   const searchEditedProductName = async () => {
     if (!pendingDraft?.ItemName?.trim()) return;
     const requestedName = pendingDraft.ItemName.trim();
@@ -284,6 +302,8 @@ export function useStoreActions({
     setPendingItemChoice,
     pendingRemoval,
     setPendingRemoval,
+    pendingTransaction,
+    setPendingTransaction,
     selectedItemId,
     setSelectedItemId,
     confirmationError,
@@ -315,9 +335,9 @@ export function useStoreActions({
     archiveEntity,
     submitConfirmation,
     submitItemChoice,
+    confirmTransaction,
     handleAddNewProductFromChoice,
     searchEditedProductName,
     addManualMrp,
   };
 }
-

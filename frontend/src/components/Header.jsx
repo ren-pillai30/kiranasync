@@ -21,10 +21,6 @@ export default function Header({
           <span className="text-sm font-black text-[#FFFDF7] tracking-wider uppercase drop-shadow-xs">
             KIRANA<span className="text-[#FEF3C7]">SYNC</span>
           </span>
-          <span className="text-[10px] uppercase font-bold px-2 py-0.5 rounded-md bg-[#FEF3C7] text-[#92400E] border border-[#FDE68A] flex items-center space-x-1.5 shadow-xs">
-            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
-            <span>POS COUNTER #1</span>
-          </span>
         </div>
 
         <div className="h-4 w-px bg-red-800"></div>
@@ -107,7 +103,7 @@ export default function Header({
       </div>
 
       {/* WINDOW CONTROLS */}
-      <div className="window-controls flex items-center space-x-2 pl-3">
+      {Boolean(window.pywebview) && <div className="window-controls flex items-center space-x-2 pl-3">
         <button
           type="button"
           className="control-btn minimize w-7 h-7 flex items-center justify-center rounded-lg bg-red-900/80 hover:bg-red-800 text-red-100 hover:text-white text-sm font-bold shadow-xs transition-all cursor-pointer"
@@ -124,7 +120,7 @@ export default function Header({
         >
           &times;
         </button>
-      </div>
+      </div>}
     </header>
   );
 }

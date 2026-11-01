@@ -1,6 +1,12 @@
 import os
 import sys
 import math
+
+if __package__ in (None, ""):
+    project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+    if project_root not in sys.path:
+        sys.path.insert(0, project_root)
+
 from flask import Flask, request, jsonify, render_template
 from flask_cors import CORS
 from dotenv import load_dotenv
@@ -294,6 +300,60 @@ def confirm_inventory_command():
         return jsonify({
             'status': 'success',
             'database_action': {'status': 'success', 'action': action, 'message': message},
+        })
+    finally:
+        conn.close()
+
+@app.route('/api/transactions/confirm', methods=['POST'])
+def confirm_transaction():
+    import sqlite3
+    from backend.app.intent_parser import DB_PATH
+
+    data = request.get_json(silent=True) or {}
+    intent = data.get('Intent')
+    raw_command = str(data.get('RawCommand') or '').strip()
+
+    conn = sqlite3.connect(DB_PATH)
+    try:
+        ensure_transactions_schema(conn)
+        cursor = conn.cursor()
+
+        if intent == 'credit':
+            customer_name = str(data.get('CustomerName') or '').strip()
+            try:
+                amount = float(data.get('Amount'))
+            except (TypeError, ValueError):
+                amount = 0
+            if not customer_name or amount <= 0:
+                return jsonify({'status': 'error', 'error': 'A customer and positive amount are required.'}), 400
+
+            cursor.execute(
+                "SELECT CustomerID, OutstandingBalance FROM CustomerCredit WHERE lower(CustomerName) = lower(?)",
+                (customer_name,),
+            )
+            customer = cursor.fetchone()
+            if customer:
+                new_balance = float(customer[1] or 0) + amount
+                cursor.execute(
+                    'UPDATE CustomerCredit SET OutstandingBalance = ?, IsActive = 1 WHERE CustomerID = ?',
+                    (new_balance, customer[0]),
+                )
+                message = f"Added Rs {amount:g} to {customer_name}. New Balance: Rs {new_balance:g}."
+            else:
+                cursor.execute(
+                    'INSERT INTO CustomerCredit (CustomerName, OutstandingBalance, IsActive) VALUES (?, ?, 1)',
+                    (customer_name, amount),
+                )
+                new_balance = amount
+                message = f"Created {customer_name}'s account with Rs {amount:g} balance."
+            record_transaction(cursor, raw_command, amount, 'Credit', customer_name)
+        else:
+            return jsonify({'status': 'error', 'error': 'Unsupported transaction confirmation.'}), 400
+
+        conn.commit()
+        return jsonify({
+            'status': 'success',
+            'database_action': {'status': 'success', 'action': 'udhaar_added', 'message': message},
         })
     finally:
         conn.close()
@@ -756,4 +816,4 @@ def handle_store_feedback():
     })
 
 if __name__ == '__main__':
-    app.run(host='127.0.0.1', port=5000, debug=True)
+    app.run(host='0.0.0.0', port=int(os.getenv('PORT', '5000')), debug=os.getenv('FLASK_DEBUG') == '1')

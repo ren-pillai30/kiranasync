@@ -58,9 +58,6 @@ export default function DashboardView({
         <div>
           <div className="flex items-center space-x-2">
             <h2 className="text-xl font-black text-stone-900 tracking-tight">{t.title}</h2>
-            <span className="text-[10px] uppercase font-bold px-2 py-0.5 rounded bg-[#FEF3C7] text-[#92400E] border border-[#FDE68A]">
-              Store POS Terminal
-            </span>
           </div>
           <span className="text-xs text-[#991B1B] font-mono font-semibold tracking-wide flex items-center space-x-1.5 mt-0.5">
             <span className="w-1.5 h-1.5 rounded-full bg-[#991B1B] animate-pulse"></span>
@@ -68,40 +65,6 @@ export default function DashboardView({
           </span>
         </div>
         <div className="flex items-center gap-2.5 flex-wrap">
-          <select
-            value={selectedLangCode}
-            onChange={(e) => setSelectedLangCode(e.target.value)}
-            className="bg-[#FFFDF9] text-stone-800 text-xs px-3 py-1.5 rounded-lg border border-[#D8CEBA] focus:outline-none focus:ring-2 focus:ring-[#991B1B]/20 cursor-pointer font-semibold shadow-2xs transition-all hover:border-stone-400"
-            title="Select Voice Language"
-          >
-            {INDIAN_LANGUAGES.map((l) => (
-              <option key={l.code} value={l.code}>
-                {l.label}
-              </option>
-            ))}
-          </select>
-
-          <button
-            type="button"
-            onClick={startRecording}
-            className={`px-3.5 py-1.5 rounded-lg text-xs font-bold flex items-center space-x-1.5 transition-all shadow-xs cursor-pointer ${
-              isRecording
-                ? 'bg-red-600 text-white animate-pulse border border-red-500 shadow-md shadow-red-900/30'
-                : 'bg-[#991B1B] hover:bg-[#B91C1C] text-[#FFFDF7] border border-[#7F1D1D]'
-            }`}
-          >
-            <span>🎙️</span>
-            <span>
-              {isRecording
-                ? lang === 'hi'
-                  ? 'रोकें और भेजें'
-                  : 'Stop & Send'
-                : lang === 'hi'
-                ? 'वॉयस बोलें'
-                : 'Speak Command'}
-            </span>
-          </button>
-
           <button
             type="button"
             onClick={onOpenEvalModal}
@@ -113,40 +76,10 @@ export default function DashboardView({
 
           <button
             type="button"
-            onClick={onOpenBill}
-            className="px-3.5 py-1.5 bg-[#FFFDF9] hover:bg-[#F4EFE6] text-stone-800 border border-[#D8CEBA] rounded-lg text-xs font-bold flex items-center space-x-1.5 shadow-2xs transition-all cursor-pointer"
-            title="Create commercial Kirana bill"
-          >
-            <span>🧾</span>
-            <span>{lang === 'hi' ? 'बिल बनाएं' : 'Kirana Bill'}</span>
-          </button>
-
-          <button
-            type="button"
-            onClick={onOpenFeedback}
-            className="px-3.5 py-1.5 bg-[#FEF3C7] hover:bg-[#FDE68A] text-[#92400E] border border-[#FDE68A] rounded-lg text-xs font-bold flex items-center space-x-1.5 shadow-2xs transition-all cursor-pointer"
-            title="Provide store feedback"
-          >
-            <span>💬</span>
-            <span>{lang === 'hi' ? 'प्रतिक्रिया' : 'Feedback'}</span>
-          </button>
-
-          <button
-            type="button"
             onClick={onOpenArchives}
             className="px-3.5 py-1.5 bg-[#FFFDF9] hover:bg-[#F4EFE6] text-stone-800 border border-[#D8CEBA] rounded-lg text-xs font-bold shadow-2xs transition-all cursor-pointer"
           >
             {lang === 'hi' ? 'आर्काइव' : 'Archives'}
-          </button>
-
-          <button
-            type="button"
-            onClick={onOpenSimulator}
-            className="px-3.5 py-1.5 bg-red-100 hover:bg-red-200 text-red-950 border border-red-300 rounded-lg text-xs font-bold flex items-center space-x-1 shadow-2xs transition-all cursor-pointer"
-            title="Simulate incoming customer phone calls"
-          >
-            <span>📞</span>
-            <span>{lang === 'hi' ? 'कॉल सिमुलेटर' : 'Call Simulator'}</span>
           </button>
 
           <button
