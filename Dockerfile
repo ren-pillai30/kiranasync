@@ -18,6 +18,6 @@ COPY --from=frontend-build /frontend/dist ./frontend/dist
 COPY catalog.json kirana.db ./
 
 ENV PYTHONUNBUFFERED=1
-ENV PORT=5000
+ENV PORT=7860
 
-CMD ["gunicorn", "--bind", "0.0.0.0:5000", "--workers", "2", "backend.app.main:app"]
+CMD ["sh", "-c", "gunicorn --bind 0.0.0.0:${PORT:-7860} --workers 2 --timeout 120 backend.app.main:app"]

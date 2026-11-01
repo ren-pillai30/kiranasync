@@ -4,7 +4,7 @@ const API_BASE = window.location.hostname === 'localhost' || window.location.hos
 
 async function request(endpoint, options = {}) {
   const url = `${API_BASE}${endpoint}`;
-  const response = await fetch(url, options);
+  const response = await fetch(url, { credentials: 'include', ...options });
   const contentType = response.headers.get('content-type') || '';
 
   if (!contentType.includes('application/json')) {
@@ -23,6 +23,23 @@ async function request(endpoint, options = {}) {
 }
 
 export const api = {
+  getAuthSession: () => request('/api/auth/session'),
+  login: (email, password) =>
+    request('/api/auth/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, password }),
+    }),
+  registerOwner: (payload) =>
+    request('/api/auth/register', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    }),
+  logout: () =>
+    request('/api/auth/logout', {
+      method: 'POST',
+    }),
   // Dashboard & Ledger
   getDashboard: () => request('/api/dashboard'),
   getLedger: () => request('/api/ledger'),
@@ -100,6 +117,7 @@ export const api = {
   processAudio: (formData) =>
     fetch(`${API_BASE}/api/process-audio`, {
       method: 'POST',
+      credentials: 'include',
       body: formData,
     }).then(async (res) => {
       const contentType = res.headers.get('content-type') || '';
@@ -113,6 +131,7 @@ export const api = {
   synthesizeVoice: (text, languageCode) =>
     fetch(`${API_BASE}/api/voice/synthesize`, {
       method: 'POST',
+      credentials: 'include',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ text, language_code: languageCode }),
     }),

@@ -20,8 +20,11 @@ import BenchmarkModal from './components/modals/BenchmarkModal';
 import BillModal from './components/modals/BillModal';
 import FeedbackModal from './components/modals/FeedbackModal';
 import TransactionConfirmModal from './components/modals/TransactionConfirmModal';
+import AuthScreen from './components/AuthScreen';
 
 export default function App() {
+  const [authChecked, setAuthChecked] = useState(false);
+  const [authenticated, setAuthenticated] = useState(false);
   const [lang, setLang] = useState('en');
   const [selectedLangCode, setSelectedLangCode] = useState('hi-IN');
   const t = text[lang];
@@ -46,6 +49,21 @@ export default function App() {
   const [showFeedbackModal, setShowFeedbackModal] = useState(false);
   const [billData, setBillData] = useState({ billItems: [], customerName: 'Walk-in Customer', paymentMode: 'cash', customerBalance: 0 });
   const [isMuted, setIsMuted] = useState(false);
+
+  const checkAuth = useCallback(async () => {
+    try {
+      await api.getAuthSession();
+      setAuthenticated(true);
+    } catch {
+      setAuthenticated(false);
+    } finally {
+      setAuthChecked(true);
+    }
+  }, []);
+
+  useEffect(() => {
+    checkAuth();
+  }, [checkAuth]);
 
   const fetchDashboardData = useCallback(async () => {
     try {
@@ -268,6 +286,14 @@ export default function App() {
       window.pywebview.api.close();
     }
   };
+
+  if (!authChecked) {
+    return <div className="min-h-screen bg-slate-950" />;
+  }
+
+  if (!authenticated) {
+    return <AuthScreen onAuthenticated={() => { setAuthenticated(true); }} />;
+  }
 
   return (
     <div className="flex flex-col w-screen h-screen relative bg-transparent overflow-hidden">

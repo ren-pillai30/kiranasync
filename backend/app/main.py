@@ -11,10 +11,16 @@ from flask import Flask, request, jsonify, render_template
 from flask_cors import CORS
 from dotenv import load_dotenv
 import requests
+from flask_login import current_user
 
 # Explicitly load .env from the root directory
 load_dotenv(os.path.join(os.path.abspath(os.path.dirname(__file__)), '../../.env'))
 load_dotenv() # Fallback
+
+from backend.app.database import db, get_database_url
+from backend.app.auth import login_manager, register_auth_routes
+
+app_config_database_url = get_database_url()
 
 from backend.app.intent_parser import (
     extract_explicit_quantity,
@@ -37,7 +43,37 @@ template_dir = get_resource_path('frontend/dist')
 static_dir = get_resource_path('frontend/dist/assets')
 
 app = Flask(__name__, template_folder=template_dir, static_folder=static_dir)
-CORS(app)
+CORS(app, supports_credentials=True)
+
+app.config["SQLALCHEMY_DATABASE_URI"] = app_config_database_url
+app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
+app.config["SECRET_KEY"] = os.getenv("SESSION_SECRET", os.urandom(32))
+app.config["SESSION_COOKIE_HTTPONLY"] = True
+app.config["SESSION_COOKIE_SECURE"] = os.getenv("KIRANA_ENV") == "production"
+app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
+
+db.init_app(app)
+login_manager.init_app(app)
+register_auth_routes(app)
+
+from backend.app import models  # noqa: F401,E402
+
+with app.app_context():
+    db.create_all()
+
+@app.before_request
+def require_authenticated_session():
+    if request.path == "/" or request.path.startswith("/assets/"):
+        return None
+    if request.path.startswith("/api/auth/"):
+        return None
+    if request.path.startswith("/api/") and not current_user.is_authenticated:
+        return jsonify({"status": "error", "error": "Authentication required."}), 401
+    if request.path.startswith("/api/") and os.getenv("DATABASE_URL"):
+        return jsonify({
+            "status": "error",
+            "error": "PostgreSQL store-data migration is still required.",
+        }), 503
 
 from backend.app.providers.gnani_stt import GnaniSTTProvider
 from backend.app.providers.gnani_tts import GnaniTTSProvider
