@@ -56,6 +56,16 @@ db.init_app(app)
 login_manager.init_app(app)
 register_auth_routes(app)
 
+@app.errorhandler(Exception)
+def handle_unexpected_error(error):
+    app.logger.exception("Unhandled application error: %s", error)
+    if request.path.startswith("/api/"):
+        return jsonify({
+            "status": "error",
+            "error": "The server encountered an error while processing the request.",
+        }), 500
+    raise error
+
 from backend.app import models  # noqa: F401,E402
 
 with app.app_context():
@@ -498,6 +508,12 @@ def process_audio():
             'transcript': raw_transcript,
             'database_action': db_result
         })
+    except Exception as exc:
+        app.logger.exception("Voice command processing failed: %s", exc)
+        return jsonify({
+            'status': 'error',
+            'error': 'Voice processing failed on the server. Please try again.',
+        }), 500
     finally:
         if os.path.exists(temp_audio_path):
             try:

@@ -123,6 +123,9 @@ export const api = {
       const contentType = res.headers.get('content-type') || '';
       if (!contentType.includes('application/json')) {
         const text = await res.text();
+        if (/^\s*<!doctype html/i.test(text) || /<html/i.test(text)) {
+          throw new Error(`Server error (${res.status}). Please check the deployment logs.`);
+        }
         throw new Error(text.slice(0, 200) || `HTTP ${res.status}`);
       }
       return res.json();
