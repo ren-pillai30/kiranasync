@@ -51,6 +51,26 @@ def main():
 
     with target.begin() as transaction:
         transaction.execute(text("""
+            CREATE TABLE IF NOT EXISTS stores (
+                id SERIAL PRIMARY KEY,
+                name TEXT NOT NULL,
+                created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+                is_active BOOLEAN NOT NULL DEFAULT TRUE
+            )
+        """))
+        transaction.execute(text("""
+            CREATE TABLE IF NOT EXISTS users (
+                id SERIAL PRIMARY KEY,
+                store_id INTEGER NOT NULL REFERENCES stores(id) ON DELETE CASCADE,
+                email TEXT NOT NULL UNIQUE,
+                display_name TEXT NOT NOT NULL,
+                password_hash TEXT NOT NULL,
+                role TEXT NOT NULL DEFAULT 'owner',
+                is_active BOOLEAN NOT NULL DEFAULT TRUE,
+                created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+            )
+        """.replace("NOT NOT NULL", "NOT NULL")))
+        transaction.execute(text("""
             CREATE TABLE IF NOT EXISTS Inventory (
                 ItemID BIGSERIAL PRIMARY KEY,
                 StoreID INTEGER NOT NULL REFERENCES stores(id) ON DELETE CASCADE,
