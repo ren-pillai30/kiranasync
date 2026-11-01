@@ -128,7 +128,7 @@ class GnaniSTTProvider:
                     headers={"X-API-Key-ID": self.api_key},
                     files={"audio_file": ("command.wav", audio_file, "audio/wav")},
                     data=data,
-                    timeout=60,
+                    timeout=25,
                 )
 
             if response.status_code != 200:

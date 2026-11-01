@@ -54,7 +54,7 @@ def translate_for_speech(text, language_code):
             endpoint,
             headers={"x-goog-api-key": api_key},
             json=payload,
-            timeout=30,
+            timeout=25,
         )
         response.raise_for_status()
         response_data = response.json()
@@ -189,7 +189,7 @@ def understand_command(transcript, hindi_transcript=None, inventory=None, custom
                 endpoint,
                 headers={"x-goog-api-key": api_key},
                 json=payload,
-                timeout=30,
+                timeout=25,
             )
         except (requests.Timeout, requests.ConnectionError) as exc:
             if attempt == _MAX_ATTEMPTS - 1:
