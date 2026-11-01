@@ -31,26 +31,8 @@ def main():
     source = sqlite3.connect(sqlite_path)
     source.row_factory = sqlite3.Row
     target = create_engine(postgres_url, future=True).connect()
-    store_result = target.execute(
-        text("""
-            INSERT INTO stores (name, is_active, created_at)
-            VALUES (:name, true, CURRENT_TIMESTAMP)
-            ON CONFLICT DO NOTHING
-            RETURNING id
-        """),
-        {"name": store_name},
-    )
-    store_row = store_result.first()
-    if store_row:
-        store_id = store_row[0]
-    else:
-        store_id = target.execute(
-            text("SELECT id FROM stores WHERE name = :name ORDER BY id LIMIT 1"),
-            {"name": store_name},
-        ).scalar_one()
-
     with target.begin() as transaction:
-        transaction.execute(text("""
+        transaction.connection.execute(text("""
             CREATE TABLE IF NOT EXISTS stores (
                 id SERIAL PRIMARY KEY,
                 name TEXT NOT NULL,
@@ -58,7 +40,7 @@ def main():
                 is_active BOOLEAN NOT NULL DEFAULT TRUE
             )
         """))
-        transaction.execute(text("""
+        transaction.connection.execute(text("""
             CREATE TABLE IF NOT EXISTS users (
                 id SERIAL PRIMARY KEY,
                 store_id INTEGER NOT NULL REFERENCES stores(id) ON DELETE CASCADE,
@@ -70,7 +52,24 @@ def main():
                 created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
             )
         """.replace("NOT NOT NULL", "NOT NULL")))
-        transaction.execute(text("""
+        store_result = transaction.connection.execute(
+            text("""
+                INSERT INTO stores (name, is_active, created_at)
+                SELECT :name, true, CURRENT_TIMESTAMP
+                WHERE NOT EXISTS (SELECT 1 FROM stores WHERE name = :name)
+                RETURNING id
+            """),
+            {"name": store_name},
+        )
+        store_row = store_result.first()
+        if store_row:
+            store_id = store_row[0]
+        else:
+            store_id = transaction.connection.execute(
+                text("SELECT id FROM stores WHERE name = :name ORDER BY id LIMIT 1"),
+                {"name": store_name},
+            ).scalar_one()
+        transaction.connection.execute(text("""
             CREATE TABLE IF NOT EXISTS Inventory (
                 ItemID BIGSERIAL PRIMARY KEY,
                 StoreID INTEGER NOT NULL REFERENCES stores(id) ON DELETE CASCADE,
@@ -87,7 +86,7 @@ def main():
                 UNIQUE (StoreID, ItemName)
             )
         """.replace("NOT NOT NULL", "NOT NULL")))
-        transaction.execute(text("""
+        transaction.connection.execute(text("""
             CREATE TABLE IF NOT EXISTS CustomerCredit (
                 CustomerID BIGSERIAL PRIMARY KEY,
                 StoreID INTEGER NOT NULL REFERENCES stores(id) ON DELETE CASCADE,
@@ -98,7 +97,7 @@ def main():
                 UNIQUE (StoreID, CustomerName)
             )
         """))
-        transaction.execute(text("""
+        transaction.connection.execute(text("""
             CREATE TABLE IF NOT EXISTS Transactions (
                 TxnID BIGSERIAL PRIMARY KEY,
                 StoreID INTEGER NOT NULL REFERENCES stores(id) ON DELETE CASCADE,
@@ -121,7 +120,7 @@ def main():
         counts["Inventory"] = len(inventory_rows)
         for row in inventory_rows:
             values = dict(row)
-            transaction.execute(text("""
+            transaction.connection.execute(text("""
                 INSERT INTO Inventory (
                     StoreID, ItemName, Category, StockQuantity, Price,
                     SellingPrice, MRP, PurchaseCost, Unit, ReorderLevel, IsActive
@@ -153,7 +152,7 @@ def main():
         counts["CustomerCredit"] = len(customer_rows)
         for row in customer_rows:
             values = dict(row)
-            transaction.execute(text("""
+            transaction.connection.execute(text("""
                 INSERT INTO CustomerCredit (
                     StoreID, CustomerName, PhoneNumber, OutstandingBalance, IsActive
                 ) VALUES (:store_id, :name, :phone, :balance, :is_active)
@@ -175,7 +174,7 @@ def main():
         counts["Transactions"] = len(transaction_rows)
         for row in transaction_rows:
             values = dict(row)
-            transaction.execute(text("""
+            transaction.connection.execute(text("""
                 INSERT INTO Transactions (
                     StoreID, Timestamp, CommandText, TotalAmount, TransactionType,
                     EntityName, Quantity, CommandID, IsReversed
@@ -196,7 +195,7 @@ def main():
             })
 
         owner_hash = bcrypt.hashpw(owner_password.encode("utf-8"), bcrypt.gensalt()).decode("utf-8")
-        transaction.execute(text("""
+        transaction.connection.execute(text("""
             INSERT INTO users (store_id, email, display_name, password_hash, role, is_active, created_at)
             VALUES (:store_id, :email, 'Store Owner', :password_hash, 'owner', true, CURRENT_TIMESTAMP)
             ON CONFLICT (email) DO UPDATE SET store_id = EXCLUDED.store_id, is_active = true
