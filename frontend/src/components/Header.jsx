@@ -10,6 +10,8 @@ export default function Header({
   onOpenSimulator,
   onOpenBill,
   onOpenFeedback,
+  onOpenDayClosing,
+  onOpenBarcode,
   handleMinimize,
   handleClose,
 }) {
@@ -88,6 +90,28 @@ export default function Header({
         >
           <span>📞</span>
           <span>Call Sim</span>
+        </button>
+
+        {/* BARCODE SCANNER BUTTON */}
+        <button
+          type="button"
+          onClick={onOpenBarcode}
+          className="text-xs px-3.5 py-1.5 rounded-lg border border-[#FDE68A] text-stone-900 bg-[#FFFDF7] hover:bg-[#FEF3C7] font-semibold flex items-center space-x-1.5 shadow-xs transition-all cursor-pointer"
+          title="Scan or lookup product barcode"
+        >
+          <span>📷</span>
+          <span>Barcode</span>
+        </button>
+
+        {/* DAY CLOSING (DUKAN BANDI) */}
+        <button
+          type="button"
+          onClick={onOpenDayClosing}
+          className="text-xs px-3.5 py-1.5 rounded-lg border border-[#FDE68A] text-stone-900 bg-[#FFFDF7] hover:bg-[#FEF3C7] font-semibold flex items-center space-x-1.5 shadow-xs transition-all cursor-pointer"
+          title="Evening cash drawer tally & dukan bandi"
+        >
+          <span>🌙</span>
+          <span>Day Closing</span>
         </button>
 
         {/* STORE FEEDBACK BUTTON */}

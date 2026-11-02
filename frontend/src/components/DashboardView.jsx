@@ -76,6 +76,26 @@ export default function DashboardView({
 
           <button
             type="button"
+            onClick={onOpenBarcode}
+            className="px-3.5 py-1.5 bg-[#FFFDF9] hover:bg-[#F4EFE6] text-stone-800 border border-[#D8CEBA] rounded-lg text-xs font-bold shadow-2xs transition-all flex items-center space-x-1.5 cursor-pointer"
+            title="Scan or lookup product barcode"
+          >
+            <span>📷</span>
+            <span>Barcode</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={onOpenDayClosing}
+            className="px-3.5 py-1.5 bg-[#991B1B] hover:bg-[#B91C1C] text-white border border-[#991B1B] rounded-lg text-xs font-bold shadow-2xs transition-all flex items-center space-x-1.5 cursor-pointer"
+            title="Evening cash drawer tally and dukan bandi"
+          >
+            <span>🌙</span>
+            <span>{lang === 'hi' ? 'दुकान बंदी' : 'Day Closing'}</span>
+          </button>
+
+          <button
+            type="button"
             onClick={onOpenArchives}
             className="px-3.5 py-1.5 bg-[#FFFDF9] hover:bg-[#F4EFE6] text-stone-800 border border-[#D8CEBA] rounded-lg text-xs font-bold shadow-2xs transition-all cursor-pointer"
           >

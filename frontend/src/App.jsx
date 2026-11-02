@@ -18,6 +18,8 @@ import EntityRemovalModal from './components/modals/EntityRemovalModal';
 import ArchivesModal from './components/modals/ArchivesModal';
 import BenchmarkModal from './components/modals/BenchmarkModal';
 import BillModal from './components/modals/BillModal';
+import DayClosingModal from './components/modals/DayClosingModal';
+import BarcodeScannerModal from './components/modals/BarcodeScannerModal';
 import FeedbackModal from './components/modals/FeedbackModal';
 import TransactionConfirmModal from './components/modals/TransactionConfirmModal';
 import AuthScreen from './components/AuthScreen';
@@ -47,6 +49,8 @@ export default function App() {
   const [showCallSimulator, setShowCallSimulator] = useState(false);
   const [showBillModal, setShowBillModal] = useState(false);
   const [showFeedbackModal, setShowFeedbackModal] = useState(false);
+  const [showDayClosingModal, setShowDayClosingModal] = useState(false);
+  const [showBarcodeModal, setShowBarcodeModal] = useState(false);
   const [billData, setBillData] = useState({ billItems: [], customerName: 'Walk-in Customer', paymentMode: 'cash', customerBalance: 0 });
   const [isMuted, setIsMuted] = useState(false);
 
@@ -258,6 +262,17 @@ export default function App() {
     };
   }, [fetchDashboardData, stopActiveAudio]);
 
+  const handleQuickSellFromBarcode = (item) => {
+    actions.setPendingTransaction({
+      Intent: 'sell',
+      ItemID: item.ItemID,
+      ItemName: item.ItemName,
+      Quantity: 1,
+      CurrentStock: item.StockQuantity,
+      RawCommand: `Barcode Quick Sale: 1x ${item.ItemName}`,
+    });
+  };
+
   const handleOpenBill = (data = {}) => {
     setBillData({
       billItems: data.billItems || (inventory.length > 0 ? [
@@ -307,6 +322,8 @@ export default function App() {
         onOpenSimulator={() => setShowCallSimulator(true)}
         onOpenBill={() => handleOpenBill()}
         onOpenFeedback={() => setShowFeedbackModal(true)}
+        onOpenDayClosing={() => setShowDayClosingModal(true)}
+        onOpenBarcode={() => setShowBarcodeModal(true)}
         handleMinimize={handleMinimize}
         handleClose={handleClose}
       />
@@ -333,6 +350,21 @@ export default function App() {
         <FeedbackModal
           isOpen={showFeedbackModal}
           onClose={() => setShowFeedbackModal(false)}
+        />
+
+        <DayClosingModal
+          isOpen={showDayClosingModal}
+          onClose={() => setShowDayClosingModal(false)}
+          hisaabData={hisaabData}
+        />
+
+        <BarcodeScannerModal
+          isOpen={showBarcodeModal}
+          onClose={() => setShowBarcodeModal(false)}
+          inventory={inventory}
+          onAddToBill={(data) => handleOpenBill(data)}
+          onQuickSell={handleQuickSellFromBarcode}
+          onRefreshAll={refreshAll}
         />
 
         <BenchmarkModal
@@ -436,6 +468,8 @@ export default function App() {
               onOpenSimulator={() => setShowCallSimulator(true)}
               onOpenBill={() => handleOpenBill()}
               onOpenFeedback={() => setShowFeedbackModal(true)}
+              onOpenDayClosing={() => setShowDayClosingModal(true)}
+              onOpenBarcode={() => setShowBarcodeModal(true)}
               onViewBill={(data) => handleOpenBill(data)}
               onOpenEvalModal={async () => {
                 try {
