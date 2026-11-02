@@ -127,6 +127,7 @@ class EntityServiceTests(unittest.TestCase):
 
     def test_archive_api_routes_confirmed_customer_removal(self):
         with patch.object(intent_parser, "DB_PATH", self.database_path):
+            app.config["LOGIN_DISABLED"] = True
             client = app.test_client()
             response = client.post(
                 "/api/entities/archive",

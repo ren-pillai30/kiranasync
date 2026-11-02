@@ -45,6 +45,28 @@ except ImportError:
     fuzz = None
     process = None
 
+MEASUREMENT_TOKEN_WORDS = {
+    "kg", "kilo", "kilos", "kilogram", "kilograms",
+    "g", "gm", "gms", "gram", "grams",
+    "l", "ltr", "ltrs", "litre", "litres", "liter", "liters",
+    "ml", "milli", "milliliter", "milliliters",
+}
+
+def is_measurement_token(token):
+    if token.isdigit():
+        return True
+    if token in MEASUREMENT_TOKEN_WORDS:
+        return True
+    if re.match(r'^\d+(\.\d+)?[a-zA-Z]+$', token):
+        return True
+    return False
+
+def clean_brand_tokens(tokens):
+    return {
+        t for t in (tokens - GENERIC_COMMODITY_TERMS)
+        if not is_measurement_token(t)
+    }
+
 def get_writable_db_path():
     """Returns a persistent, writable path for SQLite database."""
     configured_path = os.getenv("KIRANA_DB_PATH")
@@ -426,7 +448,7 @@ def match_entity_with_score(query_text, db_records, threshold=70):
     if exact_match:
         return exact_match
 
-    meaningful_query_tokens = normalized_tokens(query_text) - GENERIC_COMMODITY_TERMS
+    meaningful_query_tokens = clean_brand_tokens(normalized_tokens(query_text))
     if process and fuzz and not meaningful_query_tokens:
         match = process.extractOne(query_text, db_records, scorer=fuzz.token_set_ratio)
         if match and match[1] >= threshold:
@@ -435,7 +457,7 @@ def match_entity_with_score(query_text, db_records, threshold=70):
     if process and fuzz and meaningful_query_tokens:
         best_record, best_score = None, 0
         for record in db_records:
-            meaningful_record_tokens = normalized_tokens(record) - GENERIC_COMMODITY_TERMS
+            meaningful_record_tokens = clean_brand_tokens(normalized_tokens(record))
             if meaningful_query_tokens.isdisjoint(meaningful_record_tokens):
                 continue
             candidate = process.extractOne(query_text, [record], scorer=fuzz.token_set_ratio)
@@ -454,8 +476,9 @@ def match_entity_with_score(query_text, db_records, threshold=70):
         record_tokens = normalized_tokens(record)
         if not record_tokens:
             continue
+        meaningful_record_tokens = clean_brand_tokens(record_tokens)
         if meaningful_query_tokens and meaningful_query_tokens.isdisjoint(
-            record_tokens - GENERIC_COMMODITY_TERMS
+            meaningful_record_tokens
         ):
             continue
         shared_tokens = query_tokens & record_tokens
@@ -480,8 +503,9 @@ def match_entity_with_score(query_text, db_records, threshold=70):
     best_token_score = 0
     for record in db_records:
         record_tokens = normalized_tokens(record)
+        meaningful_record_tokens = clean_brand_tokens(record_tokens)
         if meaningful_query_tokens and meaningful_query_tokens.isdisjoint(
-            record_tokens - GENERIC_COMMODITY_TERMS
+            meaningful_record_tokens
         ):
             continue
         token_score = max(
@@ -569,8 +593,8 @@ def find_unresolved_inventory_variants(cursor, entity_name, raw_transcript):
     for row in inventory:
         item_name_lower = row[1].lower()
         item_tokens = set(re.findall(r'[a-zA-Z0-9]+', item_name_lower))
-        meaningful_query_tokens = query_tokens - GENERIC_COMMODITY_TERMS
-        meaningful_item_tokens = item_tokens - GENERIC_COMMODITY_TERMS
+        meaningful_query_tokens = clean_brand_tokens(query_tokens)
+        meaningful_item_tokens = clean_brand_tokens(item_tokens)
         if meaningful_query_tokens and meaningful_query_tokens.isdisjoint(meaningful_item_tokens):
             continue
         if query_tokens and (query_tokens <= item_tokens or any(qt in item_tokens for qt in query_tokens if len(qt) >= 3)):

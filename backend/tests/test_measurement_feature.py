@@ -184,10 +184,15 @@ class TestMeasurementFeature(unittest.TestCase):
                     db_path=db_path,
                 )
 
-                self.assertEqual(res["status"], "success")
+                self.assertEqual(res["status"], "pending_confirmation")
+                self.assertEqual(res["draft"]["ItemName"], "Tata Salt 1kg")
+                self.assertEqual(res["draft"]["Quantity"], 1)
 
-                # Verify 1 kg was transacted
+                # Commit confirmed transaction and verify stock decremented
+                from backend.app.services.transaction_service import TransactionService
                 conn = sqlite3.connect(db_path)
+                TransactionService.commit_sale(conn, {"ItemID": res["draft"]["ItemID"], "Quantity": res["draft"]["Quantity"], "RawCommand": "1 kg salt becho"}, None)
+                conn.commit()
                 stock = conn.execute("SELECT StockQuantity FROM Inventory WHERE ItemName = 'Tata Salt 1kg'").fetchone()[0]
                 txn_count = conn.execute("SELECT COUNT(*) FROM Transactions").fetchone()[0]
                 conn.close()

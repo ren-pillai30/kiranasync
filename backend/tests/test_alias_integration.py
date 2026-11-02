@@ -86,12 +86,16 @@ class AliasIntegrationTests(unittest.TestCase):
             "quantity": 3
         }
         res = parse_and_execute("3 packet 2-minute bech do", interpretation=interp, db_path=self.db_path)
-        self.assertEqual(res["status"], "success")
-        self.assertEqual(res["action"], "inventory_updated")
-        self.assertIn("Maggi 70g", res["message"])
+        self.assertEqual(res["status"], "pending_confirmation")
+        self.assertEqual(res["draft"]["Intent"], "sell")
+        self.assertEqual(res["draft"]["ItemName"], "Maggi 70g")
+        self.assertEqual(res["draft"]["Quantity"], 3)
 
-        # Verify stock decremented
+        # Commit confirmed transaction and verify stock decremented
+        from backend.app.services.transaction_service import TransactionService
         conn = sqlite3.connect(self.db_path)
+        TransactionService.commit_sale(conn, {"ItemID": res["draft"]["ItemID"], "Quantity": res["draft"]["Quantity"], "RawCommand": "3 packet 2-minute bech do"}, None)
+        conn.commit()
         cursor = conn.cursor()
         cursor.execute("SELECT StockQuantity FROM Inventory WHERE ItemID = 1")
         stock = cursor.fetchone()[0]

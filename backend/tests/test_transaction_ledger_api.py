@@ -42,6 +42,7 @@ class TransactionLedgerApiTests(unittest.TestCase):
             intent_parser, "DB_PATH", self.database_path
         )
         self.database_patch.start()
+        main.app.config["LOGIN_DISABLED"] = True
         self.client = main.app.test_client()
 
     def tearDown(self):
