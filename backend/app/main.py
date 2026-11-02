@@ -866,5 +866,126 @@ def handle_store_feedback():
         "message": "Thank you! Your feedback has been recorded.",
     })
 
+
+@app.route('/api/barcode/lookup', methods=['GET', 'POST'])
+def barcode_lookup():
+    """Look up an inventory item by barcode or alias code."""
+    import sqlite3
+    from backend.app.intent_parser import DB_PATH
+    
+    code = request.args.get('code')
+    if not code and request.is_json:
+        code = request.get_json(silent=True).get('code')
+    code = str(code or '').strip()
+    if not code:
+        return jsonify({'status': 'error', 'error': 'Barcode number is required.'}), 400
+
+    conn = sqlite3.connect(DB_PATH)
+    try:
+        ensure_transactions_schema(conn)
+        cursor = conn.cursor()
+        
+        cursor.execute("PRAGMA table_info(Inventory)")
+        inv_cols = {col[1] for col in cursor.fetchall()}
+        if "Barcode" in inv_cols:
+            cursor.execute(
+                "SELECT ItemID, ItemName, StockQuantity, Price FROM Inventory WHERE Barcode = ? AND IsActive = 1",
+                (code,)
+            )
+            row = cursor.fetchone()
+            if row:
+                return jsonify({
+                    'status': 'success',
+                    'found': True,
+                    'item': {
+                        'ItemID': row[0],
+                        'ItemName': row[1],
+                        'StockQuantity': row[2],
+                        'Price': float(row[3]),
+                    }
+                })
+
+        cursor.execute(
+            "SELECT EntityID, ResolvedName FROM Aliases WHERE SpokenAlias = ? AND EntityType = 'Product' AND IsApproved = 1",
+            (code,)
+        )
+        alias_row = cursor.fetchone()
+        if alias_row:
+            cursor.execute(
+                "SELECT ItemID, ItemName, StockQuantity, Price FROM Inventory WHERE ItemID = ? AND IsActive = 1",
+                (alias_row[0],)
+            )
+            item_row = cursor.fetchone()
+            if item_row:
+                return jsonify({
+                    'status': 'success',
+                    'found': True,
+                    'item': {
+                        'ItemID': item_row[0],
+                        'ItemName': item_row[1],
+                        'StockQuantity': item_row[2],
+                        'Price': float(item_row[3]),
+                    }
+                })
+
+        cursor.execute(
+            "SELECT ItemID, ItemName, StockQuantity, Price FROM Inventory WHERE (ItemName LIKE ? OR ItemName LIKE ?) AND IsActive = 1",
+            (f"%{code}%", f"%({code})%")
+        )
+        fuzzy_row = cursor.fetchone()
+        if fuzzy_row:
+            return jsonify({
+                'status': 'success',
+                'found': True,
+                'item': {
+                    'ItemID': fuzzy_row[0],
+                    'ItemName': fuzzy_row[1],
+                    'StockQuantity': fuzzy_row[2],
+                    'Price': float(fuzzy_row[3]),
+                }
+            })
+
+        return jsonify({'status': 'success', 'found': False, 'message': f'No product found for barcode {code}.'})
+    finally:
+        conn.close()
+
+@app.route('/api/barcode/link', methods=['POST'])
+def barcode_link():
+    """Link a barcode to an existing inventory item."""
+    import sqlite3
+    from backend.app.intent_parser import DB_PATH
+    
+    data = request.get_json(silent=True) or {}
+    item_id = data.get('ItemID')
+    barcode = str(data.get('Barcode') or '').strip()
+    if not item_id or not barcode:
+        return jsonify({'status': 'error', 'error': 'ItemID and Barcode are required.'}), 400
+
+    conn = sqlite3.connect(DB_PATH)
+    try:
+        ensure_transactions_schema(conn)
+        cursor = conn.cursor()
+        cursor.execute("PRAGMA table_info(Inventory)")
+        inv_cols = {col[1] for col in cursor.fetchall()}
+        if "Barcode" not in inv_cols:
+            cursor.execute("ALTER TABLE Inventory ADD COLUMN Barcode TEXT")
+        
+        cursor.execute(
+            "UPDATE Inventory SET Barcode = ? WHERE ItemID = ?",
+            (barcode, item_id)
+        )
+        cursor.execute("SELECT ItemName FROM Inventory WHERE ItemID = ?", (item_id,))
+        item = cursor.fetchone()
+        if item:
+            cursor.execute(
+                "INSERT OR REPLACE INTO Aliases (EntityType, EntityID, ResolvedName, SpokenAlias, IsApproved) VALUES ('Product', ?, ?, ?, 1)",
+                (item_id, item[0], barcode)
+            )
+        conn.commit()
+        return jsonify({'status': 'success', 'message': f'Barcode {barcode} linked successfully.'})
+    finally:
+        conn.close()
+
+
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=int(os.getenv('PORT', '5000')), debug=os.getenv('FLASK_DEBUG') == '1')

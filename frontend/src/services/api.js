@@ -139,6 +139,15 @@ export const api = {
       body: JSON.stringify({ text, language_code: languageCode }),
     }),
 
+  // Barcode Scanning
+  lookupBarcode: (code) => request(`/api/barcode/lookup?code=${encodeURIComponent(code)}`),
+  linkBarcode: (itemId, barcode) =>
+    request('/api/barcode/link', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ItemID: itemId, Barcode: barcode }),
+    }),
+
   // Feedback
   getFeedback: () => request('/api/feedback'),
   submitFeedback: (payload) =>
