@@ -77,46 +77,47 @@ button:active:not(:disabled) {
 
 /* Print styles for Kirana Bill */
 @media print {
+  @page {
+    margin: 4mm;
+    size: auto;
+  }
+
   body {
     background-color: white !important;
     color: black !important;
     overflow: visible !important;
   }
 
-  /* Hide everything except the bill */
-  body > * {
-    display: none !important;
+  /* Hide background UI while keeping bill visible */
+  body * {
+    visibility: hidden;
   }
 
-  .bill-print-wrapper {
-    display: block !important;
-    position: fixed;
-    top: 0;
-    left: 0;
-    width: 100%;
-    z-index: 99999;
+  .bill-printable,
+  .bill-printable * {
+    visibility: visible;
   }
 
   .bill-printable {
-    display: block !important;
-    background: white !important;
-    color: black !important;
-    font-family: 'Courier New', monospace !important;
-    font-size: 11px !important;
-    padding: 8mm !important;
-    width: 80mm !important;
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 76mm !important;
+    max-width: 100% !important;
     margin: 0 auto !important;
+    padding: 2mm !important;
     border: none !important;
     box-shadow: none !important;
-  }
-
-  .bill-printable * {
+    background: white !important;
     color: black !important;
-    border-color: black !important;
-    background: transparent !important;
+    font-family: 'Courier New', Courier, monospace !important;
+    font-size: 11px !important;
   }
 
-  .bill-no-print {
+  .bill-no-print,
+  .no-print,
+  button,
+  input {
     display: none !important;
   }
 }
