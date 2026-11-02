@@ -37,6 +37,12 @@ pyinstaller --noconfirm --onedir --windowed `
     --hidden-import "flask" `
     --hidden-import "flask_cors" `
     --hidden-import "requests" `
+    --hidden-import "flask_login" `
+    --hidden-import "flask_sqlalchemy" `
+    --hidden-import "flask_migrate" `
+    --hidden-import "bcrypt" `
+    --hidden-import "sqlite3" `
+    --hidden-import "backend.app.models" `
     overlay.py
 
 Write-Host "`n=========================================" -ForegroundColor Green
