@@ -7,7 +7,8 @@ if __package__ in (None, ""):
     if project_root not in sys.path:
         sys.path.insert(0, project_root)
 
-from flask import Flask, request, jsonify, render_template
+from flask import Flask, request, jsonify, render_template, send_from_directory
+from werkzeug.exceptions import HTTPException
 from flask_cors import CORS
 from dotenv import load_dotenv
 import requests
@@ -42,7 +43,7 @@ def get_resource_path(relative_path):
 template_dir = get_resource_path('frontend/dist')
 static_dir = get_resource_path('frontend/dist/assets')
 
-app = Flask(__name__, template_folder=template_dir, static_folder=static_dir)
+app = Flask(__name__, template_folder=template_dir, static_folder=static_dir, static_url_path='/assets')
 CORS(app, supports_credentials=True)
 
 app.config["SQLALCHEMY_DATABASE_URI"] = app_config_database_url
@@ -58,13 +59,17 @@ register_auth_routes(app)
 
 @app.errorhandler(Exception)
 def handle_unexpected_error(error):
+    if isinstance(error, HTTPException):
+        return error
     app.logger.exception("Unhandled application error: %s", error)
     if request.path.startswith("/api/"):
         return jsonify({
             "status": "error",
             "error": "The server encountered an error while processing the request.",
         }), 500
-    raise error
+    if app.testing:
+        raise error
+    return render_template("index.html"), 500
 
 from backend.app import models  # noqa: F401,E402
 
@@ -77,7 +82,7 @@ def require_authenticated_session():
         return None
     if os.getenv("KIRANA_AUTH_ENABLED", "true").lower() in ("false", "0", "no"):
         return None
-    if request.path == "/" or request.path.startswith("/assets/"):
+    if not request.path.startswith("/api/"):
         return None
     if request.path.startswith("/api/auth/"):
         return None
@@ -124,6 +129,33 @@ def synthesize_voice():
 
 @app.route('/')
 def index():
+    return render_template('index.html')
+
+@app.route('/manifest.json')
+def serve_manifest():
+    return send_from_directory(template_dir, 'manifest.json')
+
+@app.route('/sw.js')
+def serve_sw():
+    response = send_from_directory(template_dir, 'sw.js')
+    response.headers['Service-Worker-Allowed'] = '/'
+    return response
+
+@app.route('/favicon.svg')
+def serve_favicon():
+    return send_from_directory(template_dir, 'favicon.svg')
+
+@app.route('/icons.svg')
+def serve_icons():
+    return send_from_directory(template_dir, 'icons.svg')
+
+@app.route('/<path:path>')
+def serve_spa_fallback(path):
+    if path.startswith("api/"):
+        return jsonify({"status": "error", "error": "API endpoint not found."}), 404
+    file_path = os.path.join(template_dir, path)
+    if os.path.isfile(file_path):
+        return send_from_directory(template_dir, path)
     return render_template('index.html')
 
 @app.route('/api/dashboard', methods=['GET'])
