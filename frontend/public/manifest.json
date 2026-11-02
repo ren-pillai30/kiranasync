@@ -1,0 +1,20 @@
+{
+  "name": "KiranaSync - Smart Voice POS & Khata",
+  "short_name": "KiranaSync",
+  "description": "AI-powered voice POS, barcode billing, and Udhaar ledger for Indian kirana stores",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#FAF7F2",
+  "theme_color": "#991B1B",
+  "orientation": "any",
+  "categories": ["business", "finance", "productivity"],
+  "icons": [
+    {
+      "src": "/favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}
