@@ -1,5 +1,6 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
+import QRCode from "qrcode";
 
 // ── Amount in Words (Indian English, up to 99,999) ──────────────────────────
 const ones = [
@@ -83,6 +84,10 @@ export default function BillModal({
 }) {
   const [invoiceNo] = useState(generateInvoiceNo);
   const { date, time } = useMemo(() => formatDateTime(), []);
+  const [customerPhone, setCustomerPhone] = useState("");
+  const [qrDataUrl, setQrDataUrl] = useState("");
+  const [showQr, setShowQr] = useState(true);
+  const [copyNotice, setCopyNotice] = useState("");
 
   // ── Calculations ────────────────────────────────────────────────────────
   const subtotal = useMemo(
@@ -97,6 +102,22 @@ export default function BillModal({
   const grandTotal = Math.round(rawTotal);
   const newBalance = customerBalance + grandTotal;
 
+  // ── UPI QR Generation ───────────────────────────────────────────────────
+  useEffect(() => {
+    if (!isOpen || grandTotal <= 0) return;
+    const upiString = `upi://pay?pa=kirana@okaxis&pn=${encodeURIComponent(
+      storeName
+    )}&am=${grandTotal}&cu=INR&tn=${encodeURIComponent(`Invoice ${invoiceNo}`)}`;
+
+    QRCode.toDataURL(upiString, {
+      width: 140,
+      margin: 1,
+      color: { dark: "#1c1917", light: "#ffffff" },
+    })
+      .then((url) => setQrDataUrl(url))
+      .catch((err) => console.warn("UPI QR generation failed:", err));
+  }, [isOpen, grandTotal, storeName, invoiceNo]);
+
   // ── Payment mode label & colors ─────────────────────────────────────────
   const modeConfig = {
     cash: { label: "💵 CASH", bg: "bg-emerald-100", text: "text-emerald-900", border: "border-emerald-300" },
@@ -104,6 +125,76 @@ export default function BillModal({
     upi: { label: "📱 UPI", bg: "bg-[#FEF3C7]", text: "text-[#92400E]", border: "border-[#FDE68A]" },
   };
   const mode = modeConfig[paymentMode] ?? modeConfig.cash;
+
+  // ── WhatsApp Message Formatter ──────────────────────────────────────────
+  const buildReceiptText = () => {
+    const lines = [
+      `🧾 *${storeName.toUpperCase()}*`,
+      `Invoice: ${invoiceNo} | Date: ${date} ${time}`,
+      `Customer: ${customerName}`,
+      `────────────────────────────`,
+      ...billItems.map(
+        (it, idx) =>
+          `${idx + 1}. ${it.item_name} x ${it.quantity} = ₹${Number(
+            it.item_total
+          ).toFixed(2)}`
+      ),
+      `────────────────────────────`,
+      `*Grand Total: ₹${grandTotal.toFixed(2)}*`,
+      `Payment Mode: ${mode.label.replace(/[^a-zA-Z ()]/g, "")}`,
+    ];
+
+    if (paymentMode === "udhaar") {
+      lines.push(
+        `Previous Udhaar: ₹${Number(customerBalance).toFixed(2)}`,
+        `*New Balance: ₹${Number(newBalance).toFixed(2)}*`
+      );
+    }
+
+    lines.push(
+      `────────────────────────────`,
+      `Thank you for shopping with us! 🙏`
+    );
+    return lines.join("\n");
+  };
+
+  const handleSendWhatsApp = () => {
+    const text = buildReceiptText();
+    const cleanDigits = customerPhone.replace(/\D/g, "");
+    const waUrl =
+      cleanDigits.length >= 10
+        ? `https://wa.me/91${cleanDigits.slice(-10)}?text=${encodeURIComponent(text)}`
+        : `https://wa.me/?text=${encodeURIComponent(text)}`;
+    window.open(waUrl, "_blank");
+  };
+
+  const handleSendKhataReminder = () => {
+    const reminder = [
+      `📢 *UDHAAR KHATA REMINDER*`,
+      `Store: ${storeName}`,
+      `Namaste ${customerName} ji,`,
+      `Aapka KiranaSync store par kul udhaar baaki *₹${Number(newBalance).toFixed(
+        2
+      )}* hai.`,
+      `(Is bill ka jod: ₹${grandTotal.toFixed(2)})`,
+      `Kripya samay par chukayein. Dhanyawaad! 🙏`,
+    ].join("\n");
+
+    const cleanDigits = customerPhone.replace(/\D/g, "");
+    const waUrl =
+      cleanDigits.length >= 10
+        ? `https://wa.me/91${cleanDigits.slice(-10)}?text=${encodeURIComponent(
+            reminder
+          )}`
+        : `https://wa.me/?text=${encodeURIComponent(reminder)}`;
+    window.open(waUrl, "_blank");
+  };
+
+  const handleCopyReceipt = () => {
+    navigator.clipboard.writeText(buildReceiptText());
+    setCopyNotice("Receipt text copied!");
+    setTimeout(() => setCopyNotice(""), 2500);
+  };
 
   // ── Print handler ───────────────────────────────────────────────────────
   function handlePrint() {
@@ -129,9 +220,9 @@ export default function BillModal({
             onClick={onClose}
           />
 
-          {/* Modal */}
+          {/* Modal Card */}
           <motion.div
-            className="relative w-full max-w-md max-h-[90vh] flex flex-col bg-[#FAF7F2] rounded-2xl shadow-2xl border-2 border-[#991B1B] overflow-hidden pointer-events-auto z-10"
+            className="relative w-full max-w-md max-h-[92vh] flex flex-col bg-[#FAF7F2] rounded-2xl shadow-2xl border-2 border-[#991B1B] overflow-hidden pointer-events-auto z-10"
             initial={{ scale: 0.92, opacity: 0, y: 25 }}
             animate={{ scale: 1, opacity: 1, y: 0 }}
             exit={{ scale: 0.92, opacity: 0, y: 25 }}
@@ -287,6 +378,24 @@ export default function BillModal({
                 </span>
               </div>
 
+              {/* ─── Dynamic UPI QR Code (Scan to Pay) ────────── */}
+              {qrDataUrl && showQr && (
+                <div className="my-2 p-2.5 bg-stone-50 rounded-xl border border-dashed border-[#D8CEBA] flex flex-col items-center text-center">
+                  <p className="text-[11px] font-bold text-stone-900 mb-1 flex items-center gap-1">
+                    <span>📱</span>
+                    <span>Scan with GPay / PhonePe / Paytm</span>
+                  </p>
+                  <img
+                    src={qrDataUrl}
+                    alt="UPI Scan to Pay QR Code"
+                    className="w-28 h-28 object-contain rounded-md border border-stone-200 bg-white p-1 shadow-2xs"
+                  />
+                  <span className="text-[10px] font-mono text-stone-600 mt-1">
+                    UPI: kirana@okaxis · ₹{grandTotal.toFixed(2)}
+                  </span>
+                </div>
+              )}
+
               {/* ─── Udhaar / Khata Section ──────────────────── */}
               {paymentMode === "udhaar" && (
                 <>
@@ -338,19 +447,83 @@ export default function BillModal({
               </div>
             </div>
 
+            {/* ─── WhatsApp & Customer Phone Bar ─────────────── */}
+            <div className="px-4 py-2 bg-[#F4EFE6] border-t border-[#E2D9C8] flex items-center justify-between gap-2 text-xs">
+              <div className="flex items-center gap-1.5 flex-1">
+                <span className="text-[#78716C] font-semibold text-[11px] whitespace-nowrap">
+                  WhatsApp:
+                </span>
+                <div className="flex items-center bg-white border border-[#D8CEBA] rounded-lg px-2 py-1 w-full max-w-[190px]">
+                  <span className="text-stone-400 font-mono text-xs mr-1">+91</span>
+                  <input
+                    type="tel"
+                    placeholder="Mobile number"
+                    value={customerPhone}
+                    onChange={(e) => setCustomerPhone(e.target.value)}
+                    maxLength={10}
+                    className="w-full text-xs font-mono text-stone-900 bg-transparent focus:outline-none"
+                  />
+                </div>
+              </div>
+              <div className="flex items-center gap-1.5">
+                <button
+                  type="button"
+                  onClick={handleSendWhatsApp}
+                  className="px-2.5 py-1 bg-emerald-700 hover:bg-emerald-600 text-white rounded-lg font-bold text-xs flex items-center gap-1 shadow-2xs transition-all cursor-pointer"
+                  title="Share invoice on WhatsApp"
+                >
+                  <span>📲</span>
+                  <span>Share Bill</span>
+                </button>
+                {paymentMode === "udhaar" && (
+                  <button
+                    type="button"
+                    onClick={handleSendKhataReminder}
+                    className="px-2.5 py-1 bg-amber-700 hover:bg-amber-600 text-white rounded-lg font-bold text-xs flex items-center gap-1 shadow-2xs transition-all cursor-pointer"
+                    title="Send Udhaar payment reminder on WhatsApp"
+                  >
+                    <span>📢</span>
+                    <span>Reminder</span>
+                  </button>
+                )}
+                <button
+                  type="button"
+                  onClick={handleCopyReceipt}
+                  className="p-1 text-stone-500 hover:text-stone-900 rounded-lg hover:bg-stone-200 transition-all cursor-pointer"
+                  title="Copy receipt text to clipboard"
+                >
+                  📋
+                </button>
+              </div>
+            </div>
+            {copyNotice && (
+              <div className="bg-emerald-100 text-emerald-900 text-center py-0.5 text-[11px] font-semibold">
+                ✓ {copyNotice}
+              </div>
+            )}
+
             {/* ─── Action Buttons (outside scrollable area) ──── */}
-            <div className="flex border-t border-[#E2D9C8] shrink-0 bg-[#FAF7F2] p-3.5 gap-3 pointer-events-auto">
+            <div className="flex border-t border-[#E2D9C8] shrink-0 bg-[#FAF7F2] p-3 gap-2.5 pointer-events-auto">
               <button
                 type="button"
                 onClick={handlePrint}
-                className="flex-1 flex items-center justify-center gap-2 py-3 px-4 rounded-xl text-xs font-bold text-white bg-[#991B1B] hover:bg-[#B91C1C] transition-all cursor-pointer shadow-xs"
+                className="flex-1 flex items-center justify-center gap-1.5 py-2.5 px-3 rounded-xl text-xs font-bold text-white bg-[#991B1B] hover:bg-[#B91C1C] transition-all cursor-pointer shadow-xs"
               >
-                🖨️ Print Bill
+                <span>🖨️</span>
+                <span>Print Bill</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setShowQr(!showQr)}
+                className="py-2.5 px-3 rounded-xl text-xs font-bold text-stone-800 bg-[#FFFDF9] hover:bg-[#F4EFE6] border border-[#D8CEBA] transition-all cursor-pointer shadow-2xs"
+                title="Toggle UPI QR Code"
+              >
+                {showQr ? "📱 Hide QR" : "📱 Show QR"}
               </button>
               <button
                 type="button"
                 onClick={onClose}
-                className="flex-1 flex items-center justify-center gap-2 py-3 px-4 rounded-xl text-xs font-bold text-stone-800 bg-[#FFFDF9] hover:bg-[#F4EFE6] border border-[#D8CEBA] transition-all cursor-pointer shadow-2xs"
+                className="py-2.5 px-4 rounded-xl text-xs font-bold text-stone-800 bg-[#FFFDF9] hover:bg-[#F4EFE6] border border-[#D8CEBA] transition-all cursor-pointer shadow-2xs"
               >
                 ✕ Close
               </button>
