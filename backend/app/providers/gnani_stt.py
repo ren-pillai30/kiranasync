@@ -146,7 +146,19 @@ class GnaniSTTProvider:
             if isinstance(result, dict):
                 # Gnani Prisma v3 returns {"success": true, "transcript": "..."}
                 if not result.get("success", True) is False:
-                    transcript = result.get("transcript", "") or result.get("text", "")
+                    nested_data = result.get("data")
+                    transcript = (
+                        result.get("transcript")
+                        or result.get("text")
+                        or result.get("result")
+                        or (nested_data.get("transcript") if isinstance(nested_data, dict) else None)
+                        or ""
+                    )
+                    if isinstance(transcript, str) and transcript.strip():
+                        self.last_error = None
+                        return transcript.strip()
+                    self.last_error = f"Provider returned an empty transcript: {result}"
+                    print(f"Gnani STT empty transcript response: {result}")
                     return transcript
                 print(f"Gnani STT error response: {result}")
                 self.last_error = f"Provider error response: {result}"

@@ -112,6 +112,19 @@ class GnaniProviderTests(unittest.TestCase):
         transcript = provider.transcribe("dummy.wav", language_code="en-IN")
         self.assertEqual(transcript, "do packet maggi")
 
+    @patch("builtins.open")
+    @patch("requests.post")
+    def test_stt_accepts_nested_transcript(self, mock_post, mock_open):
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {"success": True, "data": {"transcript": "100 packet maggi"}}
+        mock_post.return_value = mock_response
+
+        provider = GnaniSTTProvider(api_key="mock-stt-key")
+        transcript = provider.transcribe("dummy.wav", language_code="hi-IN")
+
+        self.assertEqual(transcript, "100 packet maggi")
+
 
 if __name__ == "__main__":
     unittest.main()

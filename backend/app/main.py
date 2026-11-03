@@ -515,7 +515,10 @@ def process_audio():
         if not raw_transcript or not raw_transcript.strip():
             return jsonify({
                 'status': 'error',
-                'error': 'Speech recognition did not return a transcript. Check the Gnani STT configuration and provider logs.',
+                'error': (
+                    'Speech recognition did not return a transcript. '
+                    f'{stt_provider.last_error or "Speak clearly and try again."}'
+                ),
             }), 502
 
         if raw_transcript is None:
