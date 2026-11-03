@@ -241,9 +241,7 @@ export default function CallSimulator({ isOpen, onClose, onRefreshStore, onOpenB
           <div className="flex-1 p-6 overflow-y-auto space-y-4 bg-[#F5F0E6] min-h-[300px]">
             {transcripts.length === 0 ? (
               <div className="h-full flex flex-col items-center justify-center text-center p-8 text-[#78716C] space-y-3">
-                <div className="w-16 h-16 rounded-2xl bg-[#FFFDF9] border border-[#D8CEBA] flex items-center justify-center text-3xl shadow-xs">
-                  
-                </div>
+                <div className="w-16 h-16 rounded-2xl bg-[#FFFDF9] border border-[#D8CEBA] flex items-center justify-center text-3xl shadow-xs" />
                 <h4 className="text-base font-bold text-stone-800">Ready to simulate customer calls</h4>
                 <p className="text-xs max-w-md text-[#78716C]">
                   Click <strong className="text-[#991B1B]">&quot;Simulate Call&quot;</strong> above. Once connected, speak using
