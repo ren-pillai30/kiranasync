@@ -14,6 +14,7 @@ export default function DashboardView({
   isRecording,
   startRecording,
   onOpenSimulator,
+  onOpenBarcode,
   onOpenEvalModal,
   onOpenArchives,
   onOpenBill,

@@ -51,6 +51,7 @@ export default function App() {
   const [showFeedbackModal, setShowFeedbackModal] = useState(false);
   const [showDayClosingModal, setShowDayClosingModal] = useState(false);
   const [showBarcodeModal, setShowBarcodeModal] = useState(false);
+  const [barcodeNotice, setBarcodeNotice] = useState('');
   const [billData, setBillData] = useState({ billItems: [], customerName: 'Walk-in Customer', paymentMode: 'cash', customerBalance: 0 });
   const [isMuted, setIsMuted] = useState(false);
 
@@ -323,7 +324,10 @@ export default function App() {
         onOpenBill={() => handleOpenBill()}
         onOpenFeedback={() => setShowFeedbackModal(true)}
         onOpenDayClosing={() => setShowDayClosingModal(true)}
-        onOpenBarcode={() => setShowBarcodeModal(true)}
+        onOpenBarcode={() => {
+          setShowBarcodeModal(true);
+          setBarcodeNotice(typeof window !== 'undefined' && 'BarcodeDetector' in window ? '' : 'Barcode scanning is not supported in this browser; manual entry still works.');
+        }}
         handleMinimize={handleMinimize}
         handleClose={handleClose}
       />
@@ -365,6 +369,8 @@ export default function App() {
           onAddToBill={(data) => handleOpenBill(data)}
           onQuickSell={handleQuickSellFromBarcode}
           onRefreshAll={refreshAll}
+          barcodeNotice={barcodeNotice}
+          setBarcodeNotice={setBarcodeNotice}
         />
 
         <BenchmarkModal
@@ -469,7 +475,10 @@ export default function App() {
               onOpenBill={() => handleOpenBill()}
               onOpenFeedback={() => setShowFeedbackModal(true)}
               onOpenDayClosing={() => setShowDayClosingModal(true)}
-              onOpenBarcode={() => setShowBarcodeModal(true)}
+              onOpenBarcode={() => {
+                setShowBarcodeModal(true);
+                setBarcodeNotice(typeof window !== 'undefined' && 'BarcodeDetector' in window ? '' : 'Barcode scanning is not supported in this browser; manual entry still works.');
+              }}
               onViewBill={(data) => handleOpenBill(data)}
               onOpenEvalModal={async () => {
                 try {
