@@ -277,7 +277,7 @@ def search_product_online(clean_item_name):
     }
     brand_tokens = [
         token
-        for token in re.findall(r"[a-z0-9]+", corrected_name.lower())
+        for token in re.findall(r"[a-z]+|\d+(?:\.\d+)?", corrected_name.lower())
         if token not in ignored_name_tokens and len(token) > 1
     ]
     if brand_tokens:
@@ -339,11 +339,11 @@ def search_product_online(clean_item_name):
     )
     requested_tokens = {
         token
-        for token in re.findall(r"[a-z0-9]+", corrected_name.lower())
-        if token not in ignored_name_tokens and len(token) > 1
+        for token in re.findall(r"[a-z]+|\d+(?:\.\d+)?", strip_measurement(corrected_name).lower())
+        if token not in ignored_name_tokens and (len(token) > 1 or token.isdigit())
     }
     if not requested_tokens:
-        requested_tokens = set(re.findall(r"[a-z0-9]+", corrected_name.lower()))
+        requested_tokens = set(re.findall(r"[a-z]+|\d+(?:\.\d+)?", strip_measurement(corrected_name).lower()))
 
     for result in results:
         title = (result.get("title") or "").strip()
@@ -352,7 +352,7 @@ def search_product_online(clean_item_name):
         snippet = " ".join(part for part in (title, body) if part)
         if not snippet:
             continue
-        result_tokens = set(re.findall(r"[a-z0-9]+", title.lower()))
+        result_tokens = set(re.findall(r"[a-z]+|\d+(?:\.\d+)?", title.lower()))
         if not all(
             any(
                 token == result_token
