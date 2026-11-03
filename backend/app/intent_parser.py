@@ -18,6 +18,7 @@ GENERIC_COMMODITY_TERMS = {
 }
 
 import os
+import shutil
 import sys
 import sqlite3
 import re
@@ -73,6 +74,20 @@ def get_writable_db_path():
     if configured_path:
         os.makedirs(os.path.dirname(os.path.abspath(configured_path)), exist_ok=True)
         return configured_path
+    if os.getenv("VERCEL") == "1":
+        runtime_dir = "/tmp"
+        os.makedirs(runtime_dir, exist_ok=True)
+        runtime_db = os.path.join(runtime_dir, "kirana.db")
+        if not os.path.exists(runtime_db):
+            seed_candidates = (
+                os.path.join(os.path.abspath("."), "kirana.db"),
+                os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "kirana.db"),
+            )
+            for seed_db in seed_candidates:
+                if os.path.isfile(seed_db):
+                    shutil.copyfile(seed_db, runtime_db)
+                    break
+        return runtime_db
     if hasattr(sys, '_MEIPASS'):
         app_data = os.environ.get('LOCALAPPDATA', os.path.expanduser('~'))
         target_dir = os.path.join(app_data, 'KiranaSync')
