@@ -17,6 +17,21 @@ GENERIC_COMMODITY_TERMS = {
     "water", "pani", "soda", "cold drink", "juice",
 }
 
+PRODUCT_NAME_ALIASES = {
+    "मैगी": "Maggi",
+    "मगी": "Maggi",
+    "मोगी": "Maggi",
+}
+
+
+def normalize_product_search_name(product_name):
+    normalized = re.sub(r"\s+", " ", product_name).strip()
+    lowered = normalized.lower()
+    for spoken_name, search_name in PRODUCT_NAME_ALIASES.items():
+        if lowered == spoken_name.lower():
+            return search_name
+    return normalized
+
 import os
 import shutil
 import sys
@@ -252,6 +267,7 @@ def search_product_online(clean_item_name):
     )
     product_name = re.sub(r"\s+", " ", product_name).strip()
     corrected_name = (product_name or clean_item_name.strip()).title()
+    search_product_name = normalize_product_search_name(corrected_name)
     requested_meas = extract_measurement(product_name)
     base_product_name = strip_measurement(product_name).strip()
 
@@ -272,10 +288,10 @@ def search_product_online(clean_item_name):
         }
 
     normalized_query_name = re.sub(
-        r"\band\b", "&", corrected_name, flags=re.IGNORECASE
+        r"\band\b", "&", search_product_name, flags=re.IGNORECASE
     )
-    query_names = [corrected_name, normalized_query_name]
-    if base_product_name and base_product_name.lower() != corrected_name.lower():
+    query_names = [search_product_name, normalized_query_name]
+    if base_product_name and base_product_name.lower() != search_product_name.lower():
         query_names.append(base_product_name.title())
     ignored_name_tokens = {
         "a", "an", "and", "for", "in", "of", "the", "with",
@@ -285,7 +301,7 @@ def search_product_online(clean_item_name):
     }
     brand_tokens = [
         token
-        for token in re.findall(r"[a-z]+|\d+(?:\.\d+)?", corrected_name.lower())
+        for token in re.findall(r"[a-z]+|\d+(?:\.\d+)?", search_product_name.lower())
         if token not in ignored_name_tokens and len(token) > 1
     ]
     if brand_tokens:
