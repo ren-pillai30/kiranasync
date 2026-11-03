@@ -244,9 +244,16 @@ def load_fmcg_catalog():
 
 def search_product_online(clean_item_name):
     """Find a suggested MRP and source for a new inventory item, with measurement awareness."""
-    corrected_name = clean_item_name.strip().title()
-    requested_meas = extract_measurement(clean_item_name)
-    base_product_name = strip_measurement(clean_item_name).strip()
+    product_name = re.sub(
+        r"\b(?:maximum retail price|m\.?\s*r\.?\s*p\.?)\b",
+        " ",
+        clean_item_name.strip(),
+        flags=re.IGNORECASE,
+    )
+    product_name = re.sub(r"\s+", " ", product_name).strip()
+    corrected_name = (product_name or clean_item_name.strip()).title()
+    requested_meas = extract_measurement(product_name)
+    base_product_name = strip_measurement(product_name).strip()
 
     if not DDGS:
         return {
@@ -261,6 +268,7 @@ def search_product_online(clean_item_name):
             "RequestedMeasurement": requested_meas["display"] if requested_meas else None,
             "AvailableMeasurements": [],
             "SearchResults": [],
+            "SearchQuery": "",
         }
 
     normalized_query_name = re.sub(
@@ -284,6 +292,7 @@ def search_product_online(clean_item_name):
         normalized_brand = " ".join(brand_tokens)
         query_names.append(normalized_brand)
     queries = list(dict.fromkeys(f"{name} MRP India" for name in query_names))
+    primary_search_query = queries[0] if queries else ""
     try:
         with DDGS() as ddgs:
             results = []
@@ -318,6 +327,7 @@ def search_product_online(clean_item_name):
             "RequestedMeasurement": requested_meas["display"] if requested_meas else None,
             "AvailableMeasurements": [],
             "SearchResults": [],
+            "SearchQuery": primary_search_query,
         }
 
     search_results = []
@@ -484,6 +494,7 @@ def search_product_online(clean_item_name):
         "RequestedMeasurement": meas_analysis.get("requested_measurement"),
         "AvailableMeasurements": meas_analysis.get("other_measurements", []),
         "SearchResults": search_results[:3],
+        "SearchQuery": primary_search_query,
     }
 
 def get_db_records(table, column, db_path=None):

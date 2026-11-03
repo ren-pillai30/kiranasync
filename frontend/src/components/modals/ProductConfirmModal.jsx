@@ -109,6 +109,11 @@ export default function ProductConfirmModal({
                   : t.lookupUnavailable}
               </p>
               <p className="text-[11px] text-[#78716C]">{t.productVariantNote}</p>
+              {pendingDraft.SearchQuery && (
+                <p className="text-[11px] text-[#78716C]">
+                  <span className="font-bold">Searched for:</span> {pendingDraft.SearchQuery}
+                </p>
+              )}
               {pendingDraft.PriceOptions?.length > 0 ? (
                 <div className="space-y-2.5">
                   {pendingDraft.PriceOptions.map((option, index) => (
