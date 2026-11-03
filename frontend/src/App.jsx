@@ -263,10 +263,8 @@ export default function App() {
       }
     };
     loadInitial();
-    const interval = setInterval(fetchDashboardData, 3000);
     return () => {
       isMounted = false;
-      clearInterval(interval);
       stopActiveAudio();
     };
   }, [fetchDashboardData, stopActiveAudio]);
