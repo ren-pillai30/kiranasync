@@ -82,6 +82,7 @@ class GnaniSTTProvider:
         self.endpoint = endpoint or os.getenv(
             "GNANI_STT_ENDPOINT", "https://api.vachana.ai/stt/v3"
         )
+        self.last_error = None
 
     def transcribe(self, audio_path, language_code="en-IN", native_numerals=False, bias_words=None):
         """
@@ -92,8 +93,10 @@ class GnaniSTTProvider:
 
         Returns: transcript string (may be empty) or None on failure.
         """
+        self.last_error = None
         if not self.api_key:
             print("ERROR: GNANI_API_KEY is missing!")
+            self.last_error = "GNANI_API_KEY is missing"
             return None
 
         # Normalise audio to what Gnani expects
@@ -132,6 +135,10 @@ class GnaniSTTProvider:
                 )
 
             if response.status_code != 200:
+                self.last_error = (
+                    f"Provider returned HTTP {response.status_code}: "
+                    f"{response.text[:300]}"
+                )
                 print(f"Gnani STT HTTP {response.status_code}: {response.text[:300]}")
                 return None
 
@@ -142,13 +149,16 @@ class GnaniSTTProvider:
                     transcript = result.get("transcript", "") or result.get("text", "")
                     return transcript
                 print(f"Gnani STT error response: {result}")
+                self.last_error = f"Provider error response: {result}"
                 return None
             if isinstance(result, str):
                 return result
+            self.last_error = "Provider returned an unsupported response format"
             return None
 
         except Exception as e:
             print(f"Gnani STT Exception: {e}")
+            self.last_error = str(e)
             return None
         finally:
             if cleanup_converted and os.path.exists(converted_path):

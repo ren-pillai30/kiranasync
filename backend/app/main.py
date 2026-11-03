@@ -519,7 +519,11 @@ def process_audio():
             }), 502
 
         if raw_transcript is None:
-            return jsonify({'status': 'error', 'error': 'Could not reach speech recognition service. Check your internet connection and API key.'}), 503
+            provider_error = stt_provider.last_error or 'Provider returned no transcript.'
+            return jsonify({
+                'status': 'error',
+                'error': f'Speech recognition failed: {provider_error}',
+            }), 503
 
         if not raw_transcript.strip():
             return jsonify({'status': 'error', 'error': 'No speech detected. Please speak clearly into your microphone and click Send.'}), 400
@@ -566,7 +570,7 @@ def process_audio():
         app.logger.exception("Voice command processing failed: %s", exc)
         return jsonify({
             'status': 'error',
-            'error': 'Voice processing failed on the server. Please try again.',
+            'error': f'Voice processing failed on the server: {str(exc)[:300]}',
         }), 500
     finally:
         if os.path.exists(temp_audio_path):
