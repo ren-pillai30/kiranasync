@@ -15,3 +15,7 @@ def get_database_url():
             database_url = database_url.replace("postgresql://", "postgresql+psycopg://", 1)
         return database_url
     return os.getenv("SQLALCHEMY_DATABASE_URI", "sqlite:///../kirana.db")
+
+
+def is_postgres_database():
+    return os.getenv("VERCEL") == "1" and get_database_url().startswith("postgresql")

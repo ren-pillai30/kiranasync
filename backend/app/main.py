@@ -18,7 +18,7 @@ from flask_login import current_user
 load_dotenv(os.path.join(os.path.abspath(os.path.dirname(__file__)), '../../.env'))
 load_dotenv() # Fallback
 
-from backend.app.database import db, get_database_url
+from backend.app.database import db, get_database_url, is_postgres_database
 from backend.app.auth import login_manager, register_auth_routes
 
 app_config_database_url = get_database_url()
@@ -95,6 +95,9 @@ from backend.app.providers.gnani_tts import GnaniTTSProvider
 stt_provider = GnaniSTTProvider()
 tts_provider = GnaniTTSProvider()
 
+def current_store_id():
+    return getattr(current_user, 'store_id', 1)
+
 def transcribe_audio(audio_path, language_code="hi-IN"):
     """Transcribe audio with Gnani (hi-IN natively supports Hindi and Hinglish)."""
     return stt_provider.transcribe(
@@ -160,6 +163,26 @@ def serve_spa_fallback(path):
 
 @app.route('/api/dashboard', methods=['GET'])
 def get_dashboard_data():
+    if is_postgres_database():
+        from backend.app.models import StoreCredit, StoreInventory
+        inventory = [{
+            'ItemID': row.item_id,
+            'ItemName': row.item_name,
+            'StockQuantity': row.stock_quantity,
+            'Price': row.price,
+        } for row in StoreInventory.query.filter_by(
+            store_id=current_store_id(),
+            is_active=True,
+        ).order_by(StoreInventory.item_id).all()]
+        credit = [{
+            'CustomerID': row.customer_id,
+            'CustomerName': row.customer_name,
+            'OutstandingBalance': row.outstanding_balance,
+        } for row in StoreCredit.query.filter_by(
+            store_id=current_store_id(),
+            is_active=True,
+        ).order_by(StoreCredit.customer_id).all()]
+        return jsonify({'status': 'success', 'inventory': inventory, 'credit': credit})
     import sqlite3
     from backend.app.intent_parser import DB_PATH
     
@@ -607,6 +630,42 @@ def process_audio():
 
 @app.route('/api/inventory/add', methods=['POST'])
 def add_inventory():
+    if is_postgres_database():
+        from backend.app.models import StoreInventory
+        data = request.get_json(silent=True) or {}
+        item_name = str(data.get('ItemName', '')).strip()
+        try:
+            quantity = int(data.get('StockQuantity'))
+            price = float(data.get('Price'))
+        except (TypeError, ValueError):
+            return jsonify({'status': 'error', 'error': 'Enter a valid whole-number stock quantity and price.'}), 400
+        if not item_name or quantity < 0 or not math.isfinite(price) or price < 0:
+            return jsonify({'status': 'error', 'error': 'Enter a product name, non-negative stock, and valid price.'}), 400
+        existing = StoreInventory.query.filter(
+            StoreInventory.store_id == current_store_id(),
+            db.func.lower(StoreInventory.item_name) == item_name.lower(),
+        ).first()
+        if existing and existing.is_active:
+            return jsonify({'status': 'error', 'error': 'That product is already active in inventory.'}), 409
+        if existing:
+            existing.item_name = item_name
+            existing.stock_quantity = quantity
+            existing.price = price
+            existing.is_active = True
+        else:
+            max_item_id = db.session.query(db.func.max(StoreInventory.item_id)).filter_by(
+                store_id=current_store_id()
+            ).scalar() or 0
+            db.session.add(StoreInventory(
+                store_id=current_store_id(),
+                item_id=max_item_id + 1,
+                item_name=item_name,
+                stock_quantity=quantity,
+                price=price,
+                is_active=True,
+            ))
+        db.session.commit()
+        return jsonify({'status': 'success'})
     import sqlite3
     from backend.app.intent_parser import DB_PATH
     
@@ -656,6 +715,38 @@ def add_inventory():
 
 @app.route('/api/credit/add', methods=['POST'])
 def add_credit():
+    if is_postgres_database():
+        from backend.app.models import StoreCredit
+        data = request.get_json(silent=True) or {}
+        customer_name = str(data.get('CustomerName', '')).strip()
+        try:
+            amount = float(data.get('Amount'))
+        except (TypeError, ValueError):
+            return jsonify({'status': 'error', 'error': 'Enter a valid starting balance.'}), 400
+        if not customer_name or not math.isfinite(amount) or amount < 0:
+            return jsonify({'status': 'error', 'error': 'Enter a customer name and non-negative balance.'}), 400
+        existing = StoreCredit.query.filter(
+            StoreCredit.store_id == current_store_id(),
+            db.func.lower(StoreCredit.customer_name) == customer_name.lower(),
+        ).first()
+        if existing and existing.is_active:
+            return jsonify({'status': 'error', 'error': 'That customer is already active.'}), 409
+        if existing:
+            existing.outstanding_balance = float(existing.outstanding_balance or 0) + amount
+            existing.is_active = True
+        else:
+            max_customer_id = db.session.query(db.func.max(StoreCredit.customer_id)).filter_by(
+                store_id=current_store_id()
+            ).scalar() or 0
+            db.session.add(StoreCredit(
+                store_id=current_store_id(),
+                customer_id=max_customer_id + 1,
+                customer_name=customer_name,
+                outstanding_balance=amount,
+                is_active=True,
+            ))
+        db.session.commit()
+        return jsonify({'status': 'success'})
     import sqlite3
     from backend.app.intent_parser import DB_PATH
     
@@ -704,6 +795,30 @@ def add_credit():
 
 @app.route('/api/entities/archive', methods=['POST'])
 def archive_entity():
+    if is_postgres_database():
+        data = request.get_json(silent=True) or {}
+        entity_type = data.get('EntityType')
+        try:
+            entity_id = int(data.get('EntityID'))
+        except (TypeError, ValueError):
+            return jsonify({'status': 'error', 'error': 'Choose a valid product or customer.'}), 400
+        if entity_type == 'Product':
+            from backend.app.models import StoreInventory
+            entity = StoreInventory.query.filter_by(
+                store_id=current_store_id(), item_id=entity_id, is_active=True
+            ).first()
+        elif entity_type == 'Customer':
+            from backend.app.models import StoreCredit
+            entity = StoreCredit.query.filter_by(
+                store_id=current_store_id(), customer_id=entity_id, is_active=True
+            ).first()
+        else:
+            return jsonify({'status': 'error', 'error': 'Choose a valid product or customer.'}), 400
+        if not entity:
+            return jsonify({'status': 'error', 'error': 'Entity not found.'}), 404
+        entity.is_active = False
+        db.session.commit()
+        return jsonify({'status': 'success'})
     from backend.app.intent_parser import DB_PATH
     from backend.app.services.entity_service import EntityService
 
@@ -736,6 +851,36 @@ def archive_entity():
 
 @app.route('/api/inventory/edit', methods=['POST'])
 def edit_inventory():
+    if is_postgres_database():
+        from backend.app.models import StoreInventory
+        data = request.get_json(silent=True) or {}
+        item_id = data.get('ItemID')
+        new_item_name = str(data.get('NewItemName') or '').strip()
+        if item_id is None or not new_item_name:
+            return jsonify({'status': 'error', 'error': 'Valid item details are required.'}), 400
+        item = StoreInventory.query.filter_by(
+            store_id=current_store_id(),
+            item_id=item_id,
+            is_active=True,
+        ).first()
+        if not item:
+            return jsonify({'status': 'error', 'error': 'Inventory item not found.'}), 404
+        duplicate = StoreInventory.query.filter(
+            StoreInventory.store_id == current_store_id(),
+            StoreInventory.item_id != item_id,
+            StoreInventory.is_active.is_(True),
+            db.func.lower(StoreInventory.item_name) == new_item_name.lower(),
+        ).first()
+        if duplicate:
+            return jsonify({'status': 'error', 'error': 'An active product with that name already exists.'}), 409
+        item.item_name = new_item_name
+        db.session.commit()
+        return jsonify({'status': 'success', 'item': {
+            'ItemID': item.item_id,
+            'ItemName': item.item_name,
+            'StockQuantity': item.stock_quantity,
+            'Price': item.price,
+        }})
     import sqlite3
     from backend.app.intent_parser import DB_PATH
 
@@ -780,6 +925,21 @@ def edit_inventory():
 
 @app.route('/api/credit/edit', methods=['POST'])
 def edit_credit():
+    if is_postgres_database():
+        from backend.app.models import StoreCredit
+        data = request.get_json(silent=True) or {}
+        customer_id = data.get('CustomerID')
+        new_customer_name = str(data.get('NewCustomerName') or '').strip()
+        customer = StoreCredit.query.filter_by(
+            store_id=current_store_id(),
+            customer_id=customer_id,
+            is_active=True,
+        ).first()
+        if not customer or not new_customer_name:
+            return jsonify({'status': 'error', 'error': 'Valid customer details are required.'}), 400
+        customer.customer_name = new_customer_name
+        db.session.commit()
+        return jsonify({'status': 'success'})
     import sqlite3
     from backend.app.intent_parser import DB_PATH
     

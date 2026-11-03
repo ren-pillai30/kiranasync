@@ -38,3 +38,26 @@ class User(UserMixin, db.Model):
             password.encode("utf-8"),
             bcrypt.gensalt(),
         ).decode("utf-8")
+
+
+class StoreInventory(db.Model):
+    __tablename__ = "store_inventory"
+
+    id = db.Column(db.Integer, primary_key=True)
+    store_id = db.Column(db.Integer, db.ForeignKey("stores.id"), nullable=False, index=True)
+    item_id = db.Column(db.Integer, nullable=False)
+    item_name = db.Column(db.String(255), nullable=False)
+    stock_quantity = db.Column(db.Integer, nullable=False, default=0)
+    price = db.Column(db.Float, nullable=False, default=0)
+    is_active = db.Column(db.Boolean, nullable=False, default=True)
+
+
+class StoreCredit(db.Model):
+    __tablename__ = "store_credit"
+
+    id = db.Column(db.Integer, primary_key=True)
+    store_id = db.Column(db.Integer, db.ForeignKey("stores.id"), nullable=False, index=True)
+    customer_id = db.Column(db.Integer, nullable=False)
+    customer_name = db.Column(db.String(255), nullable=False)
+    outstanding_balance = db.Column(db.Float, nullable=False, default=0)
+    is_active = db.Column(db.Boolean, nullable=False, default=True)
