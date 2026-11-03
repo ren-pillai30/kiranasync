@@ -8,6 +8,7 @@ import { api } from '../services/api';
 export function useStoreActions({
   t,
   onRefreshAll,
+  onInventoryUpdated,
   playVoiceReceipt,
   setIsActive,
   setDbAction,
@@ -63,9 +64,9 @@ export function useStoreActions({
 
   const handleEditInventory = async (id) => {
     try {
-      await api.editInventory(id, editInvName);
+      const result = await api.editInventory(id, editInvName);
       setEditInvId(null);
-      onRefreshAll();
+      onInventoryUpdated?.(result.item);
     } catch (error) {
       console.error('Inventory edit error:', error);
     }

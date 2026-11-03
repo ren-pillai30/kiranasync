@@ -130,6 +130,11 @@ export default function App() {
   const actions = useStoreActions({
     t,
     onRefreshAll: refreshAll,
+    onInventoryUpdated: (updatedItem) => {
+      setInventory((current) => current.map((item) =>
+        item.ItemID === updatedItem.ItemID ? updatedItem : item
+      ));
+    },
     playVoiceReceipt,
     setIsActive,
     setDbAction,

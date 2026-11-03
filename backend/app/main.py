@@ -715,14 +715,45 @@ def archive_entity():
 def edit_inventory():
     import sqlite3
     from backend.app.intent_parser import DB_PATH
-    
+
     data = request.json
-    conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
-    cursor.execute('UPDATE Inventory SET ItemName = ? WHERE ItemID = ?', (data['NewItemName'], data['ItemID']))
-    conn.commit()
-    conn.close()
-    return jsonify({'status': 'success'})
+    item_id = data.get('ItemID') if isinstance(data, dict) else None
+    new_item_name = data.get('NewItemName').strip() if isinstance(data, dict) and isinstance(data.get('NewItemName'), str) else ''
+    if item_id is None or not new_item_name:
+        return jsonify({'status': 'error', 'error': 'Valid item details are required.'}), 400
+
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
+        cursor.execute(
+            'UPDATE Inventory SET ItemName = ? WHERE ItemID = ? AND IsActive = 1',
+            (new_item_name, item_id),
+        )
+        if cursor.rowcount != 1:
+            conn.close()
+            return jsonify({'status': 'error', 'error': 'Inventory item not found.'}), 404
+        cursor.execute(
+            'SELECT ItemID, ItemName, StockQuantity, Price FROM Inventory WHERE ItemID = ?',
+            (item_id,),
+        )
+        item = cursor.fetchone()
+        conn.commit()
+        conn.close()
+    except sqlite3.IntegrityError:
+        conn.close()
+        return jsonify({'status': 'error', 'error': 'An active product with that name already exists.'}), 409
+    except sqlite3.Error as error:
+        return jsonify({'status': 'error', 'error': str(error)}), 500
+
+    return jsonify({
+        'status': 'success',
+        'item': {
+            'ItemID': item[0],
+            'ItemName': item[1],
+            'StockQuantity': item[2],
+            'Price': item[3],
+        },
+    })
 
 @app.route('/api/credit/edit', methods=['POST'])
 def edit_credit():

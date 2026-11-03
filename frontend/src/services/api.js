@@ -4,7 +4,11 @@ const API_BASE = window.location.hostname === 'localhost' || window.location.hos
 
 async function request(endpoint, options = {}) {
   const url = `${API_BASE}${endpoint}`;
-  const response = await fetch(url, { credentials: 'include', ...options });
+  const response = await fetch(url, {
+    credentials: 'include',
+    cache: 'no-store',
+    ...options,
+  });
   const contentType = response.headers.get('content-type') || '';
 
   if (!contentType.includes('application/json')) {
