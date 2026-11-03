@@ -1,4 +1,4 @@
-const CACHE_NAME = 'kiranasync-cache-v2';
+const CACHE_NAME = 'kiranasync-cache-v3';
 const STATIC_ASSETS = [
   '/',
   '/index.html',
@@ -34,6 +34,11 @@ self.addEventListener('activate', (event) => {
 self.addEventListener('fetch', (event) => {
   const { request } = event;
   const url = new URL(request.url);
+
+  if (url.searchParams.has('v')) {
+    event.respondWith(fetch(request));
+    return;
+  }
 
   // Skip non-GET and chrome-extension/external API requests
   if (request.method !== 'GET') return;
