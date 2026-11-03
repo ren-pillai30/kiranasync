@@ -479,6 +479,18 @@ def process_audio():
     import tempfile
     if 'audio' not in request.files:
         return jsonify({'status': 'error', 'error': 'No audio file provided'}), 400
+
+    missing_voice_config = []
+    if not os.getenv('GNANI_API_KEY'):
+        missing_voice_config.append('GNANI_API_KEY')
+    if not (os.getenv('GEMINI_API_KEY') or os.getenv('GOOGLE_API_KEY')):
+        missing_voice_config.append('GEMINI_API_KEY or GOOGLE_API_KEY')
+    if missing_voice_config:
+        missing_names = ', '.join(missing_voice_config)
+        return jsonify({
+            'status': 'error',
+            'error': f'Voice service configuration is missing on the server: {missing_names}.',
+        }), 503
     
     audio_file = request.files['audio']
     temp_audio_file = tempfile.NamedTemporaryFile(suffix='.wav', delete=False)
@@ -499,6 +511,12 @@ def process_audio():
             fallback_transcript = transcribe_audio(temp_audio_path, language_code=fallback_lang)
             if fallback_transcript and fallback_transcript.strip():
                 raw_transcript = fallback_transcript
+
+        if not raw_transcript or not raw_transcript.strip():
+            return jsonify({
+                'status': 'error',
+                'error': 'Speech recognition did not return a transcript. Check the Gnani STT configuration and provider logs.',
+            }), 502
 
         if raw_transcript is None:
             return jsonify({'status': 'error', 'error': 'Could not reach speech recognition service. Check your internet connection and API key.'}), 503
