@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { api } from '../services/api';
+import LoadingSpinner from './LoadingSpinner';
 
 export default function AuthScreen({ onAuthenticated }) {
   const [mode, setMode] = useState('login');
@@ -58,7 +59,7 @@ export default function AuthScreen({ onAuthenticated }) {
 
         {error && <p className="mt-4 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p>}
         <button disabled={submitting} className="mt-5 w-full rounded-lg bg-emerald-600 px-4 py-2.5 font-semibold text-white disabled:opacity-60">
-          {submitting ? 'Please wait...' : mode === 'login' ? 'Sign in' : 'Create store'}
+          {submitting ? <LoadingSpinner label="Please wait..." /> : mode === 'login' ? 'Sign in' : 'Create store'}
         </button>
         <button type="button" onClick={() => { setMode(mode === 'login' ? 'register' : 'login'); setError(''); }} className="mt-4 w-full text-sm font-medium text-emerald-700">
           {mode === 'login' ? 'Create a store account' : 'Already have an account? Sign in'}

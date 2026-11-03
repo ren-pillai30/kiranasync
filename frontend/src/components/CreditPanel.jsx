@@ -20,7 +20,7 @@ export default function CreditPanel({
       <div className="flex justify-between items-center mb-3">
         <div className="flex items-center space-x-2">
           <h3 className="text-base font-bold text-stone-900 flex items-center space-x-1.5">
-            <span className="text-base">📒</span>
+            <span className="text-base"></span>
             <span>{t.credTitle}</span>
           </h3>
           <span className="text-[11px] font-mono px-2 py-0.5 rounded-md bg-red-100 text-red-900 border border-red-200 font-bold">
@@ -31,7 +31,7 @@ export default function CreditPanel({
           onClick={() => setShowAddCust(!showAddCust)}
           className="text-xs bg-[#991B1B] hover:bg-[#B91C1C] text-[#FFFDF7] px-3 py-1.5 rounded-lg font-bold shadow-xs flex items-center space-x-1 transition-all"
         >
-          <span>{showAddCust ? '✕' : '+'}</span>
+          <span>{showAddCust ? '' : '+'}</span>
           <span>{t.addBtn}</span>
         </button>
       </div>

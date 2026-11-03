@@ -1,5 +1,7 @@
 import { motion, AnimatePresence } from 'framer-motion';
 
+import LoadingSpinner from '../LoadingSpinner';
+
 export default function ProductConfirmModal({
   pendingDraft,
   setPendingDraft,
@@ -41,7 +43,7 @@ export default function ProductConfirmModal({
             </button>
 
             <div className="flex items-center space-x-3 mb-2">
-              <span className="text-2xl p-1 rounded-lg bg-[#FEF3C7]">🔍</span>
+              <span className="text-2xl p-1 rounded-lg bg-[#FEF3C7]"></span>
               <h3 className="text-xl font-black text-stone-900">{t.confirmTitle}</h3>
             </div>
             <p className="text-[#78716C] text-xs mb-5 font-medium">{t.confirmDesc}</p>
@@ -84,7 +86,7 @@ export default function ProductConfirmModal({
               {pendingDraft.SearchStatus === 'measurement_mismatch' && (
                 <div className="p-3.5 bg-red-50 border border-red-300 rounded-xl text-red-900 text-xs space-y-1.5 shadow-2xs">
                   <div className="font-bold flex items-center space-x-1.5 text-red-800">
-                    <span>⚠️</span>
+                    <span></span>
                     <span>Exact measurement ({pendingDraft.RequestedMeasurement || 'requested'}) not available</span>
                   </div>
                   <p className="text-red-900/90 leading-relaxed font-medium">
@@ -95,7 +97,7 @@ export default function ProductConfirmModal({
 
               <p className="text-xs text-stone-700 font-semibold">
                 {pendingDraft.SearchStatus === 'searching'
-                  ? t.searching
+                  ? <LoadingSpinner label={t.searching} />
                   : pendingDraft.SearchStatus === 'measurement_mismatch'
                   ? t.exactMeasurementMismatch
                   : pendingDraft.PriceIsMRP

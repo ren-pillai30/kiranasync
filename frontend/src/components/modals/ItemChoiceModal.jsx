@@ -40,7 +40,7 @@ export default function ItemChoiceModal({
             {pendingItemChoice.MeasurementMismatch && (
               <div className="mb-4 p-3 bg-red-50 border border-red-300 rounded-xl text-red-900 text-xs space-y-1">
                 <div className="font-bold flex items-center space-x-1.5 text-red-800">
-                  <span>⚠️</span>
+                  <span></span>
                   <span>Exact measurement ({pendingItemChoice.RequestedMeasurement}) is not in stock</span>
                 </div>
                 <p className="text-red-900/90 font-medium">

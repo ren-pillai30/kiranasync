@@ -19,7 +19,7 @@ export default function BenchmarkModal({ showEvalModal, onClose, benchmarkData }
           >
             <div className="flex justify-between items-center mb-4 border-b border-[#E2D9C8] pb-3">
               <div className="flex items-center space-x-2">
-                <span className="text-xl p-1 rounded-md bg-[#FEF3C7]">🔬</span>
+                <span className="text-xl p-1 rounded-md bg-[#FEF3C7]"></span>
                 <h3 className="text-lg font-black text-stone-900">Voice AI Lab — Benchmark Results</h3>
               </div>
               <button
@@ -91,35 +91,35 @@ export default function BenchmarkModal({ showEvalModal, onClose, benchmarkData }
               {benchmarkData.LatencyBreakdown ? (
                 <div className="space-y-2 text-xs text-stone-700">
                   <div className="flex justify-between">
-                    <span>🎙️ Gnani STT (Offline Sim):</span>
+                    <span> Gnani STT (Offline Sim):</span>
                     <span className="font-mono text-stone-900 font-bold">
                       {benchmarkData.LatencyBreakdown.MockedSTT?.P50Ms} ms /{' '}
                       {benchmarkData.LatencyBreakdown.MockedSTT?.P95Ms} ms
                     </span>
                   </div>
                   <div className="flex justify-between">
-                    <span>🧠 Structured NLU Interpretation:</span>
+                    <span> Structured NLU Interpretation:</span>
                     <span className="font-mono text-stone-900 font-bold">
                       {benchmarkData.LatencyBreakdown.Interpretation?.P50Ms} ms /{' '}
                       {benchmarkData.LatencyBreakdown.Interpretation?.P95Ms} ms
                     </span>
                   </div>
                   <div className="flex justify-between">
-                    <span>🔒 Domain Revalidation &amp; Atomic DB:</span>
+                    <span> Domain Revalidation &amp; Atomic DB:</span>
                     <span className="font-mono text-stone-900 font-bold">
                       {benchmarkData.LatencyBreakdown.ValidationAndDB?.P50Ms} ms /{' '}
                       {benchmarkData.LatencyBreakdown.ValidationAndDB?.P95Ms} ms
                     </span>
                   </div>
                   <div className="flex justify-between">
-                    <span>🔊 Timbre Spoken Receipt (Offline Sim):</span>
+                    <span> Timbre Spoken Receipt (Offline Sim):</span>
                     <span className="font-mono text-stone-900 font-bold">
                       {benchmarkData.LatencyBreakdown.MockedTTS?.P50Ms} ms /{' '}
                       {benchmarkData.LatencyBreakdown.MockedTTS?.P95Ms} ms
                     </span>
                   </div>
                   <div className="flex justify-between pt-2 border-t border-[#E2D9C8] font-bold text-[#991B1B]">
-                    <span>⏱️ Total End-to-End Pipeline:</span>
+                    <span>Total End-to-End Pipeline:</span>
                     <span className="font-mono">
                       {benchmarkData.LatencyP50Ms} ms (p50) / {benchmarkData.LatencyP95Ms} ms (p95)
                     </span>

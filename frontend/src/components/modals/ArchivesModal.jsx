@@ -19,7 +19,7 @@ export default function ArchivesModal({
           <div className="flex items-center justify-between mb-5 pb-3 border-b border-[#E2D9C8]">
             <div>
               <div className="flex items-center space-x-2">
-                <span className="text-xl p-1 rounded-md bg-[#FEF3C7]">🗄️</span>
+                <span className="text-xl p-1 rounded-md bg-[#FEF3C7]"></span>
                 <h2 className="text-xl font-black text-stone-900">
                   {lang === 'hi' ? 'हटाए गए आइटम का ऑडिट' : 'Removal Archive & Audit'}
                 </h2>

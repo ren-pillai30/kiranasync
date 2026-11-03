@@ -2,7 +2,7 @@ import { useState, useMemo, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import QRCode from "qrcode";
 import { printDirectThermal, isBluetoothSupported } from "../../utils/thermalPrinter";
-
+                  <span aria-hidden="true" />
 // ── Amount in Words (Indian English, up to 99,999) ──────────────────────────
 const ones = [
   "", "One", "Two", "Three", "Four", "Five", "Six", "Seven", "Eight", "Nine",
@@ -124,16 +124,16 @@ export default function BillModal({
 
   // ── Payment mode label & colors ─────────────────────────────────────────
   const modeConfig = {
-    cash: { label: "💵 CASH", bg: "bg-emerald-100", text: "text-emerald-900", border: "border-emerald-300" },
-    udhaar: { label: "📒 UDHAAR (CREDIT)", bg: "bg-red-100", text: "text-red-900", border: "border-red-300" },
-    upi: { label: "📱 UPI", bg: "bg-[#FEF3C7]", text: "text-[#92400E]", border: "border-[#FDE68A]" },
+    cash: { label: " CASH", bg: "bg-emerald-100", text: "text-emerald-900", border: "border-emerald-300" },
+    udhaar: { label: " UDHAAR (CREDIT)", bg: "bg-red-100", text: "text-red-900", border: "border-red-300" },
+    upi: { label: " UPI", bg: "bg-[#FEF3C7]", text: "text-[#92400E]", border: "border-[#FDE68A]" },
   };
   const mode = modeConfig[paymentMode] ?? modeConfig.cash;
 
   // ── WhatsApp Message Formatter ──────────────────────────────────────────
   const buildReceiptText = () => {
     const lines = [
-      `🧾 *${storeName.toUpperCase()}*`,
+      ` *${storeName.toUpperCase()}*`,
       `Invoice: ${invoiceNo} | Date: ${date} ${time}`,
       `Customer: ${customerName}`,
       `────────────────────────────`,
@@ -157,7 +157,7 @@ export default function BillModal({
 
     lines.push(
       `────────────────────────────`,
-      `Thank you for shopping with us! 🙏`
+      `Thank you for shopping with us! `
     );
     return lines.join("\n");
   };
@@ -174,14 +174,14 @@ export default function BillModal({
 
   const handleSendKhataReminder = () => {
     const reminder = [
-      `📢 *UDHAAR KHATA REMINDER*`,
+      ` *UDHAAR KHATA REMINDER*`,
       `Store: ${storeName}`,
       `Namaste ${customerName} ji,`,
       `Aapka KiranaSync store par kul udhaar baaki *₹${Number(newBalance).toFixed(
         2
       )}* hai.`,
       `(Is bill ka jod: ₹${grandTotal.toFixed(2)})`,
-      `Kripya samay par chukayein. Dhanyawaad! 🙏`,
+      `Kripya samay par chukayein. Dhanyawaad! `,
     ].join("\n");
 
     const cleanDigits = customerPhone.replace(/\D/g, "");
@@ -231,11 +231,11 @@ export default function BillModal({
         },
         { paperWidth }
       );
-      setBtStatus(`✓ Printed to ${res.deviceName}!`);
+      setBtStatus(` Printed to ${res.deviceName}!`);
       setTimeout(() => setBtStatus(""), 3500);
     } catch (err) {
       console.warn("Direct thermal print error:", err);
-      setBtStatus(`⚠ ${err.message || "Print failed"}`);
+      setBtStatus(` ${err.message || "Print failed"}`);
       setTimeout(() => setBtStatus(""), 4000);
     } finally {
       setIsPrintingBt(false);
@@ -423,7 +423,7 @@ export default function BillModal({
               {qrDataUrl && showQr && (
                 <div className="my-2 p-2.5 bg-stone-50 rounded-xl border border-dashed border-[#D8CEBA] flex flex-col items-center text-center">
                   <p className="text-[11px] font-bold text-stone-900 mb-1 flex items-center gap-1">
-                    <span>📱</span>
+                    <span></span>
                     <span>Scan with GPay / PhonePe / Paytm</span>
                   </p>
                   <img
@@ -443,7 +443,7 @@ export default function BillModal({
                   <DashedLine />
                   <div className="border border-dashed border-red-300 rounded-lg p-3 bg-red-50">
                     <p className="text-center text-xs font-bold text-red-900 tracking-wide uppercase mb-2">
-                      📒 Khata / Credit Ledger
+                       Khata / Credit Ledger
                     </p>
                     <div className="space-y-1 text-xs">
                       <div className="flex justify-between">
@@ -483,7 +483,7 @@ export default function BillModal({
                   Subject to Bangalore jurisdiction only.
                 </p>
                 <p className="text-[10px] text-[#991B1B] font-bold mt-2 tracking-widest">
-                  ★ ★ ★ Powered by KiranaSync ★ ★ ★
+                     Powered by KiranaSync
                 </p>
               </div>
             </div>
@@ -513,7 +513,7 @@ export default function BillModal({
                   className="px-2.5 py-1 bg-emerald-700 hover:bg-emerald-600 text-white rounded-lg font-bold text-xs flex items-center gap-1 shadow-2xs transition-all cursor-pointer"
                   title="Share invoice on WhatsApp"
                 >
-                  <span>📲</span>
+                  <span></span>
                   <span>Share Bill</span>
                 </button>
                 {paymentMode === "udhaar" && (
@@ -523,7 +523,7 @@ export default function BillModal({
                     className="px-2.5 py-1 bg-amber-700 hover:bg-amber-600 text-white rounded-lg font-bold text-xs flex items-center gap-1 shadow-2xs transition-all cursor-pointer"
                     title="Send Udhaar payment reminder on WhatsApp"
                   >
-                    <span>📢</span>
+                    <span></span>
                     <span>Reminder</span>
                   </button>
                 )}
@@ -533,17 +533,17 @@ export default function BillModal({
                   className="p-1 text-stone-500 hover:text-stone-900 rounded-lg hover:bg-stone-200 transition-all cursor-pointer"
                   title="Copy receipt text to clipboard"
                 >
-                  📋
+                  
                 </button>
               </div>
             </div>
             {copyNotice && (
               <div className="bg-emerald-100 text-emerald-900 text-center py-0.5 text-[11px] font-semibold">
-                ✓ {copyNotice}
+                 {copyNotice}
               </div>
             )}
             {btStatus && (
-              <div className={`text-center py-1 text-xs font-semibold ${btStatus.startsWith("✓") ? "bg-emerald-100 text-emerald-900" : btStatus.startsWith("⚠") ? "bg-amber-100 text-amber-900" : "bg-sky-100 text-sky-900"}`}>
+              <div className={`text-center py-1 text-xs font-semibold ${btStatus.startsWith("") ? "bg-emerald-100 text-emerald-900" : btStatus.startsWith("") ? "bg-amber-100 text-amber-900" : "bg-sky-100 text-sky-900"}`}>
                 {btStatus}
               </div>
             )}
@@ -558,7 +558,7 @@ export default function BillModal({
                   className="flex-1 flex items-center justify-center gap-1.5 py-2.5 px-3 rounded-xl text-xs font-bold text-white bg-emerald-700 hover:bg-emerald-600 active:scale-[0.98] disabled:opacity-50 transition-all cursor-pointer shadow-xs"
                   title="Direct print to Bluetooth 58mm/80mm thermal receipt printer without dialog"
                 >
-                  <span>⚡</span>
+                  <span></span>
                   <span>{isPrintingBt ? "Printing..." : `Direct Thermal (${paperWidth})`}</span>
                 </button>
                 <button
@@ -566,7 +566,7 @@ export default function BillModal({
                   onClick={handlePrint}
                   className="flex-1 flex items-center justify-center gap-1.5 py-2.5 px-3 rounded-xl text-xs font-bold text-white bg-[#991B1B] hover:bg-[#B91C1C] active:scale-[0.98] transition-all cursor-pointer shadow-xs"
                 >
-                  <span>🖨️</span>
+                  <span></span>
                   <span>Print Slip</span>
                 </button>
               </div>
@@ -588,14 +588,14 @@ export default function BillModal({
                     className="py-1.5 px-3 rounded-lg text-xs font-bold text-stone-700 bg-[#FFFDF9] hover:bg-[#F4EFE6] border border-[#D8CEBA] transition-all cursor-pointer shadow-2xs"
                     title="Toggle UPI QR Code"
                   >
-                    {showQr ? "📱 Hide QR" : "📱 Show QR"}
+                    {showQr ? " Hide QR" : " Show QR"}
                   </button>
                   <button
                     type="button"
                     onClick={onClose}
                     className="py-1.5 px-3.5 rounded-lg text-xs font-bold text-stone-700 bg-[#FFFDF9] hover:bg-[#F4EFE6] border border-[#D8CEBA] transition-all cursor-pointer shadow-2xs"
                   >
-                    ✕ Close
+                     Close
                   </button>
                 </div>
               </div>

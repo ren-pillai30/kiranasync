@@ -34,7 +34,7 @@ export default function EntityRemovalModal({
             </button>
 
             <div className="flex items-center space-x-2 mb-2">
-              <span className="text-xl p-1 bg-red-100 rounded-lg">🗑️</span>
+              <span className="text-xl p-1 bg-red-100 rounded-lg"></span>
               <h3 className="text-xl font-black text-stone-900">Confirm Removal</h3>
             </div>
             <p className="text-stone-700 text-xs mb-3 font-medium leading-relaxed">

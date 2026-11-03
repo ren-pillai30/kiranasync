@@ -102,7 +102,7 @@ export default function BarcodeScannerModal({
           <div className="px-5 py-4 bg-[#FFFDF9] border-b border-[#E2D9C8] flex justify-between items-center">
             <div>
               <h3 className="text-base font-black text-stone-900 uppercase tracking-wider flex items-center gap-2">
-                <span>📷</span>
+                <span></span>
                 <span>Barcode Scanner / POS Counter</span>
               </h3>
               <p className="text-xs text-stone-500 mt-0.5">
@@ -150,7 +150,7 @@ export default function BarcodeScannerModal({
                 <div className="flex justify-between items-start">
                   <div>
                     <span className="text-[10px] font-bold text-emerald-800 uppercase tracking-wider block">
-                      ✓ Product Found
+                       Product Found
                     </span>
                     <h4 className="text-sm font-black text-stone-900 mt-0.5">
                       {matchedItem.ItemName}
@@ -189,7 +189,7 @@ export default function BarcodeScannerModal({
                     }}
                     className="flex-1 py-2 px-3 bg-emerald-700 hover:bg-emerald-600 text-white font-bold text-xs rounded-lg shadow-2xs transition-all flex items-center justify-center gap-1 cursor-pointer"
                   >
-                    <span>🧾</span>
+                    <span></span>
                     <span>Add to Bill</span>
                   </button>
 
@@ -201,7 +201,7 @@ export default function BarcodeScannerModal({
                       }}
                       className="flex-1 py-2 px-3 bg-stone-900 hover:bg-stone-800 text-white font-bold text-xs rounded-lg shadow-2xs transition-all flex items-center justify-center gap-1 cursor-pointer"
                     >
-                      <span>⚡</span>
+                      <span></span>
                       <span>Quick Sale (1x)</span>
                     </button>
                   )}
@@ -213,7 +213,7 @@ export default function BarcodeScannerModal({
             {notFoundMessage && !matchedItem && (
               <div className="p-4 rounded-xl bg-amber-50/80 border border-amber-300 space-y-3">
                 <div className="flex items-start gap-2">
-                  <span className="text-amber-700 text-sm">⚠️</span>
+                  <span className="text-amber-700 text-sm"></span>
                   <div>
                     <span className="text-xs font-bold text-amber-900 block">
                       Barcode Not In Catalog
@@ -255,7 +255,7 @@ export default function BarcodeScannerModal({
 
             {linkSuccessMessage && (
               <div className="p-2.5 rounded-lg bg-emerald-100 text-emerald-900 text-xs font-bold text-center">
-                ✓ {linkSuccessMessage}
+                 {linkSuccessMessage}
               </div>
             )}
           </div>
@@ -266,7 +266,7 @@ export default function BarcodeScannerModal({
               onClick={onClose}
               className="py-2 px-4 rounded-xl border border-[#D8CEBA] text-stone-700 hover:bg-stone-100 font-bold text-xs transition-all cursor-pointer"
             >
-              ✕ Close
+               Close
             </button>
           </div>
         </motion.div>

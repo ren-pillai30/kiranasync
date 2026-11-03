@@ -52,7 +52,7 @@ export default function Header({
           }`}
           title={isMuted ? 'Audio feedback is muted' : 'Audio feedback is active (Gnani Timbre)'}
         >
-          {isMuted ? '🔇 Audio Muted' : '🔊 Voice Output ON'}
+          {isMuted ? ' Audio Muted' : ' Voice Output ON'}
         </button>
 
         {/* VOICE COMMAND BUTTON */}
@@ -66,7 +66,7 @@ export default function Header({
           }`}
           title="Click to speak command or press Ctrl+Shift+V"
         >
-          <span>🎙️</span>
+          <span></span>
           <span>{isRecording ? 'Listening...' : 'Speak Command'}</span>
         </button>
 
@@ -77,7 +77,7 @@ export default function Header({
           className="text-xs px-3.5 py-1.5 rounded-lg border border-[#E2D9C8] text-stone-800 bg-[#FFFDF7] hover:bg-[#F4EFE6] hover:border-stone-400 font-semibold flex items-center space-x-1.5 shadow-xs transition-all cursor-pointer"
           title="Create or print commercial Kirana cash memo"
         >
-          <span>🧾</span>
+          <span></span>
           <span>Bill</span>
         </button>
 
@@ -88,7 +88,7 @@ export default function Header({
           className="text-xs px-3.5 py-1.5 rounded-lg border border-red-300/80 text-red-950 bg-red-100 hover:bg-red-200 hover:border-red-400 font-semibold flex items-center space-x-1.5 shadow-xs transition-all cursor-pointer"
           title="Simulate incoming customer phone call"
         >
-          <span>📞</span>
+          <span></span>
           <span>Call Sim</span>
         </button>
 
@@ -99,7 +99,7 @@ export default function Header({
           className="text-xs px-3.5 py-1.5 rounded-lg border border-[#FDE68A] text-stone-900 bg-[#FFFDF7] hover:bg-[#FEF3C7] font-semibold flex items-center space-x-1.5 shadow-xs transition-all cursor-pointer"
           title="Scan or lookup product barcode"
         >
-          <span>📷</span>
+          <span></span>
           <span>Barcode</span>
         </button>
 
@@ -110,7 +110,7 @@ export default function Header({
           className="text-xs px-3.5 py-1.5 rounded-lg border border-[#FDE68A] text-stone-900 bg-[#FFFDF7] hover:bg-[#FEF3C7] font-semibold flex items-center space-x-1.5 shadow-xs transition-all cursor-pointer"
           title="Evening cash drawer tally & dukan bandi"
         >
-          <span>🌙</span>
+          <span></span>
           <span>Day Closing</span>
         </button>
 
@@ -121,7 +121,7 @@ export default function Header({
           className="text-xs px-3.5 py-1.5 rounded-lg border border-[#FDE68A] text-[#92400E] bg-[#FFFDF7] hover:bg-[#FEF3C7] hover:border-amber-400 font-semibold flex items-center space-x-1.5 shadow-xs transition-all cursor-pointer"
           title="Leave store manager feedback or report issue"
         >
-          <span>💬</span>
+          <span></span>
           <span>Feedback</span>
         </button>
       </div>

@@ -7,7 +7,7 @@ export default function HisaabBanner({ hisaabData }) {
       <div className="bg-[#FFFDF9] border border-[#E2D9C8] p-4 rounded-xl shadow-xs hover:shadow-md transition-all flex flex-col justify-between border-t-4 border-t-[#991B1B]">
         <div className="flex items-center justify-between text-[#78716C] text-xs mb-2">
           <span className="uppercase font-bold tracking-wider text-[10px]">Today's Sales</span>
-          <span className="text-base p-1 rounded-md bg-[#FEF3C7]">📈</span>
+          <span className="text-base p-1 rounded-md bg-[#FEF3C7]"></span>
         </div>
         <div className="text-2xl font-black font-mono text-[#991B1B]">
           ₹{Number(hisaabData.TotalRevenue || 0).toLocaleString('en-IN')}
@@ -19,7 +19,7 @@ export default function HisaabBanner({ hisaabData }) {
       <div className="bg-[#FFFDF9] border border-[#E2D9C8] p-4 rounded-xl shadow-xs hover:shadow-md transition-all flex flex-col justify-between border-t-4 border-t-emerald-700">
         <div className="flex items-center justify-between text-[#78716C] text-xs mb-2">
           <span className="uppercase font-bold tracking-wider text-[10px]">Cash in Register</span>
-          <span className="text-base p-1 rounded-md bg-emerald-50">💵</span>
+          <span className="text-base p-1 rounded-md bg-emerald-50"></span>
         </div>
         <div className="text-2xl font-black font-mono text-emerald-800">
           ₹{Number(hisaabData.CashCollected || 0).toLocaleString('en-IN')}
@@ -31,7 +31,7 @@ export default function HisaabBanner({ hisaabData }) {
       <div className="bg-[#FFFDF9] border border-[#E2D9C8] p-4 rounded-xl shadow-xs hover:shadow-md transition-all flex flex-col justify-between border-t-4 border-t-amber-600">
         <div className="flex items-center justify-between text-[#78716C] text-xs mb-2">
           <span className="uppercase font-bold tracking-wider text-[10px]">Udhaar Recovered</span>
-          <span className="text-base p-1 rounded-md bg-amber-50">🔄</span>
+          <span className="text-base p-1 rounded-md bg-amber-50"></span>
         </div>
         <div className="text-2xl font-black font-mono text-[#B45309]">
           ₹{Number(hisaabData.RepaymentsTotal || 0).toLocaleString('en-IN')}
@@ -43,7 +43,7 @@ export default function HisaabBanner({ hisaabData }) {
       <div className="bg-[#FFFDF9] border border-[#E2D9C8] p-4 rounded-xl shadow-xs hover:shadow-md transition-all flex flex-col justify-between border-t-4 border-t-red-600">
         <div className="flex items-center justify-between text-[#78716C] text-xs mb-2">
           <span className="uppercase font-bold tracking-wider text-[10px]">Total Customer Udhaar</span>
-          <span className="text-base p-1 rounded-md bg-red-50">📒</span>
+          <span className="text-base p-1 rounded-md bg-red-50"></span>
         </div>
         <div className="text-2xl font-black font-mono text-red-700">
           ₹{Number(hisaabData.TotalOutstandingDebt || 0).toLocaleString('en-IN')}

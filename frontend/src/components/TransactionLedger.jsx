@@ -26,7 +26,7 @@ export default function TransactionLedger({ transactions, t, onViewBill }) {
       <div className="flex justify-between items-center mb-3">
         <div>
           <h3 className="text-base font-bold text-stone-900 flex items-center space-x-2">
-            <span>📜</span>
+            <span></span>
             <span>{t.ledgerTitle}</span>
           </h3>
           <p className="text-xs text-[#78716C]">All registered counter transactions, sales, and credit logs</p>
@@ -121,7 +121,7 @@ export default function TransactionLedger({ transactions, t, onViewBill }) {
                           className="px-2.5 py-1 text-xs bg-[#FFFDF7] hover:bg-[#991B1B] text-stone-800 hover:text-white rounded-md border border-[#D8CEBA] hover:border-[#991B1B] font-bold transition-all shadow-2xs"
                           title="Generate printable invoice receipt"
                         >
-                          🧾 Bill
+                           Bill
                         </button>
                       ) : (
                         <span className="text-stone-400 text-xs">—</span>

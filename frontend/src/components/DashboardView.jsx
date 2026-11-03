@@ -15,6 +15,7 @@ export default function DashboardView({
   onViewBill,
   hisaabData,
   inventory,
+  dashboardLoading,
   showAddInv,
   setShowAddInv,
   invForm,
@@ -64,7 +65,7 @@ export default function DashboardView({
             onClick={onOpenEvalModal}
             className="px-3.5 py-1.5 bg-[#FFFDF9] hover:bg-[#F4EFE6] text-stone-800 border border-[#D8CEBA] rounded-lg text-xs font-bold shadow-2xs transition-all flex items-center space-x-1 cursor-pointer"
           >
-            <span>🔬</span>
+            <span></span>
             <span>Voice Lab</span>
           </button>
 
@@ -74,7 +75,7 @@ export default function DashboardView({
             className="px-3.5 py-1.5 bg-[#FFFDF9] hover:bg-[#F4EFE6] text-stone-800 border border-[#D8CEBA] rounded-lg text-xs font-bold shadow-2xs transition-all flex items-center space-x-1.5 cursor-pointer"
             title="Scan or lookup product barcode"
           >
-            <span>📷</span>
+            <span></span>
             <span>Barcode</span>
           </button>
 
@@ -84,7 +85,7 @@ export default function DashboardView({
             className="px-3.5 py-1.5 bg-[#991B1B] hover:bg-[#B91C1C] text-white border border-[#991B1B] rounded-lg text-xs font-bold shadow-2xs transition-all flex items-center space-x-1.5 cursor-pointer"
             title="Evening cash drawer tally and dukan bandi"
           >
-            <span>🌙</span>
+            <span></span>
             <span>{lang === 'hi' ? 'दुकान बंदी' : 'Day Closing'}</span>
           </button>
 
@@ -113,6 +114,7 @@ export default function DashboardView({
         {/* INVENTORY PANEL */}
         <InventoryPanel
           inventory={inventory}
+          loading={dashboardLoading}
           t={t}
           showAddInv={showAddInv}
           setShowAddInv={setShowAddInv}

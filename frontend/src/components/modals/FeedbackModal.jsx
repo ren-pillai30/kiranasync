@@ -37,7 +37,7 @@ function StarRating({ rating, onRate, interactive = true, size = "text-2xl" }) {
                 : "text-stone-300"
             }
           >
-            {star <= (hovered || rating) ? "★" : "☆"}
+            {star <= (hovered || rating) ? "" : ""}
           </span>
         </button>
       ))}
@@ -180,7 +180,7 @@ export default function FeedbackModal({ isOpen, onClose }) {
             {/* Header */}
             <div className="flex items-center justify-between px-6 py-4 bg-[#991B1B] border-b border-[#7F1D1D]">
               <div className="flex items-center space-x-2">
-                <span className="text-xl p-1 rounded-md bg-[#FEF3C7]">💬</span>
+                <span className="text-xl p-1 rounded-md bg-[#FEF3C7]"></span>
                 <h2 className="text-lg font-black text-[#FFFDF7]">
                   Store Feedback &amp; Reviews
                 </h2>
@@ -231,7 +231,7 @@ export default function FeedbackModal({ isOpen, onClose }) {
                         exit={{ opacity: 0, height: 0 }}
                         className="bg-emerald-50 border border-emerald-300 text-emerald-900 px-4 py-3 rounded-xl text-xs font-bold shadow-xs"
                       >
-                        ✓ Feedback submitted successfully. Thank you!
+                         Feedback submitted successfully. Thank you!
                       </motion.div>
                     )}
                   </AnimatePresence>
@@ -329,7 +329,7 @@ export default function FeedbackModal({ isOpen, onClose }) {
                     </div>
                   ) : feedbackList.length === 0 ? (
                     <div className="text-center py-12">
-                      <p className="text-stone-400 text-3xl mb-2">📝</p>
+                      <p className="text-stone-400 text-3xl mb-2"></p>
                       <p className="text-stone-700 text-sm font-bold">
                         No feedback submitted yet.
                       </p>

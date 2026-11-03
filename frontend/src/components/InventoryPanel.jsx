@@ -1,5 +1,6 @@
 export default function InventoryPanel({
   inventory,
+  loading,
   t,
   showAddInv,
   setShowAddInv,
@@ -19,7 +20,7 @@ export default function InventoryPanel({
       <div className="flex justify-between items-center mb-3">
         <div className="flex items-center space-x-2">
           <h3 className="text-base font-bold text-stone-900 flex items-center space-x-1.5">
-            <span className="text-base">📦</span>
+            <span className="text-base"></span>
             <span>{t.invTitle}</span>
           </h3>
           <span className="text-[11px] font-mono px-2 py-0.5 rounded-md bg-[#FEF3C7] text-[#92400E] border border-[#FDE68A] font-bold">
@@ -30,7 +31,7 @@ export default function InventoryPanel({
           onClick={() => setShowAddInv(!showAddInv)}
           className="text-xs bg-[#991B1B] hover:bg-[#B91C1C] text-[#FFFDF7] px-3 py-1.5 rounded-lg font-bold shadow-xs flex items-center space-x-1 transition-all"
         >
-          <span>{showAddInv ? '✕' : '+'}</span>
+          <span>{showAddInv ? '' : '+'}</span>
           <span>{t.addBtn}</span>
         </button>
       </div>
@@ -94,7 +95,21 @@ export default function InventoryPanel({
             </tr>
           </thead>
           <tbody className="divide-y divide-[#F0EAE0]">
-            {inventory.length === 0 ? (
+            {loading ? (
+              <tr>
+                <td colSpan="4" className="px-4 py-7">
+                  <div className="space-y-3 animate-pulse motion-reduce:animate-none" aria-label="Loading inventory">
+                    {[0, 1, 2].map((row) => (
+                      <div key={row} className="flex items-center gap-4">
+                        <div className="h-3 flex-1 rounded-full bg-stone-200" />
+                        <div className="h-3 w-12 rounded-full bg-stone-200" />
+                        <div className="h-3 w-16 rounded-full bg-stone-200" />
+                      </div>
+                    ))}
+                  </div>
+                </td>
+              </tr>
+            ) : inventory.length === 0 ? (
               <tr>
                 <td colSpan="4" className="px-4 py-6 text-center text-[#78716C] italic text-xs">
                   No inventory items registered. Add one above or via voice command.

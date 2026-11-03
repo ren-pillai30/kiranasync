@@ -41,6 +41,7 @@ export default function App() {
 
   // Store financial & inventory data
   const [inventory, setInventory] = useState([]);
+  const [dashboardLoading, setDashboardLoading] = useState(true);
   const [credit, setCredit] = useState([]);
   const [transactions, setTransactions] = useState([]);
   const [hisaabData, setHisaabData] = useState(null);
@@ -260,6 +261,8 @@ export default function App() {
         }
       } catch (err) {
         console.warn('Initial data load error:', err);
+      } finally {
+        if (isMounted) setDashboardLoading(false);
       }
     };
     loadInitial();
@@ -310,7 +313,17 @@ export default function App() {
   };
 
   if (!authChecked) {
-    return <div className="min-h-screen bg-slate-950" />;
+    return (
+      <div className="min-h-screen bg-slate-950 flex items-center justify-center">
+        <div className="w-full max-w-md px-6">
+          <div className="h-10 w-10 mx-auto animate-pulse rounded-full border-2 border-white/70 border-t-transparent" />
+          <div className="mt-6 space-y-3">
+            <div className="h-3 rounded-full bg-white/10 animate-pulse" />
+            <div className="h-3 w-4/5 mx-auto rounded-full bg-white/10 animate-pulse" />
+          </div>
+        </div>
+      </div>
+    );
   }
 
   if (!authenticated) {
@@ -501,6 +514,7 @@ export default function App() {
               }}
               hisaabData={hisaabData}
               inventory={inventory}
+              dashboardLoading={dashboardLoading}
               showAddInv={actions.showAddInv}
               setShowAddInv={actions.setShowAddInv}
               invForm={actions.invForm}

@@ -40,7 +40,7 @@ export default function VoiceRecordingHud({
                 onClick={stopAndProcessRecording}
                 className="text-xs px-2.5 py-1 bg-[#991B1B] hover:bg-[#B91C1C] text-white rounded-md font-bold shadow-xs transition-all"
               >
-                {lang === 'hi' ? 'भेजें ✓' : 'Send ✓'}
+                {lang === 'hi' ? 'भेजें ' : 'Send '}
               </button>
             )}
           </div>
@@ -67,7 +67,7 @@ export default function VoiceRecordingHud({
                   : 'bg-[#FEF3C7] border-[#FDE68A] text-[#92400E]'
               }`}
             >
-              <span>{dbAction.status === 'success' ? '✓' : 'ℹ'}</span>
+              <span>{dbAction.status === 'success' ? '' : 'Info'}</span>
               <span className="leading-snug">{dbAction.message}</span>
             </motion.div>
           )}

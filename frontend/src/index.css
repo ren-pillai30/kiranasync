@@ -1,5 +1,14 @@
 @import "tailwindcss";
 
+@keyframes app-skeleton {
+  0%, 100% { opacity: 0.45; }
+  50% { opacity: 1; }
+}
+
+.animate-skeleton {
+  animation: app-skeleton 1.6s ease-in-out infinite;
+}
+
 :root {
   --pos-red-primary: #991b1b;
   --pos-red-dark: #7f1d1d;

@@ -2,7 +2,7 @@ import { useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { INDIAN_LANGUAGES } from '../constants/languages';
 import { useCallSession } from '../hooks/useCallSession';
-
+                <span aria-hidden="true" />
 const SAMPLE_PROMPTS = [
   { label: 'Check Maggi stock', text: 'Maggi ka kitna stock hai aur price kya hai?' },
   { label: 'Order on cash', text: 'Mujhe 2 packet Tata Salt aur 1 Maggi chahiye.' },
@@ -70,7 +70,7 @@ export default function CallSimulator({ isOpen, onClose, onRefreshStore, onOpenB
           {/* HEADER BAR */}
           <div className="flex items-center justify-between px-6 py-3.5 bg-[#991B1B] border-b border-[#7F1D1D]">
             <div className="flex items-center space-x-3">
-              <span className="text-2xl p-1 rounded-lg bg-[#FEF3C7]">📞</span>
+              <span className="text-2xl p-1 rounded-lg bg-[#FEF3C7]"></span>
               <div>
                 <h3 className="text-lg font-black text-[#FFFDF7] flex items-center space-x-2">
                   <span>Virtual Call Simulator</span>
@@ -94,7 +94,7 @@ export default function CallSimulator({ isOpen, onClose, onRefreshStore, onOpenB
                 }`}
                 title={isMuted ? 'Voice playback is muted' : 'Voice playback is active'}
               >
-                {isMuted ? '🔇 Audio Muted' : '🔊 Voice Output ON'}
+                {isMuted ? ' Audio Muted' : ' Voice Output ON'}
               </button>
               <button
                 onClick={() => {
@@ -179,7 +179,7 @@ export default function CallSimulator({ isOpen, onClose, onRefreshStore, onOpenB
                   onClick={startCall}
                   className="px-4 py-1.5 rounded-xl bg-[#991B1B] hover:bg-[#B91C1C] text-white font-bold text-xs flex items-center space-x-1.5 shadow-xs transition-all"
                 >
-                  <span>📞</span>
+                  <span></span>
                   <span>Simulate Call</span>
                 </button>
               ) : (
@@ -187,7 +187,7 @@ export default function CallSimulator({ isOpen, onClose, onRefreshStore, onOpenB
                   onClick={hangUpCall}
                   className="px-4 py-1.5 rounded-xl bg-red-700 hover:bg-red-800 text-white font-bold text-xs flex items-center space-x-1.5 shadow-md animate-pulse transition-all"
                 >
-                  <span>🔴</span>
+                  <span></span>
                   <span>Hang Up</span>
                 </button>
               )}
@@ -197,7 +197,7 @@ export default function CallSimulator({ isOpen, onClose, onRefreshStore, onOpenB
           {/* SYSTEM NOTICE BANNER */}
           {systemNotice && (
             <div className="px-6 py-2 bg-[#FEF3C7] border-b border-[#FDE68A] text-[#92400E] text-xs flex justify-between items-center font-semibold">
-              <span>⚠️ {systemNotice}</span>
+              <span> {systemNotice}</span>
               <button onClick={() => setSystemNotice(null)} className="text-[#92400E] font-bold ml-2 hover:opacity-80">
                 &times;
               </button>
@@ -208,7 +208,7 @@ export default function CallSimulator({ isOpen, onClose, onRefreshStore, onOpenB
           {currentBill?.items?.length > 0 && (
             <div className="px-6 py-2.5 bg-[#FFFDF9] border-b border-[#E2D9C8] flex items-center justify-between">
               <div className="flex items-center space-x-2 text-xs">
-                <span className="text-base p-1 rounded bg-[#FEF3C7]">🧾</span>
+                <span className="text-base p-1 rounded bg-[#FEF3C7]"></span>
                 <span className="font-bold text-stone-900">
                   Call Order Running Total:
                 </span>
@@ -231,7 +231,7 @@ export default function CallSimulator({ isOpen, onClose, onRefreshStore, onOpenB
                 }}
                 className="px-3 py-1 bg-[#991B1B] hover:bg-[#B91C1C] text-white rounded-lg text-xs font-bold flex items-center space-x-1.5 shadow-xs transition-all"
               >
-                <span>🧾</span>
+                <span></span>
                 <span>View / Print Kirana Bill</span>
               </button>
             </div>
@@ -242,7 +242,7 @@ export default function CallSimulator({ isOpen, onClose, onRefreshStore, onOpenB
             {transcripts.length === 0 ? (
               <div className="h-full flex flex-col items-center justify-center text-center p-8 text-[#78716C] space-y-3">
                 <div className="w-16 h-16 rounded-2xl bg-[#FFFDF9] border border-[#D8CEBA] flex items-center justify-center text-3xl shadow-xs">
-                  🎧
+                  
                 </div>
                 <h4 className="text-base font-bold text-stone-800">Ready to simulate customer calls</h4>
                 <p className="text-xs max-w-md text-[#78716C]">
@@ -276,10 +276,10 @@ export default function CallSimulator({ isOpen, onClose, onRefreshStore, onOpenB
                     <div className="flex items-center justify-between space-x-2 text-[10px] text-[#78716C] mb-1">
                       <span className="font-bold uppercase tracking-wider">
                         {item.role === 'customer'
-                          ? `👤 ${callerName || 'Customer'}`
+                          ? ` ${callerName || 'Customer'}`
                           : item.role === 'assistant'
-                          ? '🤖 Kirana Voice AI'
-                          : 'ℹ️ System'}
+                          ? ' Kirana Voice AI'
+                          : 'System'}
                       </span>
                       <span className="opacity-70 font-mono">{item.timestamp}</span>
                     </div>
@@ -290,7 +290,7 @@ export default function CallSimulator({ isOpen, onClose, onRefreshStore, onOpenB
                     {item.dbResult && item.dbResult.status === 'success' && (
                       <div className="mt-3 p-2.5 rounded-xl bg-emerald-50 border border-emerald-300 text-emerald-900 text-xs">
                         <div className="font-bold flex items-center space-x-1.5 mb-1">
-                          <span>📦</span>
+                          <span></span>
                           <span>Database Action Executed:</span>
                         </div>
                         <p>{item.dbResult.message}</p>
@@ -308,7 +308,7 @@ export default function CallSimulator({ isOpen, onClose, onRefreshStore, onOpenB
                         item.actionData?.exact_measurement_available === false)) && (
                       <div className="mt-3 p-2.5 rounded-xl bg-red-50 border border-red-300 text-red-900 text-xs">
                         <div className="font-bold flex items-center space-x-1.5 mb-1 text-red-800">
-                          <span>⚠️</span>
+                          <span></span>
                           <span>Measurement Unavailable in Stock:</span>
                         </div>
                         <p>
@@ -366,7 +366,7 @@ export default function CallSimulator({ isOpen, onClose, onRefreshStore, onOpenB
               }`}
               title={isMicRecording ? 'Click to stop & send audio' : 'Speak into call (Microphone streaming)'}
             >
-              <span className="text-lg">🎙️</span>
+              <span className="text-lg"></span>
             </button>
 
             {/* AUDIO LEVEL BAR IF RECORDING */}
@@ -374,7 +374,7 @@ export default function CallSimulator({ isOpen, onClose, onRefreshStore, onOpenB
               <div className="flex-1 flex flex-col justify-center px-4 py-2 bg-red-50 rounded-xl border border-red-300">
                 <div className="flex justify-between text-xs text-red-800 mb-1 font-semibold">
                   <span>Listening to customer voice...</span>
-                  <span className="font-bold">Click 🎙️ again to send</span>
+                  <span className="font-bold">Click  again to send</span>
                 </div>
                 <div className="w-full bg-red-200 rounded-full h-2 overflow-hidden">
                   <div
