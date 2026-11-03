@@ -4,12 +4,43 @@ from unittest.mock import patch
 
 from backend.app.gemini_understanding import (
     GeminiUnderstandingError,
+    build_product_mrp_search_query,
     translate_for_speech,
     understand_command,
 )
 
 
 class GeminiUnderstandingTests(unittest.TestCase):
+    @patch.dict(os.environ, {"GEMINI_API_KEY": "test-key"})
+    @patch("backend.app.gemini_understanding.requests.post")
+    def test_builds_product_mrp_search_query(self, post):
+        post.return_value.raise_for_status.return_value = None
+        post.return_value.json.return_value = {
+            "candidates": [{
+                "content": {
+                    "parts": [{
+                        "text": '{"search_query":"Maggi 2 Minute Masala Noodles 70 g MRP India"}'
+                    }]
+                }
+            }]
+        }
+
+        query = build_product_mrp_search_query("मैगी मसाला 70 ग्राम")
+
+        self.assertEqual(query, "Maggi 2 Minute Masala Noodles 70 g MRP India")
+
+    @patch.dict(os.environ, {"GEMINI_API_KEY": "test-key"})
+    @patch("backend.app.gemini_understanding.requests.post")
+    def test_malformed_product_query_returns_fallback_safe_none(self, post):
+        post.return_value.raise_for_status.return_value = None
+        post.return_value.json.return_value = {
+            "candidates": [{
+                "content": {"parts": [{"text": '{"search_query":""}'}]}
+            }]
+        }
+
+        self.assertIsNone(build_product_mrp_search_query("Unknown product"))
+
     @patch.dict(os.environ, {"GEMINI_API_KEY": "test-key"})
     @patch("backend.app.gemini_understanding.requests.post")
     def test_translates_spoken_response_to_selected_language(self, post):

@@ -9,6 +9,55 @@ class GeminiUnderstandingError(RuntimeError):
     pass
 
 
+def build_product_mrp_search_query(product_name):
+    api_key = os.getenv("GEMINI_API_KEY")
+    if not api_key:
+        return None
+
+    model = os.getenv("GEMINI_MODEL", "gemini-3.5-flash-lite")
+    endpoint = (
+        "https://generativelanguage.googleapis.com/v1beta/models/"
+        f"{model}:generateContent"
+    )
+    payload = {
+        "contents": [{"parts": [{"text": (
+            "You create web-search queries for finding Indian retail MRP information. "
+            "Normalize the supplied product name across scripts and transliterations. "
+            "Infer the canonical brand, exact variant, and package measurement from context. "
+            "Use only details supported by the supplied name; do not invent a brand, flavor, "
+            "variant, or size. Return one JSON object with a string property "
+            "`search_query` containing only a focused product-and-MRP web query. "
+            f"Product name: {json.dumps(product_name, ensure_ascii=False)}"
+        )}]}],
+        "generationConfig": {
+            "temperature": 0,
+            "responseMimeType": "application/json",
+            "responseSchema": {
+                "type": "OBJECT",
+                "properties": {"search_query": {"type": "STRING"}},
+                "required": ["search_query"],
+            },
+        },
+    }
+    try:
+        response = requests.post(
+            endpoint,
+            headers={"x-goog-api-key": api_key},
+            json=payload,
+            timeout=25,
+        )
+        response.raise_for_status()
+        response_data = response.json()
+        response_text = response_data["candidates"][0]["content"]["parts"][0]["text"]
+        query = json.loads(response_text).get("search_query")
+    except (requests.RequestException, KeyError, IndexError, TypeError, ValueError):
+        return None
+
+    if not isinstance(query, str) or not query.strip():
+        return None
+    return re.sub(r"\s+", " ", query).strip()
+
+
 def translate_for_speech(text, language_code):
     if not isinstance(text, str) or not text.strip():
         raise GeminiUnderstandingError("Cannot translate an empty spoken response.")

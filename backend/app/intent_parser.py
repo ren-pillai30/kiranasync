@@ -17,21 +17,6 @@ GENERIC_COMMODITY_TERMS = {
     "water", "pani", "soda", "cold drink", "juice",
 }
 
-PRODUCT_NAME_ALIASES = {
-    "मैगी": "Maggi",
-    "मगी": "Maggi",
-    "मोगी": "Maggi",
-}
-
-
-def normalize_product_search_name(product_name):
-    normalized = re.sub(r"\s+", " ", product_name).strip()
-    lowered = normalized.lower()
-    for spoken_name, search_name in PRODUCT_NAME_ALIASES.items():
-        if lowered == spoken_name.lower():
-            return search_name
-    return normalized
-
 import os
 import shutil
 import sys
@@ -267,7 +252,9 @@ def search_product_online(clean_item_name):
     )
     product_name = re.sub(r"\s+", " ", product_name).strip()
     corrected_name = (product_name or clean_item_name.strip()).title()
-    search_product_name = normalize_product_search_name(corrected_name)
+    from backend.app.gemini_understanding import build_product_mrp_search_query
+    ai_search_name = build_product_mrp_search_query(product_name)
+    search_product_name = ai_search_name or corrected_name
     requested_meas = extract_measurement(product_name)
     base_product_name = strip_measurement(product_name).strip()
 
@@ -307,7 +294,10 @@ def search_product_online(clean_item_name):
     if brand_tokens:
         normalized_brand = " ".join(brand_tokens)
         query_names.append(normalized_brand)
-    queries = list(dict.fromkeys(f"{name} MRP India" for name in query_names))
+    queries = list(dict.fromkeys(
+        name if re.search(r"\bmrp\b", name, flags=re.IGNORECASE) else f"{name} MRP India"
+        for name in query_names
+    ))[:3]
     primary_search_query = queries[0] if queries else ""
     try:
         with DDGS() as ddgs:

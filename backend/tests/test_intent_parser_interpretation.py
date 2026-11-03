@@ -11,6 +11,11 @@ from ddgs.exceptions import DDGSException
 
 class IntentParserInterpretationTests(unittest.TestCase):
     def setUp(self):
+        self.gemini_key_patch = patch.dict(
+            os.environ, {"GEMINI_API_KEY": ""}, clear=False
+        )
+        self.gemini_key_patch.start()
+        self.addCleanup(self.gemini_key_patch.stop)
         self.temp_dir = tempfile.TemporaryDirectory()
         self.database_path = os.path.join(self.temp_dir.name, "test.db")
         connection = sqlite3.connect(self.database_path)
