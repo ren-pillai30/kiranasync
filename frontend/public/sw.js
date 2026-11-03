@@ -1,4 +1,4 @@
-const CACHE_NAME = 'kiranasync-cache-v1';
+const CACHE_NAME = 'kiranasync-cache-v2';
 const STATIC_ASSETS = [
   '/',
   '/index.html',
@@ -39,6 +39,21 @@ self.addEventListener('fetch', (event) => {
   if (request.method !== 'GET') return;
   if (url.pathname.startsWith('/api/')) {
     // API: Network first, don't break online syncing
+    return;
+  }
+
+  if (request.mode === 'navigate') {
+    event.respondWith(
+      fetch(request)
+        .then((networkResponse) => {
+          if (networkResponse && networkResponse.status === 200) {
+            const responseToCache = networkResponse.clone();
+            caches.open(CACHE_NAME).then((cache) => cache.put(request, responseToCache));
+          }
+          return networkResponse;
+        })
+        .catch(() => caches.match(request).then((cachedResponse) => cachedResponse || caches.match('/')))
+    );
     return;
   }
 
