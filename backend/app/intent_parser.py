@@ -21,6 +21,7 @@ import os
 import shutil
 import sys
 import sqlite3
+import sqlite3
 import re
 import json
 import difflib
@@ -95,7 +96,78 @@ def get_writable_db_path():
         return os.path.join(target_dir, 'kirana.db')
     return os.path.join(os.path.abspath("."), 'kirana.db')
 
-DB_PATH = get_writable_db_path()
+DEFAULT_DB_PATH = get_writable_db_path()
+
+
+def get_db_path(store_id=None):
+    if store_id is not None:
+        return get_store_db_path(store_id)
+    try:
+        from flask import has_request_context
+        from flask_login import current_user
+        if has_request_context() and current_user.is_authenticated:
+            return get_store_db_path(current_user.store_id)
+    except (ImportError, RuntimeError):
+        pass
+    return DEFAULT_DB_PATH
+
+
+def get_store_db_path(store_id):
+    directory = os.path.dirname(DEFAULT_DB_PATH)
+    return os.path.join(directory, f"kirana-store-{int(store_id)}.db")
+
+
+def initialize_store_database(store_id):
+    path = get_store_db_path(store_id)
+    os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)
+    connection = sqlite3.connect(path)
+    connection.executescript(
+        """
+        CREATE TABLE IF NOT EXISTS Inventory (
+            ItemID INTEGER PRIMARY KEY AUTOINCREMENT,
+            ItemName TEXT NOT NULL UNIQUE,
+            Category TEXT,
+            StockQuantity INTEGER NOT NULL DEFAULT 0,
+            Price REAL NOT NULL DEFAULT 0,
+            SellingPrice REAL,
+            MRP REAL,
+            PurchaseCost REAL,
+            Barcode TEXT,
+            IsActive INTEGER NOT NULL DEFAULT 1
+        );
+        CREATE TABLE IF NOT EXISTS CustomerCredit (
+            CustomerID INTEGER PRIMARY KEY AUTOINCREMENT,
+            CustomerName TEXT NOT NULL UNIQUE,
+            PhoneNumber TEXT,
+            OutstandingBalance REAL DEFAULT 0,
+            IsActive INTEGER NOT NULL DEFAULT 1
+        );
+        """
+    )
+    ensure_transactions_schema(connection)
+    from backend.app.db_setup import ensure_archive_schema
+    ensure_archive_schema(connection)
+    connection.commit()
+    connection.close()
+    return path
+
+
+class StoreDatabasePath:
+    def __fspath__(self):
+        try:
+            from flask import has_request_context
+            from flask_login import current_user
+            if has_request_context() and current_user.is_authenticated:
+                path = get_store_db_path(current_user.store_id)
+                if not os.path.exists(path):
+                    initialize_store_database(current_user.store_id)
+                return path
+        except (ImportError, RuntimeError):
+            pass
+        return DEFAULT_DB_PATH
+
+
+DB_PATH = StoreDatabasePath()
 CATALOG_PATH = os.path.join(os.path.abspath("."), "catalog.json")
 MAPPINGS_PATH = os.path.join(os.path.abspath("."), "mappings.json")
 

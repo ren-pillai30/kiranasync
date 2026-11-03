@@ -5,6 +5,7 @@ from flask_login import LoginManager, current_user, login_user, logout_user
 
 from backend.app.database import db
 from backend.app.models import Store, User
+from backend.app.intent_parser import initialize_store_database
 
 
 login_manager = LoginManager()
@@ -87,5 +88,6 @@ def register_auth_routes(app):
         user.set_password(password)
         db.session.add_all([store, user])
         db.session.commit()
+        initialize_store_database(store.id)
         login_user(user, remember=False)
         return jsonify({"status": "success", "store_id": store.id, "user_id": user.id})
