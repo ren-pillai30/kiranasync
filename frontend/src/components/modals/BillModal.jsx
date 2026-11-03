@@ -532,7 +532,9 @@ export default function BillModal({
                   onClick={handleCopyReceipt}
                   className="p-1 text-stone-500 hover:text-stone-900 rounded-lg hover:bg-stone-200 transition-all cursor-pointer"
                   title="Copy receipt text to clipboard"
-                />
+                >
+                  Copy
+                </button>
               </div>
             </div>
             {copyNotice && (

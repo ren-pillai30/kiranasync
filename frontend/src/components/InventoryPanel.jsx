@@ -20,7 +20,6 @@ export default function InventoryPanel({
       <div className="flex justify-between items-center mb-3">
         <div className="flex items-center space-x-2">
           <h3 className="text-base font-bold text-stone-900 flex items-center space-x-1.5">
-            <span className="text-base"></span>
             <span>{t.invTitle}</span>
           </h3>
           <span className="text-[11px] font-mono px-2 py-0.5 rounded-md bg-[#FEF3C7] text-[#92400E] border border-[#FDE68A] font-bold">

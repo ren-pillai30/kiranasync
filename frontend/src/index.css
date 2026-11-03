@@ -1,5 +1,9 @@
 @import "tailwindcss";
 
+body, button, input, textarea, select {
+  font-family: "Noto Sans", "Noto Sans Devanagari", Arial, sans-serif;
+}
+
 @keyframes app-skeleton {
   0%, 100% { opacity: 0.45; }
   50% { opacity: 1; }

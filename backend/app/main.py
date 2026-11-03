@@ -166,6 +166,29 @@ def get_dashboard_data():
     conn = sqlite3.connect(DB_PATH)
     ensure_transactions_schema(conn)
     cursor = conn.cursor()
+    cursor.execute("""
+        SELECT EntityName, SUM(Quantity), SUM(ABS(TotalAmount))
+        FROM Transactions
+        WHERE TransactionType = 'Restock'
+          AND EntityName IS NOT NULL
+          AND TRIM(EntityName) <> ''
+        GROUP BY lower(TRIM(EntityName))
+    """)
+    restock_totals = cursor.fetchall()
+    for item_name, quantity, amount in restock_totals:
+        cursor.execute(
+            'SELECT ItemID FROM Inventory WHERE lower(ItemName) = lower(?)',
+            (item_name.strip(),),
+        )
+        existing = cursor.fetchone()
+        if not existing:
+            unit_count = int(quantity or 0)
+            unit_price = round(float(amount or 0) / unit_count, 2) if unit_count else 0
+            cursor.execute(
+                'INSERT INTO Inventory (ItemName, StockQuantity, Price, IsActive) VALUES (?, ?, ?, 1)',
+                (item_name.strip(), unit_count, unit_price),
+            )
+    conn.commit()
     
     cursor.execute('SELECT ItemID, ItemName, StockQuantity, Price FROM Inventory WHERE IsActive = 1')
     inventory = [{'ItemID': row[0], 'ItemName': row[1], 'StockQuantity': row[2], 'Price': row[3]} for row in cursor.fetchall()]
