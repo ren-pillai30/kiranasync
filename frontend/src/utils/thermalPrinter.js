@@ -13,13 +13,6 @@ const PRINTER_SERVICES = [
   '0000ff00-0000-1000-8000-00805f9b34fb', // Generic BLE SPP
 ];
 
-const PRINTER_CHARACTERISTICS = [
-  '00002af1-0000-1000-8000-00805f9b34fb',
-  'bef8d6c9-9c21-4c9e-b632-bd58c1009f9f',
-  '49535343-8841-43f4-a8d4-ecbe34729bb3',
-  '0000ff02-0000-1000-8000-00805f9b34fb',
-];
-
 // ESC/POS Command Byte Constants
 const ESC = 0x1b;
 const GS = 0x1d;
@@ -214,7 +207,7 @@ export async function printDirectThermal(billData, options = {}) {
   } catch (err) {
     // If specific filters fail or user cancelled, try acceptAllDevices fallback
     if (err.name === 'NotFoundError') {
-      throw new Error('No Bluetooth printer selected.');
+      throw new Error('No Bluetooth printer selected.', { cause: err });
     }
     try {
       device = await navigator.bluetooth.requestDevice({
@@ -222,7 +215,7 @@ export async function printDirectThermal(billData, options = {}) {
         optionalServices: PRINTER_SERVICES,
       });
     } catch (innerErr) {
-      throw new Error(innerErr.message || 'Bluetooth printer connection cancelled.');
+      throw new Error(innerErr.message || 'Bluetooth printer connection cancelled.', { cause: innerErr });
     }
   }
 

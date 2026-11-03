@@ -8,7 +8,7 @@ export default function DayClosingModal({
   storeName = "KiranaSync Store",
 }) {
   const [actualCash, setActualCash] = useState("");
-  const now = useMemo(() => new Date(), [isOpen]);
+  const now = useMemo(() => new Date(), []);
   const dateStr = now.toLocaleDateString("en-IN", {
     weekday: "short",
     day: "2-digit",

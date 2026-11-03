@@ -20,6 +20,8 @@ export default function BarcodeScannerModal({
 
   useEffect(() => {
     if (isOpen) {
+      // Resetting the modal when it opens is intentional and must happen synchronously with opening.
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setBarcodeInput("");
       setMatchedItem(null);
       setNotFoundMessage("");

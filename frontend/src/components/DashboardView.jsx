@@ -1,5 +1,4 @@
 import { motion } from 'framer-motion';
-import { INDIAN_LANGUAGES } from '../constants/languages';
 import HisaabBanner from './HisaabBanner';
 import InventoryPanel from './InventoryPanel';
 import CreditPanel from './CreditPanel';
@@ -9,16 +8,10 @@ export default function DashboardView({
   t,
   lang,
   setLang,
-  selectedLangCode,
-  setSelectedLangCode,
-  isRecording,
-  startRecording,
-  onOpenSimulator,
   onOpenBarcode,
+  onOpenDayClosing,
   onOpenEvalModal,
   onOpenArchives,
-  onOpenBill,
-  onOpenFeedback,
   onViewBill,
   hisaabData,
   inventory,

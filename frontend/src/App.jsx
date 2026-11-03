@@ -67,7 +67,10 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    checkAuth();
+    const initializeAuth = async () => {
+      await checkAuth();
+    };
+    void initializeAuth();
   }, [checkAuth]);
 
   const fetchDashboardData = useCallback(async () => {
