@@ -38,7 +38,9 @@ export default function ItemChoiceModal({
               &times;
             </button>
 
-            <h3 className="text-xl font-black text-stone-900 mb-2">{t.selectProductTitle}</h3>
+            <h3 className="text-xl font-black text-stone-900 mb-2">
+              {pendingItemChoice.NearestMatch ? t.nearestMatchTitle : t.selectProductTitle}
+            </h3>
             {pendingItemChoice.MeasurementMismatch && (
               <div className="mb-4 p-3 bg-red-50 border border-red-300 rounded-xl text-red-900 text-xs space-y-1">
                 <div className="font-bold flex items-center space-x-1.5 text-red-800">
@@ -50,7 +52,11 @@ export default function ItemChoiceModal({
                 </p>
               </div>
             )}
-            <p className="text-[#78716C] text-xs mb-4 font-medium">{t.selectProductDesc}</p>
+            <p className="text-[#78716C] text-xs mb-4 font-medium">
+              {pendingItemChoice.NearestMatch
+                ? `${t.nearestMatchDesc} "${pendingItemChoice.EntityName}". ${t.nearestMatchConfirm}`
+                : t.selectProductDesc}
+            </p>
             <p className="text-xs font-bold text-stone-800 mb-2.5 px-2.5 py-1 rounded-md bg-[#FEF3C7] border border-[#FDE68A] inline-block">
               {pendingItemChoice.Intent === 'sell' ? 'Sale' : 'Restock'} · Qty: {pendingItemChoice.Quantity}
             </p>
@@ -113,7 +119,7 @@ export default function ItemChoiceModal({
                 disabled={selectedItemId === null}
                 className="flex-1 py-3 px-4 rounded-xl bg-[#991B1B] hover:bg-[#B91C1C] disabled:opacity-40 disabled:cursor-not-allowed text-white font-bold text-xs shadow-xs transition-all cursor-pointer"
               >
-                {t.confirmProduct}
+                {pendingItemChoice.NearestMatch ? t.confirmNearestMatch : t.confirmProduct}
               </button>
             </div>
           </motion.div>

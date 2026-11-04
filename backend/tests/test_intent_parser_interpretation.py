@@ -238,6 +238,76 @@ class IntentParserInterpretationTests(unittest.TestCase):
         resolve_entity.assert_called_once()
         self.assertEqual(resolve_entity.call_args.args[0], "मैगी")
 
+    def test_unresolved_hindi_sale_suggests_nearest_inventory_item_for_confirmation(self):
+        with closing(sqlite3.connect(self.database_path)) as connection:
+            connection.execute(
+                "INSERT INTO Inventory (ItemName, StockQuantity, Price) VALUES (?, ?, ?)",
+                ("मैगी (MRP ₹14)", 100, 14),
+            )
+            connection.commit()
+
+        with patch(
+            "backend.app.gemini_understanding.resolve_catalog_entity",
+            return_value=None,
+        ):
+            result = intent_parser.parse_and_execute(
+                "५० मैगी बेच दो",
+                interpretation={
+                    "action": "sell",
+                    "entity": "मैगी",
+                    "quantity": 50,
+                },
+            )
+
+        self.assertEqual(result["status"], "pending_selection")
+        self.assertEqual(result["action"], "select_inventory_item")
+        self.assertTrue(result["draft"]["NearestMatch"])
+        self.assertEqual(result["draft"]["Quantity"], 50)
+        self.assertEqual(
+            [item["ItemName"] for item in result["draft"]["Candidates"]],
+            ["मैगी (MRP ₹14)"],
+        )
+        with closing(sqlite3.connect(self.database_path)) as connection:
+            stock = connection.execute(
+                "SELECT StockQuantity FROM Inventory WHERE ItemName = ?",
+                ("मैगी (MRP ₹14)",),
+            ).fetchone()[0]
+            transaction_count = connection.execute(
+                "SELECT COUNT(*) FROM Transactions"
+            ).fetchone()[0]
+        self.assertEqual(stock, 100)
+        self.assertEqual(transaction_count, 0)
+
+    def test_unresolved_hindi_sale_shows_tied_variants_instead_of_guessing(self):
+        with closing(sqlite3.connect(self.database_path)) as connection:
+            connection.executemany(
+                "INSERT INTO Inventory (ItemName, StockQuantity, Price) VALUES (?, ?, ?)",
+                [
+                    ("मैगी (MRP ₹14)", 100, 14),
+                    ("मैगी (MRP ₹20)", 50, 20),
+                ],
+            )
+            connection.commit()
+
+        with patch(
+            "backend.app.gemini_understanding.resolve_catalog_entity",
+            return_value=None,
+        ):
+            result = intent_parser.parse_and_execute(
+                "मैगी बेच दो",
+                interpretation={
+                    "action": "sell",
+                    "entity": "मैगी",
+                    "quantity": 1,
+                },
+            )
+
+        self.assertEqual(result["status"], "pending_selection")
+        self.assertEqual(
+            {item["ItemName"] for item in result["draft"]["Candidates"]},
+            {"मैगी (MRP ₹14)", "मैगी (MRP ₹20)"},
+        )
+
     def test_explicit_transcript_quantity_overrides_model_quantity(self):
         result = intent_parser.parse_and_execute(
             "12 toothpaste bech do",

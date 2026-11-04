@@ -695,6 +695,66 @@ def match_entity_with_score(query_text, db_records, threshold=70):
     return best_token_record if best_token_score >= 88 else None
 
 
+def find_nearest_inventory_items(cursor, requested_entity, item_alias_to_canonical, limit=3):
+    """Return confident, closest active inventory matches without choosing a sale target."""
+    normalized_query = normalize_entity_name(requested_entity)
+    query_tokens = set(re.findall(r'\w+', normalized_query))
+    if not query_tokens:
+        return []
+
+    cursor.execute(
+        'SELECT ItemID, ItemName, StockQuantity, Price FROM Inventory WHERE IsActive = 1'
+    )
+    inventory = cursor.fetchall()
+    scored_items = []
+
+    for item_id, item_name, stock_quantity, price in inventory:
+        aliases = [
+            alias
+            for alias, canonical in item_alias_to_canonical.items()
+            if canonical.casefold() == item_name.casefold()
+        ]
+        aliases.append(item_name)
+        best_score = 0.0
+        for alias in aliases:
+            normalized_alias = normalize_entity_name(alias)
+            alias_tokens = set(re.findall(r'\w+', normalized_alias))
+            if not alias_tokens:
+                continue
+            if normalized_query == normalized_alias:
+                score = 1.0
+            elif query_tokens.issubset(alias_tokens):
+                score = 1.0
+            else:
+                overlap = len(query_tokens & alias_tokens) / len(query_tokens)
+                similarity = difflib.SequenceMatcher(
+                    None, normalized_query, normalized_alias
+                ).ratio()
+                score = max(overlap * 0.85, similarity)
+            best_score = max(best_score, score)
+
+        if best_score >= 0.65:
+            scored_items.append((
+                best_score,
+                {
+                    "ItemID": item_id,
+                    "ItemName": item_name,
+                    "StockQuantity": stock_quantity,
+                    "Price": price,
+                },
+            ))
+
+    if not scored_items:
+        return []
+    scored_items.sort(key=lambda result: result[0], reverse=True)
+    best_score = scored_items[0][0]
+    return [
+        item
+        for score, item in scored_items
+        if best_score - score <= 0.05
+    ][:limit]
+
+
 def resolve_voice_product(query_text, raw_transcript, item_catalog, alias_to_canonical, translations=None):
     """Resolve a spoken product through Gemini, then return its canonical inventory name."""
     from backend.app.gemini_understanding import resolve_catalog_entity
@@ -1672,6 +1732,33 @@ def parse_and_execute(raw_transcript, quantity_override=None, interpretation=Non
                 conn.close()
                 return {"status": "failed", "action": "out_of_stock", "message": f"Not enough {target_item} in stock! Only {result[1]} left."}
         else:
+            nearest_matches = (
+                find_nearest_inventory_items(
+                    cursor,
+                    clean_translated_entity or orig_requested_entity or raw_transcript,
+                    item_alias_to_canonical,
+                )
+                if intent == "sell"
+                else []
+            )
+            if nearest_matches:
+                conn.close()
+                return {
+                    "status": "pending_selection",
+                    "action": "select_inventory_item",
+                    "message": (
+                        f"Could not identify '{orig_requested_entity or clean_translated_entity}' exactly. "
+                        "Please confirm the closest inventory match before the sale."
+                    ),
+                    "draft": {
+                        "Intent": "sell",
+                        "Quantity": quantity_or_amount,
+                        "RawCommand": raw_transcript,
+                        "EntityName": orig_requested_entity or clean_translated_entity,
+                        "NearestMatch": True,
+                        "Candidates": nearest_matches,
+                    },
+                }
             conn.close()
             return {
                 "status": "failed",

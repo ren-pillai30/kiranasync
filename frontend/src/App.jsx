@@ -233,8 +233,13 @@ export default function App() {
       if (data.database_action?.message) {
         playVoiceReceipt(data.database_action.speech_message || data.database_action.message);
       }
-      actions.setPendingItemChoice(data.database_action.draft);
-      actions.setSelectedItemId(null);
+      const draft = data.database_action.draft;
+      actions.setPendingItemChoice(draft);
+      actions.setSelectedItemId(
+        draft.NearestMatch && draft.Candidates?.length === 1
+          ? draft.Candidates[0].ItemID
+          : null
+      );
       actions.setConfirmationError('');
       setDbAction({ status: 'pending', message: data.database_action.message });
       setTimeout(() => setIsActive(false), 2500);
@@ -468,6 +473,7 @@ export default function App() {
             actions.setConfirmationError('');
           }}
           t={t}
+          nameDisplayMode={nameDisplayMode}
         />
 
         <TransactionConfirmModal
