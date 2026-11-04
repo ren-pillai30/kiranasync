@@ -1037,6 +1037,17 @@ def parse_and_execute(raw_transcript, quantity_override=None, interpretation=Non
             interpretation.get("entity"),
             raw_transcript,
         ]
+        from backend.app.gemini_understanding import resolve_catalog_entity
+        translations = {
+            "local_translation": interpretation.get("local_translation"),
+            "phonetic_english_translation": interpretation.get("phonetic_english_translation"),
+        }
+        gemini_item = resolve_catalog_entity(
+            raw_transcript, db_items, "product", translations
+        ) if intent in {"sell", "restock", "add_product", "remove_product", "query_stock"} else None
+        gemini_customer = resolve_catalog_entity(
+            raw_transcript, db_customers, "customer", translations
+        ) if intent in {"credit", "add_customer", "repayment", "remove_customer", "query_customer"} else None
         explicit_quantity = extract_explicit_quantity(raw_transcript)
         if explicit_quantity is not None and intent in {"sell", "restock", "credit", "add_product"}:
             quantity_or_amount = explicit_quantity
@@ -1234,6 +1245,15 @@ def parse_and_execute(raw_transcript, quantity_override=None, interpretation=Non
             for item in items:
                 prod_name = item.get("entity", "").strip()
                 qty = int(item.get("quantity", 1))
+                from backend.app.gemini_understanding import resolve_catalog_entity
+                prod_name = resolve_catalog_entity(
+                    raw_transcript, db_items, "product",
+                    {
+                        "item_transcript": prod_name,
+                        "local_translation": interpretation.get("local_translation"),
+                        "phonetic_english_translation": interpretation.get("phonetic_english_translation"),
+                    },
+                ) or prod_name
                 matched_item = match_entity_with_score(prod_name, db_items, threshold=60)
                 if not matched_item:
                     errors.append(f"'{prod_name}' not found")
@@ -1313,6 +1333,8 @@ def parse_and_execute(raw_transcript, quantity_override=None, interpretation=Non
                 clean_translated_entity = resolved_target
 
         target_item = (
+            gemini_item
+            or
             next(
                 (
                     matched
@@ -1326,6 +1348,8 @@ def parse_and_execute(raw_transcript, quantity_override=None, interpretation=Non
             else None
         )
         target_customer = (
+            gemini_customer
+            or
             next(
                 (
                     matched

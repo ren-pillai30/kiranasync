@@ -9,6 +9,58 @@ class GeminiUnderstandingError(RuntimeError):
     pass
 
 
+def resolve_catalog_entity(transcript, catalog, entity_type, translations=None):
+    """Ask Gemini to map a spoken name to exactly one supplied catalog name."""
+    api_key = os.getenv("GEMINI_API_KEY")
+    if not api_key or not catalog:
+        return None
+
+    model = os.getenv("GEMINI_MODEL", "gemini-3.5-flash-lite")
+    endpoint = (
+        "https://generativelanguage.googleapis.com/v1beta/models/"
+        f"{model}:generateContent"
+    )
+    payload = {
+        "contents": [{"parts": [{"text": (
+            "Resolve the spoken entity to exactly one catalog entry. "
+            "Hindi/Devanagari and English names can refer to the same person or product. "
+            "Use pronunciation, meaning, transliteration, and the supplied translations together. "
+            "Return null if no catalog entry is the same entity; never invent a name. "
+            f"Entity type: {entity_type}\n"
+            f"Transcript: {json.dumps(transcript, ensure_ascii=False)}\n"
+            f"Translations: {json.dumps(translations or {}, ensure_ascii=False)}\n"
+            f"Catalog: {json.dumps(catalog, ensure_ascii=False)}"
+        )}]}],
+        "generationConfig": {
+            "temperature": 0,
+            "responseMimeType": "application/json",
+            "responseSchema": {
+                "type": "OBJECT",
+                "properties": {
+                    "resolved_name": {"type": "STRING"},
+                },
+                "required": ["resolved_name"],
+            },
+        },
+    }
+    try:
+        response = requests.post(
+            endpoint,
+            headers={"x-goog-api-key": api_key},
+            json=payload,
+            timeout=25,
+        )
+        response.raise_for_status()
+        text = response.json()["candidates"][0]["content"]["parts"][0]["text"]
+        resolved = json.loads(text).get("resolved_name")
+    except (requests.RequestException, KeyError, IndexError, TypeError, ValueError):
+        return None
+
+    if isinstance(resolved, str):
+        return resolved if resolved in catalog else None
+    return None
+
+
 def build_product_mrp_search_query(product_name):
     api_key = os.getenv("GEMINI_API_KEY")
     if not api_key:
