@@ -553,6 +553,27 @@ DEVANAGARI_VOWEL_SIGNS = {
     "\u094c": "au",
 }
 
+ENTITY_SCRIPT_ALIASES = {
+    "tata namak": "tata salt",
+    "tata salt": "tata salt",
+    "maagi": "maggi",
+    "maigee": "maggi",
+    "maggi": "maggi",
+    "मैगी": "maggi",
+}
+ENTITY_WORD_ALIASES = {
+    "namak": "salt",
+    "cheeni": "sugar",
+    "shakkar": "sugar",
+    "tel": "oil",
+    "atta": "flour",
+    "doodh": "milk",
+    "chai": "tea",
+    "dahi": "curd",
+    "phayoona": "fortune",
+    "fortune": "fortune",
+}
+
 
 def normalize_entity_name(value):
     """Normalize spelling for entity matching, including Devanagari names."""
@@ -577,11 +598,23 @@ def normalize_entity_name(value):
                 output.append(DEVANAGARI_VOWEL_SIGNS[char])
             elif char == "\u094d":
                 pass
+            elif char.isspace():
+                if output and output[-1] != " ":
+                    output.append(" ")
             elif char.isalnum():
                 output.append(char)
             index += 1
         text = "".join(output)
-    return ' '.join(re.findall(r'[a-z0-9]+', text))
+    normalized = ' '.join(re.findall(r'[a-z0-9]+', text))
+    normalized_tokens = normalized.split()
+    normalized_tokens = [ENTITY_WORD_ALIASES.get(token, token) for token in normalized_tokens]
+    normalized = ' '.join(normalized_tokens)
+    if normalized in ENTITY_SCRIPT_ALIASES:
+        return ENTITY_SCRIPT_ALIASES[normalized]
+    raw = unicodedata.normalize("NFKC", str(value)).strip().casefold()
+    if raw in ENTITY_SCRIPT_ALIASES:
+        return ENTITY_SCRIPT_ALIASES[raw]
+    return normalized
 
 
 def match_entity_with_score(query_text, db_records, threshold=70):
