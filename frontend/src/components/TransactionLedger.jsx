@@ -1,12 +1,26 @@
+import { useState } from 'react';
+
 export default function TransactionLedger({ transactions, t, onViewBill }) {
-  const handleRowBill = (txn) => {
-    if (!onViewBill) return;
+  const [selectedReceipts, setSelectedReceipts] = useState([]);
+
+  const supportsReceipt = (transaction) =>
+    ['Sale', 'Restock', 'Credit'].includes(transaction.TransactionType);
+
+  const toggleReceipt = (transactionId) => {
+    setSelectedReceipts((current) =>
+      current.includes(transactionId)
+        ? current.filter((id) => id !== transactionId)
+        : [...current, transactionId]
+    );
+  };
+
+  const buildReceipt = (txn) => {
     const isCredit = txn.TransactionType === 'Credit';
     const amount = Math.abs(Number(txn.TotalAmount || 0));
     const qty = txn.Quantity || 1;
     const unitPrice = qty > 0 ? Math.round(amount / qty) : amount;
 
-    onViewBill({
+    return {
       billItems: [
         {
           item_name: txn.EntityName || txn.CommandText || 'Retail Item',
@@ -18,6 +32,31 @@ export default function TransactionLedger({ transactions, t, onViewBill }) {
       customerName: isCredit ? (txn.EntityName || 'Customer') : 'Walk-in Customer',
       paymentMode: isCredit ? 'udhaar' : 'cash',
       customerBalance: isCredit ? amount : 0,
+    };
+  };
+
+  const handleRowBill = (txn) => {
+    if (!onViewBill) return;
+    onViewBill(buildReceipt(txn));
+  };
+
+  const handleCombinedBill = () => {
+    if (!onViewBill || selectedReceipts.length === 0) return;
+    const selectedTransactions = transactions.filter((transaction) =>
+      selectedReceipts.includes(transaction.TxnID)
+    );
+    const receipts = selectedTransactions.map(buildReceipt);
+    const hasUdhaar = receipts.some((receipt) => receipt.paymentMode === 'udhaar');
+    onViewBill({
+      billItems: receipts.flatMap((receipt) => receipt.billItems),
+      customerName: hasUdhaar
+        ? receipts.find((receipt) => receipt.paymentMode === 'udhaar')?.customerName
+        : 'Walk-in Customer',
+      paymentMode: hasUdhaar ? 'udhaar' : 'cash',
+      customerBalance: hasUdhaar
+        ? receipts.filter((receipt) => receipt.paymentMode === 'udhaar')
+            .reduce((sum, receipt) => sum + Number(receipt.customerBalance || 0), 0)
+        : 0,
     });
   };
 
@@ -35,11 +74,26 @@ export default function TransactionLedger({ transactions, t, onViewBill }) {
           {transactions.length} Records
         </span>
       </div>
+      {selectedReceipts.length > 0 && (
+        <div className="mb-3 flex items-center justify-end gap-2">
+          <span className="text-xs font-semibold text-[#78716C]">
+            {selectedReceipts.length} receipt{selectedReceipts.length === 1 ? '' : 's'} selected
+          </span>
+          <button
+            type="button"
+            onClick={handleCombinedBill}
+            className="px-3 py-1.5 text-xs bg-[#991B1B] hover:bg-[#7F1D1D] text-white rounded-lg font-bold transition-all"
+          >
+            Combine receipts
+          </button>
+        </div>
+      )}
 
       <div className="bg-[#FFFDF9] rounded-xl overflow-y-auto max-h-80 border border-[#E2D9C8] shadow-xs custom-scrollbar">
         <table className="w-full min-w-[760px] text-left text-sm text-stone-700">
           <thead className="bg-[#F4EFE6] text-[#57534E] uppercase text-[11px] tracking-wider sticky top-0 border-b border-[#E2D9C8] font-bold z-10">
             <tr>
+              <th className="px-3 py-2.5 text-center">Select</th>
               <th className="px-4 py-2.5">{t.ledgerDate}</th>
               <th className="px-4 py-2.5">{t.ledgerType}</th>
               <th className="px-4 py-2.5">{t.ledgerEntity}</th>
@@ -52,7 +106,7 @@ export default function TransactionLedger({ transactions, t, onViewBill }) {
           <tbody className="divide-y divide-[#F0EAE0]">
             {transactions.length === 0 ? (
               <tr>
-                <td colSpan="7" className="px-4 py-8 text-center text-[#78716C] italic text-xs">
+                <td colSpan="8" className="px-4 py-8 text-center text-[#78716C] italic text-xs">
                   {t.ledgerEmpty}
                 </td>
               </tr>
@@ -65,6 +119,19 @@ export default function TransactionLedger({ transactions, t, onViewBill }) {
 
                 return (
                   <tr key={transaction.TxnID} className="hover:bg-[#FAF6EE] transition-colors">
+                    <td className="px-3 py-2.5 text-center">
+                      {supportsReceipt(transaction) ? (
+                        <input
+                          type="checkbox"
+                          checked={selectedReceipts.includes(transaction.TxnID)}
+                          onChange={() => toggleReceipt(transaction.TxnID)}
+                          aria-label={`Select receipt for transaction ${transaction.TxnID}`}
+                          className="h-4 w-4 accent-[#991B1B] cursor-pointer"
+                        />
+                      ) : (
+                        <span className="text-stone-400">—</span>
+                      )}
+                    </td>
                     <td className="px-4 py-2.5 whitespace-nowrap text-xs text-[#78716C] font-mono">
                       {transaction.Timestamp
                         ? new Date(`${transaction.Timestamp.replace(' ', 'T')}Z`).toLocaleString('en-IN', {
@@ -115,7 +182,7 @@ export default function TransactionLedger({ transactions, t, onViewBill }) {
                       {transaction.CommandText || '—'}
                     </td>
                     <td className="px-3 py-2.5 text-center">
-                      {(isSale || isCredit) ? (
+                      {(isSale || isRestock || isCredit) ? (
                         <button
                           onClick={() => handleRowBill(transaction)}
                           className="px-2.5 py-1 text-xs bg-[#FFFDF7] hover:bg-[#991B1B] text-stone-800 hover:text-white rounded-md border border-[#D8CEBA] hover:border-[#991B1B] font-bold transition-all shadow-2xs"
