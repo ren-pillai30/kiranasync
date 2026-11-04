@@ -91,9 +91,29 @@ def simulate_call():
             raw_call_text=f"Call: {user_input}",
         )
 
+    # Generate TTS audio for the assistant's reply
+    reply_text = result.get('reply_text', '')
+    language_code = result.get('detected_language_code', payload.get('language_code') or 'hi-IN')
+    try:
+        # Use the global TTS provider to synthesize audio
+        audio_bytes, content_type = tts_provider.synthesize(reply_text, language_code=language_code)
+        import base64
+        audio_base64 = base64.b64encode(audio_bytes).decode('utf-8')
+    except Exception as e:
+        # If TTS fails, log but continue returning text only
+        app.logger.exception("TTS synthesis failed: %s", e)
+        audio_base64 = None
+        content_type = None
+
     response = dict(result)
     response['status'] = 'success'
     response['db_result'] = db_result
+    if audio_base64:
+        response['audio_base64'] = audio_base64
+        response['audio_content_type'] = content_type
+    else:
+        response['audio_base64'] = None
+        response['audio_content_type'] = None
     return jsonify(response)
 
 @app.errorhandler(Exception)
