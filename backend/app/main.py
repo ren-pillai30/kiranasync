@@ -140,6 +140,7 @@ def _process_call_http_turn(audio_file=None):
     detected_language = result.get('detected_language_code') or language_code
     audio_base64 = None
     audio_content_type = None
+    audio_error = None
     try:
         audio_bytes, audio_content_type = GnaniService().synthesize_speech(
             reply_text,
@@ -147,14 +148,18 @@ def _process_call_http_turn(audio_file=None):
         )
         if audio_bytes:
             audio_base64 = base64.b64encode(audio_bytes).decode('utf-8')
+        else:
+            audio_error = 'Gnani could not generate reply audio. Check the speech service configuration.'
     except Exception:
         app.logger.exception('Call simulator TTS synthesis failed')
+        audio_error = 'Gnani could not generate reply audio. Check the speech service configuration.'
 
     result.update(
-        status='success',
+        status='error' if result.get('error') else 'success',
         transcript_text=user_input,
         audio_base64=audio_base64,
         audio_content_type=audio_content_type,
+        audio_error=audio_error,
         current_bill={
             'items': current_bill_items,
             'total': sum(float(item.get('item_total') or 0) for item in current_bill_items),
@@ -180,11 +185,15 @@ def start_call_simulation():
         greeting,
         language_code=language_code,
     )
+    audio_base64 = base64.b64encode(audio_bytes).decode('utf-8') if audio_bytes else None
     return jsonify({
         'status': 'success',
         'reply_text': greeting,
-        'audio_base64': base64.b64encode(audio_bytes).decode('utf-8') if audio_bytes else None,
+        'audio_base64': audio_base64,
         'audio_content_type': content_type,
+        'audio_error': None if audio_base64 else (
+            'Gnani could not generate reply audio. Check the speech service configuration.'
+        ),
         'detected_language_code': language_code,
     })
 

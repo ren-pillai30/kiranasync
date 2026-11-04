@@ -375,64 +375,75 @@ export default function CallSimulator({ isOpen, onClose, onRefreshStore, onOpenB
           </div>
 
           {/* INPUT BAR (SPEECH & TEXT) */}
-          <div className="p-4 bg-[#FFFDF9] border-t border-[#E2D9C8] flex items-center space-x-3">
-            {/* MICROPHONE STREAMING BUTTON */}
-            <button
-              onClick={isMicRecording ? stopMicRecording : startMicRecording}
-              disabled={!callActive}
-              className={`p-3 rounded-xl border flex items-center justify-center transition-all shadow-xs ${
-                isMicRecording
-                  ? 'bg-red-600 text-white border-red-500 animate-pulse shadow-md shadow-red-900/30'
-                  : 'bg-[#FAF7F2] text-stone-800 hover:text-stone-900 border-[#D8CEBA] hover:bg-[#FEF3C7] disabled:opacity-40'
-              }`}
-              title={isMicRecording ? 'Click to stop & send audio' : 'Speak into call (Microphone streaming)'}
-            >
-              <span className="text-lg"></span>
-            </button>
-
-            {/* AUDIO LEVEL BAR IF RECORDING */}
-            {isMicRecording ? (
-              <div className="flex-1 flex flex-col justify-center px-4 py-2 bg-red-50 rounded-xl border border-red-300">
-                <div className="flex justify-between text-xs text-red-800 mb-1 font-semibold">
-                  <span>Listening to customer voice...</span>
-                  <span className="font-bold">Click  again to send</span>
-                </div>
-                <div className="w-full bg-red-200 rounded-full h-2 overflow-hidden">
+          <div className="border-t border-[#E2D9C8] bg-[#F0EDE6] p-3">
+            {isMicRecording && (
+              <div className="mb-2 flex items-center gap-2 rounded-lg bg-red-50 px-3 py-2 text-xs font-semibold text-red-800">
+                <span className="h-2 w-2 animate-pulse rounded-full bg-red-600" />
+                <span>Recording voice message… tap the microphone to send</span>
+                <div className="ml-auto h-1.5 w-20 overflow-hidden rounded-full bg-red-200">
                   <div
-                    className="bg-[#991B1B] h-full transition-all duration-75"
+                    className="h-full bg-red-600 transition-all"
                     style={{ width: `${Math.max(10, audioLevel)}%` }}
                   />
                 </div>
               </div>
-            ) : (
-              <form
-                onSubmit={(e) => {
-                  e.preventDefault();
-                  sendTextMessage();
-                }}
-                className="flex-1 flex space-x-2"
-              >
-                <input
-                  type="text"
-                  value={inputText}
-                  onChange={(e) => setInputText(e.target.value)}
-                  disabled={!callActive}
-                  placeholder={
-                    callActive
-                      ? 'Type customer query or speak (e.g. "2 packet Maggi becho Ramesh ko")...'
-                      : 'Click "Simulate Call" above to begin call simulation'
-                  }
-                  className="flex-1 bg-[#FAF7F2] text-stone-900 placeholder:text-stone-400 px-4 py-2.5 rounded-xl border border-[#D8CEBA] focus:outline-none focus:ring-2 focus:ring-[#991B1B]/20 focus:border-[#991B1B] disabled:opacity-50 text-sm font-medium transition-all"
-                />
-                <button
-                  type="submit"
-                  disabled={!callActive || !inputText.trim()}
-                  className="px-5 py-2.5 bg-[#991B1B] hover:bg-[#B91C1C] text-white rounded-xl font-bold text-sm disabled:opacity-40 transition-all shadow-xs"
-                >
-                  Send
-                </button>
-              </form>
             )}
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                sendTextMessage();
+              }}
+              className="flex items-center gap-2"
+            >
+              <button
+                type="button"
+                onClick={isMicRecording ? stopMicRecording : startMicRecording}
+                disabled={!callActive}
+                aria-label={isMicRecording ? 'Stop recording and send voice message' : 'Record voice message'}
+                title={isMicRecording ? 'Stop and send voice message' : 'Record voice message'}
+                className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-full transition-colors disabled:opacity-40 ${
+                  isMicRecording
+                    ? 'bg-red-600 text-white hover:bg-red-700'
+                    : 'bg-[#E7E1D6] text-stone-800 hover:bg-[#D8CEBA]'
+                }`}
+              >
+                {isMicRecording ? (
+                  <svg viewBox="0 0 24 24" className="h-5 w-5" fill="currentColor" aria-hidden="true">
+                    <rect x="6" y="6" width="12" height="12" rx="2" />
+                  </svg>
+                ) : (
+                  <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
+                    <rect x="9" y="2" width="6" height="12" rx="3" />
+                    <path d="M5 10v2a7 7 0 0 0 14 0v-2M12 19v3m-4 0h8" />
+                  </svg>
+                )}
+              </button>
+
+              <input
+                type="text"
+                value={inputText}
+                onChange={(e) => setInputText(e.target.value)}
+                disabled={!callActive}
+                placeholder={
+                  callActive
+                    ? 'Type a message'
+                    : 'Start a call to send a message'
+                }
+                className="min-w-0 flex-1 rounded-full border border-[#D8CEBA] bg-white px-4 py-3 text-sm font-medium text-stone-900 placeholder:text-stone-400 focus:border-[#991B1B] focus:outline-none focus:ring-2 focus:ring-[#991B1B]/20 disabled:opacity-50"
+              />
+
+              <button
+                type="submit"
+                disabled={!callActive || !inputText.trim()}
+                aria-label="Send message"
+                title="Send message"
+                className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-[#128C7E] text-white transition-colors hover:bg-[#0D776C] disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                <svg viewBox="0 0 24 24" className="h-5 w-5" fill="currentColor" aria-hidden="true">
+                  <path d="M3.4 20.4 21 12 3.4 3.6l.1 6.5 12.1 1.9-12.1 1.9-.1 6.5Z" />
+                </svg>
+              </button>
+            </form>
           </div>
         </motion.div>
       </div>

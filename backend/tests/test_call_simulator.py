@@ -239,6 +239,30 @@ class TestCallSimulatorServices(unittest.TestCase):
         self.assertIn("John", greeting_en)
         self.assertIn("Kirana store", greeting_en)
 
+    def test_inventory_inquiry_fallback_matches_catalog_names(self):
+        inventory = [{
+            "ItemName": "Maggi",
+            "ItemNameHindi": "मैगी",
+            "StockQuantity": 10,
+            "Price": 14,
+        }]
+
+        answer = CallDBService.answer_inventory_inquiry(
+            "Maggi ka kitna stock hai aur price kya hai?",
+            inventory,
+            language_code="hi-IN",
+        )
+
+        self.assertIn("मैगी का स्टॉक 10 है", answer)
+        self.assertIn("कीमत ₹14 है", answer)
+        self.assertIsNone(
+            CallDBService.answer_inventory_inquiry(
+                "Please add Maggi to Ramesh's credit",
+                inventory,
+                language_code="en-IN",
+            )
+        )
+
     def test_rest_status_and_simulate(self):
         status = get_call_system_status()
         self.assertIn("model", status)

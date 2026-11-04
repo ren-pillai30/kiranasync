@@ -70,6 +70,8 @@ class CallSimulatorConfirmationRouteTests(unittest.TestCase):
             pending = response.get_json()
             self.assertTrue(pending["confirmation_required"])
             self.assertEqual(pending["transcript_text"], "Sell two Maggi")
+            self.assertEqual(pending["audio_base64"], "YXVkaW8=")
+            self.assertEqual(pending["audio_content_type"], "audio/wav")
             db.execute_action.assert_not_called()
 
             confirmation = client.post(
@@ -87,6 +89,104 @@ class CallSimulatorConfirmationRouteTests(unittest.TestCase):
         self.assertFalse(completed["confirmation_required"])
         self.assertEqual(completed["db_result"]["status"], "success")
         db.execute_action.assert_called_once()
+
+    @patch("backend.app.services.gnani_service.GnaniService")
+    @patch("backend.app.services.call_db_service.CallDBService")
+    @patch("backend.app.services.call_gemini_service.CallGeminiService")
+    def test_http_inventory_inquiry_falls_back_when_gemini_fails(
+        self,
+        gemini_class,
+        db_class,
+        gnani_class,
+    ):
+        gemini_class.return_value.process_call_turn.return_value = {
+            "reply_text": "",
+            "action_type": "service_error",
+            "action_data": {},
+            "detected_language_code": "hi-IN",
+            "error": "Gemini intent parsing failed.",
+        }
+        db = db_class.return_value
+        db.get_store_context.return_value = {
+            "inventory": [{
+                "ItemName": "Maggi",
+                "ItemNameHindi": "मैगी",
+                "StockQuantity": 10,
+                "Price": 14,
+            }],
+            "customers": [],
+        }
+        db.answer_inventory_inquiry.return_value = (
+            "Gemini अभी उपलब्ध नहीं है। मैगी का स्टॉक 10 है और कीमत ₹14 है।"
+        )
+        gnani_class.return_value.synthesize_speech.return_value = (
+            b"spoken reply",
+            "audio/wav",
+        )
+
+        response = app.test_client().post(
+            "/api/call/http/turn",
+            json={
+                "user_input": "Maggi ka kitna stock hai aur price kya hai?",
+                "caller_name": "Ramesh",
+                "language_code": "hi-IN",
+                "conversation_history": [],
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        result = response.get_json()
+        self.assertEqual(result["status"], "success")
+        self.assertEqual(result["action_type"], "inventory_inquiry")
+        self.assertIsNone(result["error"])
+        self.assertEqual(result["audio_base64"], "c3Bva2VuIHJlcGx5")
+        self.assertFalse(result["audio_error"])
+        db.answer_inventory_inquiry.assert_called_once_with(
+            "Maggi ka kitna stock hai aur price kya hai?",
+            db.get_store_context.return_value["inventory"],
+            language_code="hi-IN",
+        )
+        db.execute_action.assert_not_called()
+
+    @patch("backend.app.services.gnani_service.GnaniService")
+    @patch("backend.app.services.call_db_service.CallDBService")
+    @patch("backend.app.services.call_gemini_service.CallGeminiService")
+    def test_http_gemini_and_tts_failures_are_reported(
+        self,
+        gemini_class,
+        db_class,
+        gnani_class,
+    ):
+        gemini_class.return_value.process_call_turn.return_value = {
+            "reply_text": "",
+            "action_type": "service_error",
+            "action_data": {},
+            "detected_language_code": "en-IN",
+            "error": "Gemini intent parsing failed.",
+        }
+        db = db_class.return_value
+        db.get_store_context.return_value = {"inventory": [], "customers": []}
+        db.answer_inventory_inquiry.return_value = None
+        gnani_class.return_value.synthesize_speech.return_value = (None, "audio/wav")
+
+        response = app.test_client().post(
+            "/api/call/http/turn",
+            json={
+                "user_input": "Please add this to Ramesh's credit",
+                "caller_name": "Ramesh",
+                "language_code": "en-IN",
+                "conversation_history": [],
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        result = response.get_json()
+        self.assertEqual(result["status"], "error")
+        self.assertEqual(result["action_type"], "service_error")
+        self.assertIn("Gemini", result["reply_text"])
+        self.assertIsNone(result["audio_base64"])
+        self.assertIn("Gnani", result["audio_error"])
+        db.execute_action.assert_not_called()
 
     @patch("backend.app.services.gnani_service.GnaniService")
     @patch("backend.app.services.call_db_service.CallDBService")

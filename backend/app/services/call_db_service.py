@@ -96,6 +96,121 @@ class CallDBService:
         finally:
             conn.close()
 
+    @classmethod
+    def answer_inventory_inquiry(
+        cls,
+        utterance: str,
+        inventory: List[Dict[str, Any]],
+        language_code: str = "hi-IN",
+    ) -> Optional[str]:
+        """Answer a clear stock/price lookup from live inventory if Gemini is unavailable."""
+        normalized_utterance = unicodedata.normalize("NFKC", utterance or "").casefold()
+        stock_terms = {
+            "stock", "available", "availability", "inventory", "have",
+            "स्टॉक", "उपलब्ध", "कितना", "कितनी", "कितने",
+        }
+        price_terms = {
+            "price", "cost", "rate", "mrp", "daam", "keemat",
+            "दाम", "कीमत", "भाव", "मूल्य",
+        }
+        if not any(term in normalized_utterance for term in stock_terms | price_terms):
+            return None
+
+        stop_words = {
+            "a", "an", "the", "is", "it", "do", "does", "you", "have", "what",
+            "how", "much", "many", "stock", "available", "availability", "inventory",
+            "and", "price", "cost", "rate", "mrp", "tell", "me", "please", "of",
+            "hai", "hain", "kya", "ka", "ki", "ke", "kitna", "kitni", "kitne",
+            "aur", "bataye", "batao", "daam", "keemat", "par", "mein",
+            "है", "हैं", "क्या", "का", "की", "के", "कितना", "कितनी", "कितने",
+            "और", "दाम", "कीमत", "बताओ", "बताइए", "में", "पर", "मिलेगा",
+            "मिलेगी", "मिलता", "मिलती", "उपलब्ध", "स्टॉक", "की",
+        }
+        query_tokens = {
+            token
+            for token in re.findall(r"\w+", normalized_utterance, flags=re.UNICODE)
+            if token not in stop_words and not token.isdigit()
+        }
+        if not query_tokens:
+            return None
+
+        matches = []
+        for item in inventory:
+            aliases = [
+                str(item.get("ItemName") or ""),
+                str(item.get("ItemNameHindi") or ""),
+            ]
+            alias_tokens = {
+                token
+                for alias in aliases
+                for token in re.findall(
+                    r"\w+",
+                    unicodedata.normalize("NFKC", alias).casefold(),
+                    flags=re.UNICODE,
+                )
+                if token not in stop_words and not token.isdigit()
+            }
+            if not alias_tokens:
+                continue
+            exact = query_tokens & alias_tokens
+            fuzzy_hits = {
+                query_token
+                for query_token in query_tokens - exact
+                if max(
+                    (
+                        difflib.SequenceMatcher(None, query_token, alias_token).ratio()
+                        for alias_token in alias_tokens
+                    ),
+                    default=0,
+                ) >= 0.82
+            }
+            matched_tokens = exact | fuzzy_hits
+            if matched_tokens:
+                matches.append((len(matched_tokens) / len(query_tokens), len(exact), item))
+
+        if not matches:
+            return None
+        best_score = max((score, exact_count) for score, exact_count, _ in matches)
+        best_items = [
+            item
+            for score, exact_count, item in matches
+            if (score, exact_count) == best_score
+        ]
+        if best_score[0] < 0.5 or best_score[1] == 0:
+            return None
+
+        asks_stock = any(term in normalized_utterance for term in stock_terms)
+        asks_price = any(term in normalized_utterance for term in price_terms)
+        details = []
+        for item in best_items:
+            if language_code == "hi-IN":
+                name = item.get("ItemNameHindi") or item.get("ItemName") or "वस्तु"
+            else:
+                name = item.get("ItemName") or item.get("ItemNameHindi") or "Item"
+            stock = item.get("StockQuantity") or 0
+            price = f"₹{float(item.get('Price') or 0):g}"
+            if language_code == "hi-IN":
+                stock_text = (
+                    f"स्टॉक {stock}" if stock else "उपलब्ध नहीं है"
+                )
+                if asks_stock and asks_price:
+                    details.append(f"{name} का {stock_text} है और कीमत {price} है")
+                elif asks_stock:
+                    details.append(f"{name} का {stock_text} है")
+                else:
+                    details.append(f"{name} की कीमत {price} है")
+                continue
+
+            facts = []
+            if asks_stock:
+                facts.append(f"stock {stock}" if stock else "out of stock")
+            if asks_price:
+                facts.append(f"price {price}")
+            details.append(f"{name}: {', '.join(facts)}")
+        if language_code == "hi-IN":
+            return "Gemini अभी उपलब्ध नहीं है। " + "। ".join(details) + "।"
+        return "Gemini is temporarily unavailable. " + "; ".join(details) + "."
+
     def match_inventory_item(
         self, candidate_name: str, conn: Optional[sqlite3.Connection] = None
     ) -> Optional[Dict[str, Any]]:

@@ -84,6 +84,33 @@ def process_call_turn(
         caller_name=caller_name,
         language_preference=language_code,
     )
+    if result.get("error"):
+        fallback_reply = db_service.answer_inventory_inquiry(
+            user_utterance,
+            inventory_items,
+            language_code=result.get("detected_language_code") or language_code,
+        )
+        if fallback_reply:
+            result.update(
+                reply_text=fallback_reply,
+                action_type="inventory_inquiry",
+                action_data={},
+                error=None,
+                db_result=None,
+                pending_action=None,
+                confirmation_required=False,
+            )
+            return result
+        error_reply = result["error"]
+        if language_code == "hi-IN":
+            error_reply = "Gemini सेवा अभी उपलब्ध नहीं है। कृपया थोड़ी देर बाद प्रयास करें।"
+        return {
+            **result,
+            "reply_text": error_reply,
+            "pending_action": None,
+            "confirmation_required": False,
+            "db_result": None,
+        }
     action_type = result.get("action_type", "general")
     action_data = result.get("action_data") or {}
     if action_type in MUTATING_ACTIONS:

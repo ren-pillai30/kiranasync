@@ -157,12 +157,12 @@ You MUST respond strictly in valid JSON matching this exact structure:
         current_prompt += f"Latest Customer Utterance: \"{clean_input}\"\nRespond with JSON:"
 
         if not self.client:
-            # Fallback if SDK or key is not available
             return {
-                "reply_text": f"Namaste! Aapne kaha: {clean_input}. Store assistant is online.",
-                "action_type": "general",
+                "reply_text": "",
+                "action_type": "service_error",
                 "action_data": {},
                 "detected_language_code": language_preference,
+                "error": "Gemini intent parsing is unavailable. Check the Gemini API key and quota.",
             }
 
         try:
@@ -199,11 +199,11 @@ You MUST respond strictly in valid JSON matching this exact structure:
         except Exception as e:
             print(f"CallGeminiService reasoning exception: {e}")
             return {
-                "reply_text": "Ji, main sun raha hoon. Kya aap dobara bata sakte hain?",
-                "action_type": "general",
+                "reply_text": "",
+                "action_type": "service_error",
                 "action_data": {},
                 "detected_language_code": language_preference,
-                "error": str(e),
+                "error": "Gemini intent parsing failed. Check the Gemini API key, model, and quota.",
             }
 
     def classify_confirmation(

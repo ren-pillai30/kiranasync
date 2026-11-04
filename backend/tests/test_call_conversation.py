@@ -10,14 +10,14 @@ class CallConversationConfirmationTests(unittest.TestCase):
         self.gemini = Mock()
         self.database = Mock()
 
-    def process(self, utterance, pending_action=None):
+    def process(self, utterance, pending_action=None, language_code="en-IN"):
         return process_call_turn(
             user_utterance=utterance,
             conversation_history=[],
             inventory_items=[],
             customers=[],
             caller_name="Ramesh",
-            language_code="en-IN",
+            language_code=language_code,
             gemini_service=self.gemini,
             db_service=self.database,
             pending_action=pending_action,
@@ -96,6 +96,42 @@ class CallConversationConfirmationTests(unittest.TestCase):
         self.assertIsNone(result["pending_action"])
         self.assertFalse(result["confirmation_required"])
         self.assertEqual(result["action_type"], "confirmation_cancelled")
+
+    def test_gemini_failure_does_not_execute_or_claim_a_change(self):
+        self.gemini.process_call_turn.return_value = {
+            "reply_text": "",
+            "action_type": "service_error",
+            "action_data": {},
+            "detected_language_code": "en-IN",
+            "error": "Gemini intent parsing failed.",
+        }
+        self.database.answer_inventory_inquiry.return_value = None
+
+        result = self.process("Add 200 to Ramesh's credit")
+
+        self.assertEqual(result["action_type"], "service_error")
+        self.assertEqual(result["reply_text"], "Gemini intent parsing failed.")
+        self.assertIsNone(result["pending_action"])
+        self.assertFalse(result["confirmation_required"])
+        self.database.execute_action.assert_not_called()
+
+    def test_gemini_failure_message_uses_hindi_for_hindi_calls(self):
+        self.gemini.process_call_turn.return_value = {
+            "reply_text": "",
+            "action_type": "service_error",
+            "action_data": {},
+            "detected_language_code": "hi-IN",
+            "error": "Gemini intent parsing is unavailable.",
+        }
+        self.database.answer_inventory_inquiry.return_value = None
+
+        result = self.process(
+            "Namaste",
+            language_code="hi-IN",
+        )
+
+        self.assertIn("सेवा अभी उपलब्ध नहीं है", result["reply_text"])
+        self.assertEqual(result["error"], "Gemini intent parsing is unavailable.")
 
     def test_confirmation_prompt_fallback_describes_pending_order(self):
         with patch.dict("os.environ", {"GEMINI_API_KEY": "", "GOOGLE_API_KEY": ""}):

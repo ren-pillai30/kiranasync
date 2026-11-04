@@ -51,7 +51,7 @@ export function useCallSession({ onRefreshStore, initialCallerName = 'Ramesh', i
     []
   );
 
-  const playBase64Audio = useCallback((audioBase64) => {
+  const playBase64Audio = useCallback((audioBase64, contentType = 'audio/wav') => {
     if (isMuted || !audioBase64) {
       setCallStatus('connected');
       return;
@@ -60,7 +60,7 @@ export function useCallSession({ onRefreshStore, initialCallerName = 'Ramesh', i
       if (currentAudioRef.current) {
         currentAudioRef.current.pause();
       }
-      const audio = new Audio(`data:audio/wav;base64,${audioBase64}`);
+      const audio = new Audio(`data:${contentType};base64,${audioBase64}`);
       currentAudioRef.current = audio;
       setCallStatus('speaking');
       audio.onended = () => {
@@ -68,10 +68,16 @@ export function useCallSession({ onRefreshStore, initialCallerName = 'Ramesh', i
       };
       audio.onerror = () => {
         setCallStatus((prev) => (prev === 'speaking' ? 'connected' : prev));
+        setSystemNotice('The reply audio could not be played. Check your audio output and try again.');
       };
-      audio.play().catch((err) => console.warn('Audio auto-play failed:', err));
+      audio.play().catch((err) => {
+        console.warn('Audio auto-play failed:', err);
+        setCallStatus('connected');
+        setSystemNotice('The reply audio could not start. Tap the page and try again.');
+      });
     } catch (err) {
       console.warn('Playback error:', err);
+      setSystemNotice('The reply audio could not be played.');
     }
   }, [isMuted]);
 
@@ -144,13 +150,15 @@ export function useCallSession({ onRefreshStore, initialCallerName = 'Ramesh', i
           role: 'assistant',
           text: data.reply_text,
           audioBase64: data.audio_base64,
+          audioContentType: data.audio_content_type || 'audio/wav',
           timestamp,
         },
       ]);
       if (data.audio_base64) {
-        playBase64Audio(data.audio_base64);
+        playBase64Audio(data.audio_base64, data.audio_content_type || 'audio/wav');
       } else {
         setCallStatus('connected');
+        if (data.audio_error) setSystemNotice(data.audio_error);
       }
     } else if (data.type === 'transcript') {
       setTranscripts((prev) => [
@@ -185,6 +193,7 @@ export function useCallSession({ onRefreshStore, initialCallerName = 'Ramesh', i
           role: 'assistant',
           text: data.reply_text,
           audioBase64: data.audio_base64,
+          audioContentType: data.audio_content_type || 'audio/wav',
           actionType: data.action_type,
           actionData: data.action_data,
           dbResult: data.db_result,
@@ -194,9 +203,10 @@ export function useCallSession({ onRefreshStore, initialCallerName = 'Ramesh', i
       ]);
 
       if (data.audio_base64) {
-        playBase64Audio(data.audio_base64);
+        playBase64Audio(data.audio_base64, data.audio_content_type || 'audio/wav');
       } else {
         setCallStatus('connected');
+        if (data.audio_error) setSystemNotice(data.audio_error);
       }
 
       if (data.db_result && data.db_result.status === 'success') {
@@ -247,6 +257,8 @@ export function useCallSession({ onRefreshStore, initialCallerName = 'Ramesh', i
         type: 'call_connected',
         reply_text: data.reply_text,
         audio_base64: data.audio_base64,
+        audio_content_type: data.audio_content_type,
+        audio_error: data.audio_error,
       });
     } catch (error) {
       console.error('Call start failed:', error);
@@ -355,6 +367,9 @@ export function useCallSession({ onRefreshStore, initialCallerName = 'Ramesh', i
           handleWebSocketMessage({
             type: 'call_response',
             reply_text: data.reply_text,
+            audio_base64: data.audio_base64,
+            audio_content_type: data.audio_content_type,
+            audio_error: data.audio_error,
             action_type: data.action_type,
             action_data: data.action_data,
             db_result: data.db_result,
@@ -415,6 +430,8 @@ export function useCallSession({ onRefreshStore, initialCallerName = 'Ramesh', i
         customer_text: data.transcript_text,
         reply_text: data.reply_text,
         audio_base64: data.audio_base64,
+        audio_content_type: data.audio_content_type,
+        audio_error: data.audio_error,
         action_type: data.action_type,
         action_data: data.action_data,
         db_result: data.db_result,
