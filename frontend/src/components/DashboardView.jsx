@@ -8,6 +8,7 @@ export default function DashboardView({
   t,
   lang,
   setLang,
+  onLanguageChange,
   onOpenBarcode,
   onOpenDayClosing,
   onOpenEvalModal,
@@ -70,12 +71,11 @@ export default function DashboardView({
             {[
               ['en', 'EN'],
               ['hi', 'हिंदी'],
-              ['both', 'Both'],
             ].map(([mode, label]) => (
               <button
                 key={mode}
                 type="button"
-                onClick={() => setNameDisplayMode(mode)}
+                onClick={() => onLanguageChange(mode)}
                 className={`px-2 py-1 rounded-md text-[11px] font-bold transition-colors ${nameDisplayMode === mode ? 'bg-[#991B1B] text-white' : 'text-stone-600 hover:bg-[#F4EFE6]'}`}
               >
                 {label}
@@ -121,7 +121,7 @@ export default function DashboardView({
 
           <button
             type="button"
-            onClick={() => setLang(lang === 'en' ? 'hi' : 'en')}
+            onClick={() => onLanguageChange(lang === 'en' ? 'hi' : 'en')}
             className="px-3.5 py-1.5 bg-[#FFFDF9] hover:bg-[#F4EFE6] text-stone-800 rounded-lg text-xs font-bold border border-[#D8CEBA] transition-colors shadow-2xs cursor-pointer"
           >
             {t.toggleLang}

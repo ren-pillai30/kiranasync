@@ -110,11 +110,29 @@ def build_product_mrp_search_query(product_name):
     return re.sub(r"\s+", " ", query).strip()
 
 
-def translate_for_speech(text, language_code):
+def translate_for_speech(text, language_code, entity_names=None):
     if not isinstance(text, str) or not text.strip():
         raise GeminiUnderstandingError("Cannot translate an empty spoken response.")
+    text = text.strip()
+    replacements = []
+    for entity in entity_names or []:
+        if not isinstance(entity, dict):
+            continue
+        english = str(entity.get("English") or "").strip()
+        hindi = str(entity.get("Hindi") or "").strip()
+        replacements.append((english, hindi))
+
+    for english, hindi in replacements:
+        if not english:
+            continue
+        preferred = hindi if language_code == "hi-IN" and hindi else english
+        aliases = {english, hindi}
+        for alias in sorted(aliases, key=len, reverse=True):
+            if alias:
+                text = re.sub(rf"(?<!\w){re.escape(alias)}(?!\w)", preferred, text, flags=re.IGNORECASE)
+
     if language_code == "en-IN":
-        return text.strip()
+        return text
 
     api_key = os.getenv("GEMINI_API_KEY")
     if not api_key:

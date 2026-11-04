@@ -59,8 +59,15 @@ export default function App() {
   const [billData, setBillData] = useState({ billItems: [], customerName: 'Walk-in Customer', paymentMode: 'cash', customerBalance: 0 });
   const [isMuted, setIsMuted] = useState(false);
   const [nameDisplayMode, setNameDisplayMode] = useState(() => (
-    typeof window !== 'undefined' ? window.localStorage.getItem('kiranasync-name-display') || 'both' : 'both'
+    typeof window !== 'undefined' ? window.localStorage.getItem('kiranasync-name-display') || 'en' : 'en'
   ));
+
+  const handleLanguageChange = useCallback((nextLang) => {
+    const normalized = nextLang === 'hi' ? 'hi' : 'en';
+    setLang(normalized);
+    setNameDisplayMode(normalized);
+    setSelectedLangCode(normalized === 'hi' ? 'hi-IN' : 'en-IN');
+  }, []);
 
   useEffect(() => {
     if (typeof window !== 'undefined') {
@@ -141,6 +148,8 @@ export default function App() {
     playbackAudioContextRef: null,
     isMuted,
     lang,
+    inventory,
+    credit,
   });
 
   // Store mutations, edits, and draft confirmations
@@ -357,7 +366,10 @@ export default function App() {
       )}
       <Header
         selectedLangCode={selectedLangCode}
-        setSelectedLangCode={setSelectedLangCode}
+        setSelectedLangCode={(languageCode) => {
+          setSelectedLangCode(languageCode);
+          handleLanguageChange(languageCode.startsWith('hi') ? 'hi' : 'en');
+        }}
         isMuted={isMuted}
         setIsMuted={setIsMuted}
         isRecording={voiceRecorder.isRecording}
@@ -509,6 +521,7 @@ export default function App() {
               t={t}
               lang={lang}
               setLang={setLang}
+              onLanguageChange={handleLanguageChange}
               selectedLangCode={selectedLangCode}
               setSelectedLangCode={setSelectedLangCode}
               isRecording={voiceRecorder.isRecording}

@@ -141,12 +141,12 @@ export const api = {
       return res.json();
     }),
 
-  synthesizeVoice: (text, languageCode) =>
+  synthesizeVoice: (text, languageCode, entityNames = []) =>
     fetch(`${API_BASE}/api/voice/synthesize`, {
       method: 'POST',
       credentials: 'include',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ text, language_code: languageCode }),
+      body: JSON.stringify({ text, language_code: languageCode, entity_names: entityNames }),
     }),
 
   // Barcode Scanning

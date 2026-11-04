@@ -4,7 +4,7 @@ import { api } from '../services/api';
 /**
  * Custom hook to handle voice audio synthesis and playback.
  */
-export function useVoiceReceipt({ playbackAudioContextRef, isMuted, lang }) {
+export function useVoiceReceipt({ playbackAudioContextRef, isMuted, lang, inventory = [], credit = [] }) {
   const [voiceError, setVoiceError] = useState('');
   const activeAudioRef = useRef(null);
   const activeAudioSourceRef = useRef(null);
@@ -31,7 +31,20 @@ export function useVoiceReceipt({ playbackAudioContextRef, isMuted, lang }) {
         setVoiceError('');
         stopActiveAudio();
 
-        const response = await api.synthesizeVoice(textToSpeak, lang === 'hi' ? 'hi-IN' : 'en-IN');
+        const response = await api.synthesizeVoice(
+          textToSpeak,
+          lang === 'hi' ? 'hi-IN' : 'en-IN',
+          [
+            ...inventory.map((item) => ({
+              English: item.ItemName,
+              Hindi: item.ItemNameHindi,
+            })),
+            ...credit.map((customer) => ({
+              English: customer.CustomerName,
+              Hindi: customer.CustomerNameHindi,
+            })),
+          ],
+        );
         if (!response.ok) {
           const errorBody = response.headers.get('content-type')?.includes('application/json')
             ? await response.json()
@@ -81,7 +94,7 @@ export function useVoiceReceipt({ playbackAudioContextRef, isMuted, lang }) {
         setVoiceError(`Could not play the spoken answer: ${err.message}`);
       }
     },
-    [isMuted, lang, playbackAudioContextRef, stopActiveAudio]
+    [isMuted, lang, inventory, credit, playbackAudioContextRef, stopActiveAudio]
   );
 
   return {
@@ -91,4 +104,3 @@ export function useVoiceReceipt({ playbackAudioContextRef, isMuted, lang }) {
     stopActiveAudio,
   };
 }
-

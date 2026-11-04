@@ -140,12 +140,13 @@ def synthesize_voice():
     data = request.get_json(silent=True) or {}
     text = data.get("text", "").strip()
     language_code = data.get("language_code", "hi-IN")
+    entity_names = data.get("entity_names", [])
 
     if not text:
         return jsonify({'status': 'error', 'error': 'Text is required'}), 400
 
     try:
-        text = translate_for_speech(text, language_code)
+        text = translate_for_speech(text, language_code, entity_names)
         audio_bytes, content_type = tts_provider.synthesize(text, language_code=language_code)
         return Response(audio_bytes, mimetype=content_type)
     except GeminiUnderstandingError as e:
