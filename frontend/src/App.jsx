@@ -226,22 +226,6 @@ export default function App() {
     }
   }, [actions, fetchArchives, fetchDashboardData, fetchLedgerData, playVoiceReceipt]);
 
-  const handleTextCommand = useCallback(async (text) => {
-    setIsActive(true);
-    setVoiceError('');
-    setTranscript(text);
-    try {
-      const data = await api.processText(text, selectedLangCode);
-      if (data.status === 'success') {
-        handleVoiceSuccess(data);
-      } else {
-        setVoiceError(data.error || 'Command could not be processed.');
-      }
-    } catch {
-      setVoiceError('Text voice command service is unavailable.');
-    }
-  }, [handleVoiceSuccess, selectedLangCode, setVoiceError]);
-
   const voiceRecorder = useVoiceRecorder({
     selectedLangCode,
     onSpeechDetected: () => {
@@ -494,7 +478,6 @@ export default function App() {
           voiceError={voiceError}
           t={t}
           stopAndProcessRecording={voiceRecorder.stopAndProcessRecording}
-          onProcessText={handleTextCommand}
         />
       </div>
 
