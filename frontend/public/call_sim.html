@@ -29,69 +29,11 @@
     </div>
   </div>
   <script>
-    window.addEventListener('load', () => {
-    // Hide manual input UI – the assistant runs automatically
-    const inputBar = document.querySelector('.input-bar');
-    if (inputBar) inputBar.style.display = 'none';
-    // Keep a conversation history to send to the backend for context
-    let conversationHistory = [];
-    // Automatic assistant loop – no user input needed
-    async function assistantLoop() {
-      // Send empty user_input (or a placeholder) with history for context
-      const payload = {user_input: '', conversation_history: conversationHistory};
-      const resp = await fetch('/api/call/simulate', {
-        method: 'POST',
-        headers: {'Content-Type':'application/json'},
-        body: JSON.stringify(payload)
-      });
-      const data = await resp.json();
-      // Show assistant reply text
-      addMessage(data.reply_text || '[no reply]', false);
-      // Add to history as assistant turn
-      conversationHistory.push({role: 'assistant', text: data.reply_text || ''});
-      // Play TTS if present
-      if (data.audio_base64) {
-        const audio = new Audio('data:' + data.audio_content_type + ';base64,' + data.audio_base64);
-        audio.play();
-        audio.onended = () => setTimeout(assistantLoop, 500);
-      } else {
-        setTimeout(assistantLoop, 1500);
-      }
-    }
-    // Start the automatic conversation when the page loads
-    window.addEventListener('load', () => {
-      assistantLoop();
-    });
-    async function assistantLoop() {
-      // Send empty user_input to get a greeting / next reply
-      const resp = await fetch('/api/call/simulate', {
-        method: 'POST',
-        headers: {'Content-Type':'application/json'},
-        body: JSON.stringify({user_input: ''})
-      });
-      const data = await resp.json();
-      // Show assistant reply text
-      addMessage(data.reply_text || '[no reply]', false);
-      // Play TTS if present
-      if (data.audio_base64) {
-        const audio = new Audio('data:' + data.audio_content_type + ';base64,' + data.audio_base64);
-        audio.play();
-        // When the audio finishes, start the next turn after a short pause
-        audio.onended = () => setTimeout(assistantLoop, 500);
-      } else {
-        // No audio – just wait a moment before next turn
-        setTimeout(assistantLoop, 1500);
-      }
-    }
-    // Start the automatic conversation when the page loads
-    window.addEventListener('load', () => {
-      assistantLoop();
-    });
-  });
-
+    const messagesEl = document.getElementById('messages');
     const textInput = document.getElementById('textInput');
     const sendBtn = document.getElementById('sendBtn');
     const micBtn = document.getElementById('micBtn');
+
     function addMessage(text, fromUser) {
       const div = document.createElement('div');
       div.className = 'msg ' + (fromUser ? 'user' : 'bot');
@@ -99,29 +41,43 @@
       messagesEl.appendChild(div);
       messagesEl.scrollTop = messagesEl.scrollHeight;
     }
+
+    // Hide manual UI – we will run autonomous assistant but keep controls for debugging
+    const inputBar = document.querySelector('.input-bar');
+    if (inputBar) inputBar.style.display = 'none';
+
+    // Conversation history sent to backend for context
+    let conversationHistory = [];
+
+    async function assistantLoop() {
+      const payload = {user_input: '', conversation_history: conversationHistory};
+      const resp = await fetch('/api/call/simulate', {
+        method: 'POST',
+        headers: {'Content-Type':'application/json'},
+        body: JSON.stringify(payload)
+      });
+      const data = await resp.json();
+      addMessage(data.reply_text || '[no reply]', false);
+      conversationHistory.push({role: 'assistant', text: data.reply_text || ''});
+      if (data.audio_base64) {
+        const audio = new Audio('data:' + data.audio_content_type + ';base64,' + data.audio_base64);
+        audio.play();
+        audio.onended = () => setTimeout(assistantLoop, 500);
+      } else {
+        setTimeout(assistantLoop, 1500);
+      }
+    }
+
+    // Start autonomous conversation on page load
+    window.addEventListener('load', assistantLoop);
+
+    // --- Optional manual send (kept for debugging) ---
     async function sendText() {
-      // Read the typed text (may be empty for an initial greeting)
       const userText = textInput.value.trim();
-      // Only show a user bubble if there is actual text
       if (userText) {
         addMessage(userText, true);
         textInput.value = '';
       }
-      const payload = {user_input: userText};
-      const resp = await fetch('/api/call/simulate', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(payload)});
-      const data = await resp.json();
-      // Show assistant reply text
-      addMessage(data.reply_text || '[no reply]', false);
-      // Play TTS if present
-      if (data.audio_base64) {
-        const audio = new Audio('data:' + data.audio_content_type + ';base64,' + data.audio_base64);
-        audio.play();
-      }
-    }
-      const userText = textInput.value.trim();
-      if (!userText) return;
-      addMessage(userText, true);
-      textInput.value = '';
       const payload = {user_input: userText};
       const resp = await fetch('/api/call/simulate', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(payload)});
       const data = await resp.json();
@@ -133,6 +89,8 @@
     }
     sendBtn.addEventListener('click', sendText);
     textInput.addEventListener('keypress', e => { if (e.key === 'Enter') sendText(); });
+
+    // Voice recording (kept for fallback)
     let recorder; let audioChunks = [];
     async function startRecording() {
       const stream = await navigator.mediaDevices.getUserMedia({audio:true});
@@ -155,7 +113,7 @@
       const audioUrl = URL.createObjectURL(new Blob([audioBytes], {type:mime}));
       const audio = new Audio(audioUrl);
       audio.play();
-      // fetch textual reply for display
+      // Show textual reply as well
       const txtResp = await fetch('/api/call/simulate', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({user_input:''})});
       const txtData = await txtResp.json();
       addMessage(txtData.reply_text || '[no reply]', false);
@@ -167,4 +125,3 @@
   </script>
 </body>
 </html>
-
