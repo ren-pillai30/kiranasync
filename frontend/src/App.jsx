@@ -254,6 +254,7 @@ export default function App() {
 
   const voiceRecorder = useVoiceRecorder({
     selectedLangCode,
+    microphoneError: t.micError,
     onSpeechDetected: () => {
       setIsActive(true);
       setIsProcessingVoice(false);
