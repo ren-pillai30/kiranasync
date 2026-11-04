@@ -71,7 +71,7 @@ PRIMARY GOALS:
 1. Greet callers warmly, professionally, and naturally in their language (Hindi, Hinglish, English, Tamil, Telugu, Kannada, Malayalam, Marathi, Bengali, Gujarati, Punjabi).
 2. Answer customer inquiries regarding product availability, prices, and existing customer credit/udhaar balances.
 3. Accurately take grocery orders: identify item names from the catalog, quantities, and whether the order is to be paid in cash or added to udhaar/credit for a specific customer.
-4. Record credit/udhaar operations: logging new udhaar or recording repayments.
+4. Record credit/udhaar operations: logging new udhaar or recording repayments, but only after explicit caller confirmation.
 5. Keep spoken replies natural, concise, and polite — as if speaking on a phone call. Never use markdown symbols (no asterisks, hash tags, or bullet points) in 'reply_text'.
 
 LIVE STORE DATA:
@@ -88,11 +88,12 @@ DOMAIN BEHAVIOR RULES:
   2. If the exact measurement is in stock, proceed with the order or inquiry as requested.
 - When a customer orders items:
   Set action_type to "order". In action_data, populate "items" with catalog item names and positive integer quantities.
+  Never state or imply that an order has been recorded. Summarize the requested items, quantities, payment mode, and customer if applicable, then ask the caller for explicit confirmation.
   Check if the customer mentioned paying on udhaar / credit (e.g. "khate mein likh do", "put on udhaar", "Ramesh ke account me"), set payment_mode to "udhaar" and extract customer_name. Otherwise payment_mode is "cash".
 - When a customer asks to log credit without ordering goods:
-  Set action_type to "credit_log", populate customer_name and amount.
+  Set action_type to "credit_log", populate customer_name and amount. Ask for explicit confirmation; do not imply the balance was changed.
 - When a customer repays an outstanding balance:
-  Set action_type to "repayment", populate customer_name and amount.
+  Set action_type to "repayment", populate customer_name and amount. Ask for explicit confirmation; do not imply the balance was changed.
 - When asking about their own or a customer's balance:
   Set action_type to "inquiry", inquiry_subject to "customer_balance", and state the current balance accurately.
 - When a customer asks about their current bill total / "kitna hua" / "mera bill":
@@ -204,6 +205,183 @@ You MUST respond strictly in valid JSON matching this exact structure:
                 "detected_language_code": language_preference,
                 "error": str(e),
             }
+
+    def classify_confirmation(
+        self,
+        user_utterance: str,
+        pending_action: Dict[str, Any],
+        language_code: str = "hi-IN",
+    ) -> str:
+        if not self.client:
+            return "unclear"
+        prompt = (
+            "Classify the caller's latest utterance as an explicit confirmation, an explicit "
+            "rejection/cancellation, or unclear in response to the pending business action. "
+            "Only return confirmed or rejected when the caller's intent is unambiguous. "
+            "A new request, question, hesitation, or unrelated reply is unclear. "
+            f"Language: {language_code}\n"
+            f"Pending action: {json.dumps(pending_action, ensure_ascii=False)}\n"
+            f"Caller utterance: {json.dumps(user_utterance, ensure_ascii=False)}"
+        )
+        try:
+            response = self.client.models.generate_content(
+                model=self.model,
+                contents=prompt,
+                config=types.GenerateContentConfig(
+                    response_mime_type="application/json",
+                    temperature=0,
+                    response_schema={
+                        "type": "OBJECT",
+                        "properties": {
+                            "decision": {
+                                "type": "STRING",
+                                "enum": ["confirmed", "rejected", "unclear"],
+                            }
+                        },
+                        "required": ["decision"],
+                    },
+                ),
+            )
+            decision = json.loads((response.text or "").strip()).get("decision")
+            return decision if decision in {"confirmed", "rejected", "unclear"} else "unclear"
+        except Exception as exc:
+            print(f"CallGeminiService confirmation classification failed: {exc}")
+            return "unclear"
+
+    def _generate_conversational_reply(self, prompt: str, language_code: str) -> Optional[str]:
+        if not self.client:
+            return None
+        try:
+            response = self.client.models.generate_content(
+                model=self.model,
+                contents=(
+                    f"Write one concise, natural phone-conversation sentence in language "
+                    f"{language_code}. Preserve all names, quantities, and amounts exactly. "
+                    "Do not use markdown.\n" + prompt
+                ),
+                config=types.GenerateContentConfig(temperature=0.2),
+            )
+            return (response.text or "").strip() or None
+        except Exception as exc:
+            print(f"CallGeminiService conversational response failed: {exc}")
+            return None
+
+    def generate_action_confirmation(
+        self,
+        action_type: str,
+        action_data: Dict[str, Any],
+        language_code: str = "hi-IN",
+    ) -> str:
+        fallback = self._confirmation_fallback(action_type, action_data, language_code)
+        if not self.client:
+            return fallback
+        prompt = (
+            f"Action: {action_type}. Details: {json.dumps(action_data, ensure_ascii=False)}\n"
+            "Create one natural spoken sentence for the caller that briefly summarizes this "
+            "exact change, explicitly says it has not been recorded, and asks whether to "
+            "proceed. Never say or imply it is already complete."
+        )
+        try:
+            response = self.client.models.generate_content(
+                model=self.model,
+                contents=(
+                    f"Use language {language_code}. Preserve names, quantities, and amounts exactly. "
+                    "Return JSON only with message, asks_confirmation, and says_not_recorded.\n"
+                    + prompt
+                ),
+                config=types.GenerateContentConfig(
+                    response_mime_type="application/json",
+                    temperature=0.1,
+                    response_schema={
+                        "type": "OBJECT",
+                        "properties": {
+                            "message": {"type": "STRING"},
+                            "asks_confirmation": {"type": "BOOLEAN"},
+                            "says_not_recorded": {"type": "BOOLEAN"},
+                        },
+                        "required": ["message", "asks_confirmation", "says_not_recorded"],
+                    },
+                ),
+            )
+            data = json.loads((response.text or "").strip())
+            message = data.get("message")
+            if (
+                isinstance(message, str)
+                and message.strip()
+                and data.get("asks_confirmation") is True
+                and data.get("says_not_recorded") is True
+            ):
+                return message.strip()
+        except Exception as exc:
+            print(f"CallGeminiService confirmation prompt failed: {exc}")
+        return fallback
+
+    @staticmethod
+    def _confirmation_fallback(
+        action_type: str,
+        action_data: Dict[str, Any],
+        language_code: str,
+    ) -> str:
+        if action_type == "order":
+            requested = ", ".join(
+                f"{item.get('quantity', 1)} x {item.get('name') or item.get('entity') or 'item'}"
+                for item in action_data.get("items", [])
+                if isinstance(item, dict)
+            ) or "the requested items"
+            payment = action_data.get("payment_mode") or "cash"
+            customer = action_data.get("customer_name")
+            details = f"{requested} on {payment}"
+            if customer:
+                details += f" for {customer}"
+            hi_details = requested
+            if customer:
+                hi_details += f", {customer} के खाते में"
+            if language_code == "hi-IN":
+                return f"आपने {hi_details} का ऑर्डर कहा है। अभी रिकॉर्ड नहीं किया है। क्या मैं इसे दर्ज करूँ?"
+            return f"You asked for {details}. I have not recorded it yet. Should I proceed?"
+
+        customer = action_data.get("customer_name") or "the customer"
+        amount = action_data.get("amount", 0)
+        if language_code == "hi-IN":
+            if action_type == "repayment":
+                return f"आपने {customer} से ₹{amount} की अदायगी दर्ज करने को कहा है। अभी दर्ज नहीं किया है। क्या मैं आगे बढ़ूँ?"
+            return f"आपने {customer} के खाते में ₹{amount} जोड़ने को कहा है। अभी दर्ज नहीं किया है। क्या मैं आगे बढ़ूँ?"
+        operation = "record a repayment from" if action_type == "repayment" else "add credit to"
+        return f"You asked me to {operation} {customer} for ₹{amount}. I have not recorded it yet. Should I proceed?"
+
+    def generate_confirmation_reply(
+        self,
+        outcome: str,
+        pending_action: Dict[str, Any],
+        language_code: str = "hi-IN",
+    ) -> str:
+        generated = self._generate_conversational_reply(
+            f"Respond naturally that the pending store change is {outcome}. Do not perform "
+            "or claim any database action. Pending action: "
+            f"{json.dumps(pending_action, ensure_ascii=False)}",
+            language_code,
+        )
+        if generated:
+            return generated
+        if outcome == "cancelled":
+            return "ठीक है, मैंने इसे रद्द कर दिया है।" if language_code == "hi-IN" else "Okay, I have cancelled it."
+        return "कृपया हाँ या ना में बताइए।" if language_code == "hi-IN" else "Please say yes to confirm or no to cancel."
+
+    def generate_action_result(
+        self,
+        action_type: str,
+        action_data: Dict[str, Any],
+        db_result: Dict[str, Any],
+        language_code: str = "hi-IN",
+    ) -> str:
+        generated = self._generate_conversational_reply(
+            "The caller explicitly confirmed this store change. Briefly report the actual "
+            "result without adding facts. "
+            f"Action: {action_type}. Details: {json.dumps(action_data, ensure_ascii=False)}. "
+            f"Database result: {json.dumps(db_result, ensure_ascii=False)}",
+            language_code,
+        )
+        return generated or str(db_result.get("message") or "The confirmed change was processed.")
 
     def generate_call_greeting(
         self,

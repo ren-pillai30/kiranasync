@@ -2,6 +2,7 @@ import os
 import json
 import uuid
 import base64
+import time
 from typing import Optional, Dict, Any, List
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect, HTTPException
 from pydantic import BaseModel
@@ -9,12 +10,14 @@ from pydantic import BaseModel
 from backend.app.services.gnani_service import GnaniService
 from backend.app.services.call_gemini_service import CallGeminiService
 from backend.app.services.call_db_service import CallDBService
+from backend.app.services.call_conversation import process_call_turn
 
 router = APIRouter(tags=["Call Simulator"])
 
 gnani_service = GnaniService()
 gemini_service = CallGeminiService()
 db_service = CallDBService()
+REST_CALL_SESSIONS: Dict[str, Dict[str, Any]] = {}
 
 
 class SimulateCallRequest(BaseModel):
@@ -22,6 +25,12 @@ class SimulateCallRequest(BaseModel):
     caller_name: Optional[str] = "Customer"
     language_code: Optional[str] = "hi-IN"
     conversation_history: Optional[List[Dict[str, str]]] = []
+    session_id: Optional[str] = None
+
+
+class CallStartRequest(BaseModel):
+    caller_name: Optional[str] = "Customer"
+    language_code: Optional[str] = "hi-IN"
 
 
 @router.get("/api/call/status")
@@ -40,48 +49,86 @@ def get_call_system_status():
     }
 
 
+@router.post("/api/call/start")
+def start_call_session(request: CallStartRequest):
+    session_id = uuid.uuid4().hex
+    REST_CALL_SESSIONS[session_id] = {
+        "pending_action": None,
+        "order_items": [],
+        "last_access": time.time(),
+    }
+    caller_name = request.caller_name or "Customer"
+    language_code = request.language_code or "hi-IN"
+    greeting = gemini_service.generate_call_greeting(caller_name, language_code)
+    return {
+        "status": "success",
+        "session_id": session_id,
+        "reply_text": greeting,
+        "audio_base64": gnani_service.synthesize_speech_base64(
+            greeting,
+            language_code=language_code,
+        ),
+    }
+
+
 @router.post("/api/call/simulate")
 def simulate_call_turn(request: SimulateCallRequest):
     """
     REST fallback endpoint to test a call turn without WebSockets.
     """
+    now = time.time()
+    expired = [
+        session_id
+        for session_id, state in REST_CALL_SESSIONS.items()
+        if now - state["last_access"] > 1800
+    ]
+    for session_id in expired:
+        REST_CALL_SESSIONS.pop(session_id, None)
+
+    session_id = request.session_id or uuid.uuid4().hex
+    state = REST_CALL_SESSIONS.setdefault(
+        session_id,
+        {"pending_action": None, "order_items": [], "last_access": now},
+    )
+    state["last_access"] = now
     context = db_service.get_store_context()
-    gemini_result = gemini_service.process_call_turn(
+    result = process_call_turn(
         user_utterance=request.user_input,
         conversation_history=request.conversation_history,
         inventory_items=context["inventory"],
         customers=context["customers"],
-        caller_name=request.caller_name,
-        language_preference=request.language_code or "hi-IN",
+        caller_name=request.caller_name or "Customer",
+        language_code=request.language_code or "hi-IN",
+        gemini_service=gemini_service,
+        db_service=db_service,
+        pending_action=state["pending_action"],
+        raw_call_text=f"Call ({request.caller_name}): {request.user_input}",
     )
+    state["pending_action"] = result.pop("pending_action", None)
+    db_result = result.get("db_result")
+    if (
+        db_result
+        and db_result.get("status") == "success"
+        and db_result.get("action") == "order_placed"
+    ):
+        state["order_items"].extend(db_result.get("items") or [])
 
-    action_type = gemini_result.get("action_type", "general")
-    action_data = gemini_result.get("action_data", {})
-    db_result = None
-
-    if action_type in ("order", "credit_log", "repayment"):
-        db_result = db_service.execute_action(
-            action_type=action_type,
-            action_data=action_data,
-            raw_call_text=f"Call ({request.caller_name}): {request.user_input}",
-        )
-        if db_result and db_result.get("status") == "measurement_mismatch":
-            reply_text = db_result.get("message", reply_text)
-            action_type = "measurement_mismatch"
-
-    reply_text = gemini_result.get("reply_text", "")
-    target_lang = gemini_result.get("detected_language_code") or request.language_code or "hi-IN"
+    reply_text = result.get("reply_text", "")
+    target_lang = result.get("detected_language_code") or request.language_code or "hi-IN"
     audio_b64 = gnani_service.synthesize_speech_base64(reply_text, language_code=target_lang)
 
-    return {
+    result.update({
         "status": "success",
+        "session_id": session_id,
         "reply_text": reply_text,
         "audio_base64": audio_b64,
-        "action_type": action_type,
-        "action_data": action_data,
-        "db_result": db_result,
         "detected_language_code": target_lang,
-    }
+        "current_bill": {
+            "items": state["order_items"],
+            "total": sum(float(item.get("item_total") or 0) for item in state["order_items"]),
+        },
+    })
+    return result
 
 
 @router.websocket("/ws/call")
@@ -102,6 +149,7 @@ async def call_websocket_endpoint(websocket: WebSocket):
         "call_active": True,
         "order_items": [],
         "total_bill": 0.0,
+        "pending_action": None,
     }
 
     try:
@@ -228,32 +276,24 @@ async def call_websocket_endpoint(websocket: WebSocket):
             # Fetch fresh store context
             context = db_service.get_store_context()
 
-            # Process reasoning with Gemini Flash
-            gemini_result = gemini_service.process_call_turn(
+            turn_result = process_call_turn(
                 user_utterance=user_text,
                 conversation_history=session_data["conversation_history"],
                 inventory_items=context["inventory"],
                 customers=context["customers"],
                 caller_name=session_data["caller_name"],
-                language_preference=lang,
+                language_code=lang,
+                gemini_service=gemini_service,
+                db_service=db_service,
+                pending_action=session_data["pending_action"],
+                raw_call_text=f"Call ({session_data['caller_name']}): {user_text}",
             )
-
-            reply_text = gemini_result.get("reply_text", "")
-            action_type = gemini_result.get("action_type", "general")
-            action_data = gemini_result.get("action_data", {})
-            detected_lang = gemini_result.get("detected_language_code") or lang
-
-            # Execute any business actions on the database
-            db_result = None
-            if action_type in ("order", "credit_log", "repayment"):
-                db_result = db_service.execute_action(
-                    action_type=action_type,
-                    action_data=action_data,
-                    raw_call_text=f"Call ({session_data['caller_name']}): {user_text}",
-                )
-                if db_result and db_result.get("status") == "measurement_mismatch":
-                    reply_text = db_result.get("message", reply_text)
-                    action_type = "measurement_mismatch"
+            session_data["pending_action"] = turn_result.get("pending_action")
+            reply_text = turn_result.get("reply_text", "")
+            action_type = turn_result.get("action_type", "general")
+            action_data = turn_result.get("action_data", {})
+            detected_lang = turn_result.get("detected_language_code") or lang
+            db_result = turn_result.get("db_result")
 
             # Accumulate bill items when order succeeds
             if db_result and db_result.get("status") == "success" and db_result.get("action") == "order_placed":
@@ -287,6 +327,7 @@ async def call_websocket_endpoint(websocket: WebSocket):
                 "action_type": action_type,
                 "action_data": action_data,
                 "db_result": db_result,
+                "confirmation_required": turn_result.get("confirmation_required", False),
                 "language_code": detected_lang,
                 "current_bill": {
                     "items": session_data["order_items"],
@@ -306,4 +347,3 @@ async def call_websocket_endpoint(websocket: WebSocket):
             })
         except Exception:
             pass
-

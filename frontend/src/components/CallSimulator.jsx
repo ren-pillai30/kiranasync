@@ -80,7 +80,7 @@ export default function CallSimulator({ isOpen, onClose, onRefreshStore, onOpenB
                   </span>
                 </h3>
                 <p className="text-xs text-red-100">
-                  Simulate incoming customer grocery orders and credit inquiries without a physical phone line
+                  Live voice conversation with Gnani speech and Gemini intent parsing. Orders and account changes need your confirmation.
                 </p>
               </div>
             </div>
@@ -284,6 +284,28 @@ export default function CallSimulator({ isOpen, onClose, onRefreshStore, onOpenB
                     </div>
 
                     <p className="leading-relaxed whitespace-pre-wrap font-medium">{item.text}</p>
+
+                    {item.confirmationRequired && (
+                      <div className="mt-3 flex flex-wrap gap-2 border-t border-[#E2D9C8] pt-3">
+                        <span className="w-full text-[11px] font-semibold text-[#92400E]">
+                          No inventory or account changes will be made until you confirm.
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => sendTextMessage('Yes, I confirm. Please proceed.')}
+                          className="rounded-lg bg-emerald-700 px-3 py-1.5 text-xs font-bold text-white hover:bg-emerald-800"
+                        >
+                          Confirm
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => sendTextMessage('No, cancel that request.')}
+                          className="rounded-lg border border-[#D8CEBA] bg-white px-3 py-1.5 text-xs font-bold text-stone-700 hover:bg-stone-100"
+                        >
+                          Cancel
+                        </button>
+                      </div>
+                    )}
 
                     {/* STRUCTURED DATABASE ACTION CARD */}
                     {item.dbResult && item.dbResult.status === 'success' && (

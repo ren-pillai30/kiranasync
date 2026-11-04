@@ -7,7 +7,7 @@ if __package__ in (None, ""):
     if project_root not in sys.path:
         sys.path.insert(0, project_root)
 
-from flask import Flask, request, jsonify, render_template, send_from_directory
+from flask import Flask, request, jsonify, render_template, send_from_directory, session
 from werkzeug.exceptions import HTTPException
 from flask_cors import CORS
 from dotenv import load_dotenv
@@ -60,220 +60,151 @@ db.init_app(app)
 login_manager.init_app(app)
 register_auth_routes(app)
 
-@app.route('/api/call/simulate', methods=['POST'])
-def simulate_call():
-    """Existing endpoint that returns JSON with optional base64 audio.
-    This is kept for backward compatibility.
-    """
-    from backend.app.services.call_gemini_service import CallGeminiService
+def _process_call_http_turn(audio_file=None):
+    import base64
+    import json
+    from backend.app.services.call_conversation import process_call_turn
     from backend.app.services.call_db_service import CallDBService
+    from backend.app.services.call_gemini_service import CallGeminiService
+    from backend.app.services.gnani_service import GnaniService
 
-    payload = request.get_json(silent=True) or {}
-    user_input = str(payload.get('user_input') or '').strip()
-    # If no explicit user_input is provided, proceed with an empty string.
-    # CallGeminiService will handle empty input by returning a generic greeting.
-    # This allows the endpoint to act like an autonomous personal assistant.
-    # (No error response is raised here.)
+    payload = request.form if audio_file else (request.get_json(silent=True) or {})
+    language_code = str(payload.get('language_code') or 'hi-IN')
+    caller_name = str(payload.get('caller_name') or 'Customer')
+    history_value = payload.get('conversation_history') or []
+    if isinstance(history_value, str):
+        try:
+            history_value = json.loads(history_value)
+        except ValueError:
+            return jsonify({'status': 'error', 'error': 'Invalid conversation history.'}), 400
+    if not isinstance(history_value, list):
+        return jsonify({'status': 'error', 'error': 'Invalid conversation history.'}), 400
+
+    if audio_file:
+        audio_bytes = audio_file.read()
+        user_input = GnaniService().transcribe_audio_bytes(
+            audio_bytes,
+            language_code=language_code,
+        )
+        user_input = (user_input or '').strip()
+        if not user_input:
+            return jsonify({
+                'status': 'error',
+                'error': 'Gnani could not detect clear speech. Please try recording again.',
+            }), 422
+    else:
+        user_input = str(payload.get('user_input') or '').strip()
+        if not user_input:
+            return jsonify({'status': 'error', 'error': 'Enter or record a call message.'}), 400
 
     db_service = CallDBService()
     gemini_service = CallGeminiService()
     context = db_service.get_store_context()
-    result = gemini_service.process_call_turn(
+    result = process_call_turn(
         user_utterance=user_input,
-        conversation_history=payload.get('conversation_history') or [],
+        conversation_history=history_value,
         inventory_items=context['inventory'],
         customers=context['customers'],
-        caller_name=payload.get('caller_name') or 'Customer',
-        language_preference=payload.get('language_code') or 'hi-IN',
+        caller_name=caller_name,
+        language_code=language_code,
+        gemini_service=gemini_service,
+        db_service=db_service,
+        pending_action=session.get('call_sim_pending_action'),
+        raw_call_text=f"Call ({caller_name}): {user_input}",
     )
+    pending_action = result.pop('pending_action', None)
+    if pending_action:
+        session['call_sim_pending_action'] = pending_action
+    else:
+        session.pop('call_sim_pending_action', None)
 
-    action_type = result.get('action_type', 'general')
-    db_result = None
-    if action_type in ('order', 'credit_log', 'repayment'):
-        db_result = db_service.execute_action(
-            action_type,
-            result.get('action_data') or {},
-            raw_call_text=f"Call: {user_input}",
+    current_bill_items = session.get('call_sim_bill_items', [])
+    db_result = result.get('db_result')
+    if (
+        db_result
+        and db_result.get('status') == 'success'
+        and db_result.get('action') == 'order_placed'
+    ):
+        current_bill_items.extend(
+            {
+                'item_name': item.get('item_name', ''),
+                'quantity': item.get('quantity', 1),
+                'unit_price': item.get('unit_price', 0),
+                'item_total': item.get('item_total', 0),
+            }
+            for item in db_result.get('items') or []
         )
+        session['call_sim_bill_items'] = current_bill_items
 
-    # Generate TTS audio for the assistant's reply
-    reply_text = result.get('reply_text', '')
-    language_code = result.get('detected_language_code', payload.get('language_code') or 'hi-IN')
+    reply_text = result.get('reply_text') or ''
+    detected_language = result.get('detected_language_code') or language_code
+    audio_base64 = None
+    audio_content_type = None
     try:
-        audio_bytes, content_type = tts_provider.synthesize(reply_text, language_code=language_code)
-        import base64
-        audio_base64 = base64.b64encode(audio_bytes).decode('utf-8')
-    except Exception as e:
-        app.logger.exception("TTS synthesis failed: %s", e)
-        audio_base64 = None
-        content_type = None
+        audio_bytes, audio_content_type = GnaniService().synthesize_speech(
+            reply_text,
+            language_code=detected_language,
+        )
+        if audio_bytes:
+            audio_base64 = base64.b64encode(audio_bytes).decode('utf-8')
+    except Exception:
+        app.logger.exception('Call simulator TTS synthesis failed')
 
-    response = dict(result)
-    response['status'] = 'success'
-    response['db_result'] = db_result
-    response['audio_base64'] = audio_base64
-    response['audio_content_type'] = content_type
-    return jsonify(response)
+    result.update(
+        status='success',
+        transcript_text=user_input,
+        audio_base64=audio_base64,
+        audio_content_type=audio_content_type,
+        current_bill={
+            'items': current_bill_items,
+            'total': sum(float(item.get('item_total') or 0) for item in current_bill_items),
+        },
+    )
+    return jsonify(result)
+
+
+@app.route('/api/call/start', methods=['POST'])
+@app.route('/api/call/http/start', methods=['POST'])
+def start_call_simulation():
+    import base64
+    from backend.app.services.call_gemini_service import CallGeminiService
+    from backend.app.services.gnani_service import GnaniService
+
+    payload = request.get_json(silent=True) or {}
+    caller_name = str(payload.get('caller_name') or 'Customer')
+    language_code = str(payload.get('language_code') or 'hi-IN')
+    session.pop('call_sim_pending_action', None)
+    session['call_sim_bill_items'] = []
+    greeting = CallGeminiService().generate_call_greeting(caller_name, language_code)
+    audio_bytes, content_type = GnaniService().synthesize_speech(
+        greeting,
+        language_code=language_code,
+    )
+    return jsonify({
+        'status': 'success',
+        'reply_text': greeting,
+        'audio_base64': base64.b64encode(audio_bytes).decode('utf-8') if audio_bytes else None,
+        'audio_content_type': content_type,
+        'detected_language_code': language_code,
+    })
+
+
+@app.route('/api/call/turn', methods=['POST'])
+@app.route('/api/call/http/turn', methods=['POST'])
+def call_simulation_turn():
+    return _process_call_http_turn(request.files.get('audio'))
+
+
+@app.route('/api/call/simulate', methods=['POST'])
+def simulate_call():
+    return _process_call_http_turn()
 
 # New endpoint that accepts an audio file, runs STT, Gemini, then returns synthesized audio binary
 @app.route('/api/call/simulate/audio', methods=['POST'])
 def simulate_call_audio():
-    """Accept an audio file, run STT → Gemini → optional DB actions → TTS, and return the same JSON format as /api/call/simulate (including base64 audio)."""
-    from backend.app.services.call_gemini_service import CallGeminiService
-    from backend.app.services.call_db_service import CallDBService
-    from flask import Response
-
     if 'audio' not in request.files:
         return jsonify({'status': 'error', 'error': 'Audio file is required.'}), 400
-    audio_file = request.files['audio']
-    # Save to a temporary path
-    tmp_path = os.path.join(os.getcwd(), 'tmp_audio_' + audio_file.filename)
-    audio_file.save(tmp_path)
-
-    # Transcribe using the global STT provider (expects a file path)
-    language_code = request.form.get('language_code', 'hi-IN')
-    transcribed_text = transcribe_audio(tmp_path, language_code=language_code)
-    os.remove(tmp_path)  # Clean up
-
-    db_service = CallDBService()
-    gemini_service = CallGeminiService()
-    context = db_service.get_store_context()
-    result = gemini_service.process_call_turn(
-        user_utterance=transcribed_text,
-        conversation_history=[],
-        inventory_items=context['inventory'],
-        customers=context['customers'],
-        caller_name='Customer',
-        language_preference=language_code,
-    )
-
-    # Execute any DB actions based on Gemini's intent
-    action_type = result.get('action_type', 'general')
-    db_result = None
-    if action_type in ('order', 'credit_log', 'repayment'):
-        db_result = db_service.execute_action(
-            action_type,
-            result.get('action_data') or {},
-            raw_call_text=f"Call (voice): {transcribed_text}",
-        )
-
-    # Synthesize reply via TTS
-    reply_text = result.get('reply_text', '')
-    detected_lang = result.get('detected_language_code', language_code)
-    try:
-        audio_bytes, content_type = tts_provider.synthesize(reply_text, language_code=detected_lang)
-        import base64
-        audio_base64 = base64.b64encode(audio_bytes).decode('utf-8')
-    except Exception as e:
-        app.logger.exception("TTS synthesis failed: %s", e)
-        audio_base64 = None
-        content_type = None
-
-    response = dict(result)
-    response['status'] = 'success'
-    response['db_result'] = db_result
-    response['audio_base64'] = audio_base64
-    response['audio_content_type'] = content_type
-    return jsonify(response)
-def simulate_call_audio():
-    """Accepts an audio file (multipart/form-data), transcribes via STT, processes with Gemini,
-    synthesizes the reply, and streams the audio bytes back.
-    """
-    from backend.app.services.call_gemini_service import CallGeminiService
-    from backend.app.services.call_db_service import CallDBService
-    from flask import Response
-
-    if 'audio' not in request.files:
-        return jsonify({'status': 'error', 'error': 'Audio file is required.'}), 400
-    audio_file = request.files['audio']
-    # Save to a temporary path
-    tmp_path = os.path.join(os.getcwd(), 'tmp_audio_' + audio_file.filename)
-    audio_file.save(tmp_path)
-
-    # Transcribe using the global STT provider (expects a file path)
-    language_code = request.form.get('language_code', 'hi-IN')
-    transcribed_text = transcribe_audio(tmp_path, language_code=language_code)
-    os.remove(tmp_path)  # Clean up
-
-    db_service = CallDBService()
-    gemini_service = CallGeminiService()
-    context = db_service.get_store_context()
-    result = gemini_service.process_call_turn(
-        user_utterance=transcribed_text,
-        conversation_history=[],
-        inventory_items=context['inventory'],
-        customers=context['customers'],
-        caller_name='Customer',
-        language_preference=language_code,
-    )
-
-    # Synthesize reply
-    reply_text = result.get('reply_text', '')
-    detected_lang = result.get('detected_language_code', language_code)
-    try:
-        audio_bytes, content_type = tts_provider.synthesize(reply_text, language_code=detected_lang)
-    except Exception as e:
-        app.logger.exception("TTS synthesis failed: %s", e)
-        return jsonify({'status': 'error', 'error': str(e)}), 503
-
-    return Response(audio_bytes, mimetype=content_type)
-
-def simulate_call():
-    from backend.app.services.call_gemini_service import CallGeminiService
-    from backend.app.services.call_db_service import CallDBService
-
-    payload = request.get_json(silent=True) or {}
-    user_input = str(payload.get('user_input') or '').strip()
-    # If no explicit user_input is provided, proceed with an empty string.
-    # CallGeminiService will handle empty input by returning a generic greeting.
-    # This allows the endpoint to act like an autonomous personal assistant.
-    # (No error response is raised here.)
-
-    db_service = CallDBService()
-    gemini_service = CallGeminiService()
-    context = db_service.get_store_context()
-    result = gemini_service.process_call_turn(
-        user_utterance=user_input,
-        conversation_history=payload.get('conversation_history') or [],
-        inventory_items=context['inventory'],
-        customers=context['customers'],
-        caller_name=payload.get('caller_name') or 'Customer',
-        language_preference=payload.get('language_code') or 'hi-IN',
-    )
-
-    action_type = result.get('action_type', 'general')
-    db_result = None
-    if action_type in ('order', 'credit_log', 'repayment'):
-        db_result = db_service.execute_action(
-            action_type,
-            result.get('action_data') or {},
-            raw_call_text=f"Call: {user_input}",
-        )
-
-    # Generate TTS audio for the assistant's reply
-    reply_text = result.get('reply_text', '')
-    language_code = result.get('detected_language_code', payload.get('language_code') or 'hi-IN')
-    try:
-        # Use the global TTS provider to synthesize audio
-        audio_bytes, content_type = tts_provider.synthesize(reply_text, language_code=language_code)
-        import base64
-        audio_base64 = base64.b64encode(audio_bytes).decode('utf-8')
-    except Exception as e:
-        # If TTS fails, log but continue returning text only
-        app.logger.exception("TTS synthesis failed: %s", e)
-        audio_base64 = None
-        content_type = None
-
-    response = dict(result)
-    response['status'] = 'success'
-    response['db_result'] = db_result
-    if audio_base64:
-        response['audio_base64'] = audio_base64
-        response['audio_content_type'] = content_type
-    else:
-        response['audio_base64'] = None
-        response['audio_content_type'] = None
-    return jsonify(response)
+    return _process_call_http_turn(request.files['audio'])
 
 @app.errorhandler(Exception)
 def handle_unexpected_error(error):

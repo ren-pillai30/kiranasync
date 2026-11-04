@@ -21,6 +21,7 @@ export function useCallSession({ onRefreshStore, initialCallerName = 'Ramesh', i
   const audioContextRef = useRef(null);
   const currentAudioRef = useRef(null);
   const hangUpRef = useRef(null);
+  const sendAudioBlobRef = useRef(null);
 
   // Call duration timer
   useEffect(() => {
@@ -51,7 +52,10 @@ export function useCallSession({ onRefreshStore, initialCallerName = 'Ramesh', i
   );
 
   const playBase64Audio = useCallback((audioBase64) => {
-    if (isMuted || !audioBase64) return;
+    if (isMuted || !audioBase64) {
+      setCallStatus('connected');
+      return;
+    }
     try {
       if (currentAudioRef.current) {
         currentAudioRef.current.pause();
@@ -74,38 +78,35 @@ export function useCallSession({ onRefreshStore, initialCallerName = 'Ramesh', i
   const stopMicRecording = useCallback(() => {
     if (!recorderRef.current) return;
 
-    recorderRef.current.stopRecording(() => {
-      const blob = recorderRef.current.getBlob();
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        const base64data = reader.result.split(',')[1];
-        if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN && base64data) {
-          wsRef.current.send(
-            JSON.stringify({
-              type: 'audio_input',
-              audio_base64: base64data,
-              language_code: languageCode,
-            })
-          );
-        }
-      };
-      reader.readAsDataURL(blob);
-
-      if (recorderRef.current.camera) {
-        recorderRef.current.camera.getTracks().forEach((track) => track.stop());
+    const recorder = recorderRef.current;
+    recorder.stopRecording(() => {
+      const blob = recorder.getBlob();
+      if (recorder.camera) {
+        recorder.camera.getTracks().forEach((track) => track.stop());
       }
       recorderRef.current = null;
       setIsMicRecording(false);
       setAudioLevel(0);
       setCallStatus((prev) => (prev === 'listening' ? 'connected' : prev));
+      if (blob && sendAudioBlobRef.current) sendAudioBlobRef.current(blob);
     });
-  }, [languageCode]);
+  }, []);
 
   const hangUpCall = useCallback(() => {
     if (currentAudioRef.current) {
       currentAudioRef.current.pause();
     }
-    stopMicRecording();
+    if (recorderRef.current) {
+      const recorder = recorderRef.current;
+      recorder.stopRecording(() => {
+        if (recorder.camera) {
+          recorder.camera.getTracks().forEach((track) => track.stop());
+        }
+      });
+      recorderRef.current = null;
+      setIsMicRecording(false);
+      setAudioLevel(0);
+    }
 
     if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
       try {
@@ -118,7 +119,7 @@ export function useCallSession({ onRefreshStore, initialCallerName = 'Ramesh', i
     setCallActive(false);
     setCallStatus('idle');
     setCallDuration(0);
-  }, [stopMicRecording]);
+  }, []);
 
   useEffect(() => {
     hangUpRef.current = hangUpCall;
@@ -148,6 +149,8 @@ export function useCallSession({ onRefreshStore, initialCallerName = 'Ramesh', i
       ]);
       if (data.audio_base64) {
         playBase64Audio(data.audio_base64);
+      } else {
+        setCallStatus('connected');
       }
     } else if (data.type === 'transcript') {
       setTranscripts((prev) => [
@@ -160,6 +163,21 @@ export function useCallSession({ onRefreshStore, initialCallerName = 'Ramesh', i
         },
       ]);
     } else if (data.type === 'call_response') {
+      if (data.customer_text) {
+        setTranscripts((prev) => {
+          const last = prev[prev.length - 1];
+          if (last?.role === 'customer' && last.text === data.customer_text) return prev;
+          return [
+            ...prev,
+            {
+              id: `${Date.now()}-customer`,
+              role: 'customer',
+              text: data.customer_text,
+              timestamp,
+            },
+          ];
+        });
+      }
       setTranscripts((prev) => [
         ...prev,
         {
@@ -170,12 +188,15 @@ export function useCallSession({ onRefreshStore, initialCallerName = 'Ramesh', i
           actionType: data.action_type,
           actionData: data.action_data,
           dbResult: data.db_result,
+          confirmationRequired: data.confirmation_required,
           timestamp,
         },
       ]);
 
       if (data.audio_base64) {
         playBase64Audio(data.audio_base64);
+      } else {
+        setCallStatus('connected');
       }
 
       if (data.db_result && data.db_result.status === 'success') {
@@ -209,22 +230,40 @@ export function useCallSession({ onRefreshStore, initialCallerName = 'Ramesh', i
     }
   }, [onRefreshStore, playBase64Audio]);
 
+  const startRestCall = useCallback(async () => {
+    try {
+      const response = await fetch('/api/call/http/start', {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ caller_name: callerName, language_code: languageCode }),
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || 'Could not start the call.');
+      setSystemNotice(null);
+      setCallActive(true);
+      setCallStatus('connected');
+      handleWebSocketMessage({
+        type: 'call_connected',
+        reply_text: data.reply_text,
+        audio_base64: data.audio_base64,
+      });
+    } catch (error) {
+      console.error('Call start failed:', error);
+      setSystemNotice(error.message || 'Could not start call session.');
+      setCallStatus('idle');
+      setCallActive(false);
+    }
+  }, [callerName, handleWebSocketMessage, languageCode]);
+
   const startCall = useCallback(() => {
     setCallDuration(0);
     setCallStatus('connecting');
     setSystemNotice(null);
     setCurrentBill({ items: [], total: 0 });
+    setTranscripts([]);
     if (!isWebSocketAvailable()) {
-      setCallActive(true);
-      setCallStatus('connected');
-      setTranscripts([
-        {
-          id: Date.now().toString(),
-          role: 'assistant',
-          text: 'Call connected. You can send text commands here.',
-          timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
-        },
-      ]);
+      startRestCall();
       return;
     }
 
@@ -257,21 +296,31 @@ export function useCallSession({ onRefreshStore, initialCallerName = 'Ramesh', i
 
       ws.onerror = (err) => {
         console.error('Call WebSocket error:', err);
-        setSystemNotice('WebSocket connection failed. Ensure KiranaSync backend is running on port 5000.');
-        setCallStatus('idle');
-        setCallActive(false);
+        setSystemNotice('WebSocket unavailable. Switching to the voice call connection.');
+        wsRef.current = null;
+        startRestCall();
       };
 
       ws.onclose = () => {
-        setCallActive(false);
-        setCallStatus('ended');
+        if (wsRef.current === ws) {
+          setCallActive(false);
+          setCallStatus('ended');
+          wsRef.current = null;
+        }
       };
     } catch (err) {
       console.error('Connection failed:', err);
       setSystemNotice('Could not initiate call session.');
       setCallStatus('idle');
     }
-  }, [callerName, getWebSocketUrl, handleWebSocketMessage, isWebSocketAvailable, languageCode]);
+  }, [
+    callerName,
+    getWebSocketUrl,
+    handleWebSocketMessage,
+    isWebSocketAvailable,
+    languageCode,
+    startRestCall,
+  ]);
 
   const sendTextMessage = useCallback((textToSend) => {
     const text = (textToSend || inputText).trim();
@@ -289,8 +338,9 @@ export function useCallSession({ onRefreshStore, initialCallerName = 'Ramesh', i
     ]);
 
     if (!isWebSocketAvailable()) {
-      fetch('/api/call/simulate', {
+      fetch('/api/call/http/turn', {
         method: 'POST',
+        credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           user_input: text,
@@ -309,6 +359,7 @@ export function useCallSession({ onRefreshStore, initialCallerName = 'Ramesh', i
             action_data: data.action_data,
             db_result: data.db_result,
             current_bill: data.current_bill,
+            confirmation_required: data.confirmation_required,
           });
         })
         .catch((error) => {
@@ -328,9 +379,62 @@ export function useCallSession({ onRefreshStore, initialCallerName = 'Ramesh', i
     setInputText('');
   }, [callerName, handleWebSocketMessage, inputText, isWebSocketAvailable, languageCode, transcripts]);
 
+  const sendAudioBlob = useCallback(async (blob) => {
+    if (wsRef.current?.readyState === WebSocket.OPEN) {
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        const base64data = reader.result.split(',')[1];
+        if (base64data) {
+          wsRef.current.send(JSON.stringify({
+            type: 'audio_input',
+            audio_base64: base64data,
+            language_code: languageCode,
+          }));
+        }
+      };
+      reader.readAsDataURL(blob);
+      return;
+    }
+
+    const formData = new FormData();
+    formData.append('audio', blob, 'call-audio.wav');
+    formData.append('caller_name', callerName);
+    formData.append('language_code', languageCode);
+    formData.append('conversation_history', JSON.stringify(transcripts));
+    try {
+      setCallStatus('connecting');
+      const response = await fetch('/api/call/http/turn', {
+        method: 'POST',
+        credentials: 'include',
+        body: formData,
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || 'Could not process call audio.');
+      handleWebSocketMessage({
+        type: 'call_response',
+        customer_text: data.transcript_text,
+        reply_text: data.reply_text,
+        audio_base64: data.audio_base64,
+        action_type: data.action_type,
+        action_data: data.action_data,
+        db_result: data.db_result,
+        current_bill: data.current_bill,
+        confirmation_required: data.confirmation_required,
+      });
+    } catch (error) {
+      console.error('Call audio request failed:', error);
+      setSystemNotice(error.message || 'Could not process call audio.');
+      setCallStatus('connected');
+    }
+  }, [callerName, handleWebSocketMessage, languageCode, transcripts]);
+
+  useEffect(() => {
+    sendAudioBlobRef.current = sendAudioBlob;
+  }, [sendAudioBlob]);
+
   const startMicRecording = useCallback(async () => {
-    if (!callActive || !wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) {
-      alert('Please start the call first before speaking.');
+    if (!callActive) {
+      setSystemNotice('Start the call before recording a message.');
       return;
     }
 
