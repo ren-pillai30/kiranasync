@@ -94,10 +94,10 @@ with app.app_context():
             try:
                 with db.engine.begin() as connection:
                     connection.execute(db.text(
-                        f"ALTER TABLE stores ADD COLUMN {column} {definition}"
+                        f"ALTER TABLE {table} ADD COLUMN {column} {definition}"
                     ))
             except Exception:
-                app.logger.exception("Could not add stores.%s during startup", column)
+                app.logger.exception("Could not add %s.%s during startup", table, column)
 
 @app.before_request
 def require_authenticated_session():
