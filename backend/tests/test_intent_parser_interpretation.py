@@ -99,6 +99,35 @@ class IntentParserInterpretationTests(unittest.TestCase):
         self.assertEqual(result["status"], "pending_confirmation")
         self.assertEqual(result["draft"]["ItemName"], "Sugar 1kg")
 
+    def test_devanagari_product_name_uses_gemini_translation_to_match_catalog(self):
+        with closing(sqlite3.connect(self.database_path)) as connection:
+            connection.execute(
+                "INSERT INTO Inventory (ItemName, StockQuantity, Price) "
+                "VALUES ('Maggi 70g', 100, 14)"
+            )
+            connection.commit()
+
+        with patch(
+            "backend.app.gemini_understanding.resolve_catalog_entity",
+            return_value="Maggi 70g",
+        ) as resolve_entity:
+            result = intent_parser.parse_and_execute(
+                "पचास मैगी बेच दो",
+                interpretation={
+                    "action": "sell",
+                    "entity": "मैगी",
+                    "quantity": 50,
+                    "local_translation": "50 Maggi sell please",
+                    "phonetic_english_translation": "Maggi",
+                },
+            )
+
+        self.assertEqual(result["status"], "pending_confirmation")
+        self.assertEqual(result["action"], "confirm_sale")
+        self.assertEqual(result["draft"]["ItemName"], "Maggi 70g")
+        self.assertEqual(result["draft"]["Quantity"], 50)
+        resolve_entity.assert_called_once()
+
     def test_explicit_transcript_quantity_overrides_model_quantity(self):
         result = intent_parser.parse_and_execute(
             "12 toothpaste bech do",

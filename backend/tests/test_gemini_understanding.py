@@ -5,12 +5,78 @@ from unittest.mock import patch
 from backend.app.gemini_understanding import (
     GeminiUnderstandingError,
     build_product_mrp_search_query,
+    resolve_catalog_entity,
     translate_for_speech,
     understand_command,
 )
 
 
 class GeminiUnderstandingTests(unittest.TestCase):
+    @patch.dict(os.environ, {"GEMINI_API_KEY": "test-key", "GOOGLE_API_KEY": ""})
+    @patch("backend.app.gemini_understanding.requests.post")
+    def test_gemini_matches_translated_devanagari_product_to_catalog(self, post):
+        post.return_value.raise_for_status.return_value = None
+        post.return_value.json.return_value = {
+            "candidates": [{
+                "content": {
+                    "parts": [{"text": '{"resolved_name":"Maggi 70g"}'}]
+                }
+            }]
+        }
+
+        self.assertEqual(
+            resolve_catalog_entity(
+                "५० मैगी बेच दो",
+                ["Maggi 70g"],
+                "product",
+                {
+                    "entity": "मैगी",
+                    "local_translation": "50 Maggi sell please",
+                    "phonetic_english_translation": "मैगी",
+                },
+            ),
+            "Maggi 70g",
+        )
+        prompt = post.call_args.kwargs["json"]["contents"][0]["parts"][0]["text"]
+        self.assertIn('Translated / phonetic candidate: "50 Maggi sell please"', prompt)
+        self.assertIn('Original utterance: "५० मैगी बेच दो"', prompt)
+        self.assertIn('"Maggi 70g"', prompt)
+
+    @patch.dict(os.environ, {"GEMINI_API_KEY": "test-key", "GOOGLE_API_KEY": ""})
+    @patch("backend.app.gemini_understanding.requests.post")
+    def test_gemini_no_match_does_not_use_a_hardcoded_fallback(self, post):
+        post.return_value.raise_for_status.return_value = None
+        post.return_value.json.return_value = {
+            "candidates": [{
+                "content": {
+                    "parts": [{"text": '{"resolved_name":"null"}'}]
+                }
+            }]
+        }
+
+        self.assertIsNone(
+            resolve_catalog_entity(
+                "मैगी",
+                ["Maggi 70g"],
+                "product",
+                {
+                    "entity": "मैगी",
+                    "phonetic_english_translation": "Maggi",
+                },
+            )
+        )
+
+    @patch.dict(os.environ, {"GEMINI_API_KEY": "", "GOOGLE_API_KEY": ""})
+    def test_cross_script_match_requires_gemini(self):
+        self.assertIsNone(
+            resolve_catalog_entity(
+                "मैगी",
+                ["Maggi 70g"],
+                "product",
+                {"entity": "मैगी"},
+            )
+        )
+
     @patch.dict(os.environ, {"GEMINI_API_KEY": "test-key"})
     @patch("backend.app.gemini_understanding.requests.post")
     def test_builds_product_mrp_search_query(self, post):

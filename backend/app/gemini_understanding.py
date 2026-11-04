@@ -48,6 +48,27 @@ def resolve_catalog_entity(transcript, catalog, entity_type, translations=None):
     if not api_key:
         return None
 
+    translated_candidates = []
+    if isinstance(translations, dict):
+        translated_candidates = [
+            str(translations.get(key) or "").strip()
+            for key in (
+                "phonetic_english_translation",
+                "local_translation",
+                "entity",
+            )
+        ]
+    usable_translations = [
+        candidate
+        for candidate in translated_candidates
+        if candidate and candidate.casefold() not in catalog_map
+    ]
+    translated_text = next(
+        (candidate for candidate in usable_translations if re.search(r"[A-Za-z]", candidate)),
+        usable_translations[0] if usable_translations else "",
+    )
+    match_text = translated_text or str(transcript or "").strip()
+
     model = get_gemini_model()
     endpoint = (
         "https://generativelanguage.googleapis.com/v1beta/models/"
@@ -56,14 +77,15 @@ def resolve_catalog_entity(transcript, catalog, entity_type, translations=None):
     prompt = (
         "You are an expert Indian retail entity matcher. "
         "Match the spoken/written entity to exactly ONE item from the catalog. "
+        "Use the supplied English/phonetic translation as the primary matching text "
+        "when present, while using the original utterance for context. "
         "CRITICAL MATCHING RULES:\n"
-        "- Cross-lingual and script matching: Match Devanagari/Hindi names to English catalog items and vice versa.\n"
-        "- Transliteration and phonetic matching: Match Hinglish or Romanized Hindi (e.g. 'namak' -> 'Tata Salt', 'cheeni'/'shakkar' -> 'Sugar', 'tel' -> 'Sunflower Oil', 'chawal' -> 'Rice', 'doodh' -> 'Milk', 'sabun' -> 'Soap').\n"
-        "- Synonyms, brand nicknames, and commodities: Match common brand names or generic product terms to catalog items (e.g. 'toothpaste' or 'colgate' -> 'टूथपेस्ट', 'biscoff' -> 'बिस्कॉफ बिस्किट', 'maggi' -> 'Maggi 70g').\n"
-        "- Measurement tolerance: If a product exists in the catalog, match it even if the utterance omits the package size or weight (e.g. 'maggi' -> 'Maggi 70g', 'salt' -> 'Tata Salt 1kg').\n"
+        "- Match names across languages and writing systems, including phonetic transliterations and synonyms.\n"
+        "- Match a product to a catalog entry when the request omits package size, but do not ignore an explicitly requested size that conflicts with the catalog.\n"
         "- Return null in resolved_name ONLY if the item does not exist at all in the catalog. Never invent a product or customer.\n"
         f"Entity type: {entity_type}\n"
-        f"Utterance / Transcript: {json.dumps(transcript, ensure_ascii=False)}\n"
+        f"Translated / phonetic candidate: {json.dumps(match_text, ensure_ascii=False)}\n"
+        f"Original utterance: {json.dumps(transcript, ensure_ascii=False)}\n"
         f"Context / Translations: {json.dumps(translations or {}, ensure_ascii=False)}\n"
         f"Catalog: {json.dumps(catalog, ensure_ascii=False)}"
     )

@@ -85,6 +85,17 @@ class TestCallSimulatorServices(unittest.TestCase):
         self.assertEqual(len(ctx["customers"]), 1)
         self.assertEqual(ctx["customers"][0]["CustomerName"], "Ramesh")
 
+    def test_inventory_match_uses_gemini_for_hindi_product_without_saved_alias(self):
+        with patch(
+            "backend.app.gemini_understanding.resolve_catalog_entity",
+            return_value="Maggi 70g",
+        ) as resolve_entity:
+            matched = self.db_service.match_inventory_item("मैगी")
+
+        self.assertIsNotNone(matched)
+        self.assertEqual(matched["ItemName"], "Maggi 70g")
+        resolve_entity.assert_called_once()
+
     def test_execute_order_cash(self):
         result = self.db_service.execute_order(
             items=[{"name": "Tata Salt 1kg", "quantity": 2}],
