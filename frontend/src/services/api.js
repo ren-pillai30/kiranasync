@@ -44,6 +44,12 @@ export const api = {
     request('/api/auth/logout', {
       method: 'POST',
     }),
+  completeStoreSetup: (data) =>
+    request('/api/store/setup', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data),
+    }),
   // Dashboard & Ledger
   getDashboard: () => request('/api/dashboard'),
   getLedger: () => request('/api/ledger'),

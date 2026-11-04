@@ -38,7 +38,10 @@ export function useStoreActions({
     e.preventDefault();
     setManualFormError('');
     try {
-      await api.addInventory(invForm);
+      const result = await api.addInventory(invForm);
+      if (result.item) {
+        onInventoryUpdated?.(result.item);
+      }
       setInvForm({ ItemName: '', StockQuantity: '', Price: '' });
       setShowAddInv(false);
       onRefreshAll();

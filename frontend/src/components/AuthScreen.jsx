@@ -22,12 +22,14 @@ export default function AuthScreen({ onAuthenticated }) {
     setSubmitting(true);
     setError('');
     try {
+      let session = null;
       if (mode === 'login') {
         await api.login(form.email, form.password);
       } else {
         await api.registerOwner(form);
       }
-      onAuthenticated();
+      session = await api.getAuthSession();
+      onAuthenticated(session);
     } catch (submissionError) {
       setError(submissionError.message);
     } finally {

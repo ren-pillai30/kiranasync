@@ -23,10 +23,13 @@ import BarcodeScannerModal from './components/modals/BarcodeScannerModal';
 import FeedbackModal from './components/modals/FeedbackModal';
 import TransactionConfirmModal from './components/modals/TransactionConfirmModal';
 import AuthScreen from './components/AuthScreen';
+import StoreSetupModal from './components/modals/StoreSetupModal';
 
 export default function App() {
   const [authChecked, setAuthChecked] = useState(false);
   const [authenticated, setAuthenticated] = useState(false);
+  const [storeSetupComplete, setStoreSetupComplete] = useState(true);
+  const [storeSession, setStoreSession] = useState(null);
   const [lang, setLang] = useState('en');
   const [selectedLangCode, setSelectedLangCode] = useState('hi-IN');
   const t = text[lang];
@@ -58,8 +61,10 @@ export default function App() {
 
   const checkAuth = useCallback(async () => {
     try {
-      await api.getAuthSession();
+      const session = await api.getAuthSession();
       setAuthenticated(true);
+      setStoreSetupComplete(session.user.store_setup_complete !== false);
+      setStoreSession(session.user);
     } catch {
       setAuthenticated(false);
     } finally {
@@ -112,10 +117,12 @@ export default function App() {
   }, []);
 
   const refreshAll = useCallback(
-    ({ includeArchives = false } = {}) => {
-      fetchDashboardData();
-      fetchLedgerData();
-      if (includeArchives) fetchArchives();
+    async ({ includeArchives = false } = {}) => {
+      await Promise.all([
+        fetchDashboardData(),
+        fetchLedgerData(),
+        includeArchives ? fetchArchives() : Promise.resolve(),
+      ]);
     },
     [fetchArchives, fetchDashboardData, fetchLedgerData]
   );
@@ -132,9 +139,11 @@ export default function App() {
     t,
     onRefreshAll: refreshAll,
     onInventoryUpdated: (updatedItem) => {
-      setInventory((current) => current.map((item) =>
-        item.ItemID === updatedItem.ItemID ? updatedItem : item
-      ));
+      setInventory((current) => {
+        const existingIndex = current.findIndex((item) => item.ItemID === updatedItem.ItemID);
+        if (existingIndex === -1) return [...current, updatedItem];
+        return current.map((item) => item.ItemID === updatedItem.ItemID ? updatedItem : item);
+      });
     },
     playVoiceReceipt,
     setIsActive,
@@ -327,11 +336,21 @@ export default function App() {
   }
 
   if (!authenticated) {
-    return <AuthScreen onAuthenticated={() => { setAuthenticated(true); }} />;
+    return <AuthScreen onAuthenticated={(session) => {
+      setAuthenticated(true);
+      setStoreSetupComplete(session?.user?.store_setup_complete !== false);
+      setStoreSession(session?.user || null);
+    }} />;
   }
 
   return (
     <div className="flex flex-col w-screen h-screen relative bg-transparent overflow-hidden">
+      {!storeSetupComplete && (
+        <StoreSetupModal
+          initialStore={storeSession}
+          onComplete={() => setStoreSetupComplete(true)}
+        />
+      )}
       <Header
         selectedLangCode={selectedLangCode}
         setSelectedLangCode={setSelectedLangCode}

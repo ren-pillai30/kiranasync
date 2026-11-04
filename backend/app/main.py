@@ -75,6 +75,23 @@ from backend.app import models  # noqa: F401,E402
 
 with app.app_context():
     db.create_all()
+    column_definitions = {
+        "stores.phone": "VARCHAR(30)",
+        "stores.address": "VARCHAR(255)",
+        "stores.city": "VARCHAR(100)",
+        "stores.setup_complete": "BOOLEAN NOT NULL DEFAULT FALSE",
+    }
+    existing_columns = {
+        column.name
+        for column in db.inspect(db.engine).get_columns("stores")
+    }
+    for column_name, definition in column_definitions.items():
+        _, column = column_name.split(".", 1)
+        if column not in existing_columns:
+            db.session.execute(db.text(
+                f"ALTER TABLE stores ADD COLUMN {column} {definition}"
+            ))
+            db.session.commit()
 
 @app.before_request
 def require_authenticated_session():
@@ -703,16 +720,25 @@ def add_inventory():
             max_item_id = db.session.query(db.func.max(StoreInventory.item_id)).filter_by(
                 store_id=current_store_id()
             ).scalar() or 0
-            db.session.add(StoreInventory(
+            existing = StoreInventory(
                 store_id=current_store_id(),
                 item_id=max_item_id + 1,
                 item_name=item_name,
                 stock_quantity=quantity,
                 price=price,
                 is_active=True,
-            ))
+            )
+            db.session.add(existing)
         db.session.commit()
-        return jsonify({'status': 'success'})
+        return jsonify({
+            'status': 'success',
+            'item': {
+                'ItemID': existing.item_id,
+                'ItemName': existing.item_name,
+                'StockQuantity': existing.stock_quantity,
+                'Price': existing.price,
+            },
+        })
     import sqlite3
     from backend.app.intent_parser import DB_PATH
     

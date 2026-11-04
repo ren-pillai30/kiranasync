@@ -31,6 +31,10 @@ def register_auth_routes(app):
                 "role": current_user.role,
                 "store_id": current_user.store_id,
                 "store_name": current_user.store.name,
+                "store_setup_complete": current_user.store.setup_complete,
+                "store_phone": current_user.store.phone,
+                "store_address": current_user.store.address,
+                "store_city": current_user.store.city,
             },
         })
 
@@ -56,6 +60,10 @@ def register_auth_routes(app):
                 "role": user.role,
                 "store_id": user.store_id,
                 "store_name": user.store.name,
+                "store_setup_complete": user.store.setup_complete,
+                "store_phone": user.store.phone,
+                "store_address": user.store.address,
+                "store_city": user.store.city,
             },
         })
 
@@ -91,3 +99,34 @@ def register_auth_routes(app):
         initialize_store_database(store.id)
         login_user(user, remember=False)
         return jsonify({"status": "success", "store_id": store.id, "user_id": user.id})
+
+    @app.route("/api/store/setup", methods=["POST"])
+    def complete_store_setup():
+        if not current_user.is_authenticated:
+            return jsonify({"status": "error", "error": "Authentication required."}), 401
+        data = request.get_json(silent=True) or {}
+        store_name = str(data.get("store_name") or "").strip()
+        phone = str(data.get("phone") or "").strip()
+        address = str(data.get("address") or "").strip()
+        city = str(data.get("city") or "").strip()
+        if not store_name or not phone or not address or not city:
+            return jsonify({
+                "status": "error",
+                "error": "Store name, phone number, address, and city are required.",
+            }), 400
+        current_user.store.name = store_name
+        current_user.store.phone = phone
+        current_user.store.address = address
+        current_user.store.city = city
+        current_user.store.setup_complete = True
+        db.session.commit()
+        return jsonify({
+            "status": "success",
+            "store": {
+                "store_name": store_name,
+                "phone": phone,
+                "address": address,
+                "city": city,
+                "setup_complete": True,
+            },
+        })
