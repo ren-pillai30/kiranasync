@@ -18,7 +18,7 @@ from flask_login import current_user
 load_dotenv(os.path.join(os.path.abspath(os.path.dirname(__file__)), '../../.env'))
 load_dotenv() # Fallback
 
-from backend.app.database import db, get_database_url, is_postgres_database
+from backend.app.database import db, get_database_url, get_database_engine_options, is_postgres_database
 from backend.app.auth import login_manager, register_auth_routes
 
 app_config_database_url = get_database_url()
@@ -48,6 +48,7 @@ CORS(app, supports_credentials=True)
 
 app.config["SQLALCHEMY_DATABASE_URI"] = app_config_database_url
 app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
+app.config["SQLALCHEMY_ENGINE_OPTIONS"] = get_database_engine_options()
 app.config["SECRET_KEY"] = os.getenv("SESSION_SECRET", os.urandom(32))
 app.config["SESSION_COOKIE_HTTPONLY"] = True
 app.config["SESSION_COOKIE_SECURE"] = os.getenv("KIRANA_ENV") == "production"

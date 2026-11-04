@@ -2,6 +2,7 @@ import os
 
 from flask import jsonify, request
 from flask_login import LoginManager, current_user, login_user, logout_user
+from sqlalchemy.exc import OperationalError
 
 from backend.app.database import db
 from backend.app.models import Store, User
@@ -14,7 +15,11 @@ login_manager.login_view = None
 
 @login_manager.user_loader
 def load_user(user_id):
-    return db.session.get(User, int(user_id))
+    try:
+        return db.session.get(User, int(user_id))
+    except OperationalError:
+        db.session.rollback()
+        return db.session.get(User, int(user_id))
 
 
 def register_auth_routes(app):

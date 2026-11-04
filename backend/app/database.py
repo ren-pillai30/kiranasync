@@ -17,5 +17,15 @@ def get_database_url():
     return os.getenv("SQLALCHEMY_DATABASE_URI", "sqlite:///../kirana.db")
 
 
+def get_database_engine_options():
+    if get_database_url().startswith("postgresql"):
+        return {
+            "pool_pre_ping": True,
+            "pool_recycle": 280,
+            "connect_args": {"connect_timeout": 10},
+        }
+    return {}
+
+
 def is_postgres_database():
     return os.getenv("VERCEL") == "1" and get_database_url().startswith("postgresql")
