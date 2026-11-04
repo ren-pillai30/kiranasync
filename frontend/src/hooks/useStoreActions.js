@@ -25,14 +25,16 @@ export function useStoreActions({
 
   // Manual Add / Edit forms
   const [showAddInv, setShowAddInv] = useState(false);
-  const [invForm, setInvForm] = useState({ ItemName: '', StockQuantity: '', Price: '' });
+  const [invForm, setInvForm] = useState({ ItemName: '', ItemNameHindi: '', StockQuantity: '', Price: '' });
   const [showAddCust, setShowAddCust] = useState(false);
-  const [custForm, setCustForm] = useState({ CustomerName: '', Amount: '0' });
+  const [custForm, setCustForm] = useState({ CustomerName: '', CustomerNameHindi: '', Amount: '0' });
   const [manualFormError, setManualFormError] = useState('');
   const [editInvId, setEditInvId] = useState(null);
   const [editInvName, setEditInvName] = useState('');
+  const [editInvNameHindi, setEditInvNameHindi] = useState('');
   const [editCustId, setEditCustId] = useState(null);
   const [editCustName, setEditCustName] = useState('');
+  const [editCustNameHindi, setEditCustNameHindi] = useState('');
 
   const handleAddInventory = async (e) => {
     e.preventDefault();
@@ -42,7 +44,7 @@ export function useStoreActions({
       if (result.item) {
         onInventoryUpdated?.(result.item);
       }
-      setInvForm({ ItemName: '', StockQuantity: '', Price: '' });
+      setInvForm({ ItemName: '', ItemNameHindi: '', StockQuantity: '', Price: '' });
       setShowAddInv(false);
       onRefreshAll();
     } catch (error) {
@@ -56,7 +58,7 @@ export function useStoreActions({
     setManualFormError('');
     try {
       await api.addCustomer(custForm);
-      setCustForm({ CustomerName: '', Amount: '0' });
+      setCustForm({ CustomerName: '', CustomerNameHindi: '', Amount: '0' });
       setShowAddCust(false);
       onRefreshAll();
     } catch (error) {
@@ -67,7 +69,7 @@ export function useStoreActions({
 
   const handleEditInventory = async (id) => {
     try {
-      const result = await api.editInventory(id, editInvName);
+      const result = await api.editInventory(id, editInvName, editInvNameHindi);
       setEditInvId(null);
       onInventoryUpdated?.(result.item);
     } catch (error) {
@@ -77,7 +79,7 @@ export function useStoreActions({
 
   const handleEditCustomer = async (id) => {
     try {
-      await api.editCustomer(id, editCustName);
+      await api.editCustomer(id, editCustName, editCustNameHindi);
       setEditCustId(null);
       onRefreshAll();
     } catch (error) {
@@ -333,10 +335,14 @@ export function useStoreActions({
     setEditInvId,
     editInvName,
     setEditInvName,
+    editInvNameHindi,
+    setEditInvNameHindi,
     editCustId,
     setEditCustId,
     editCustName,
     setEditCustName,
+    editCustNameHindi,
+    setEditCustNameHindi,
     handleAddInventory,
     handleAddCustomer,
     handleEditInventory,

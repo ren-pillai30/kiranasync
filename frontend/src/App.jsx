@@ -58,6 +58,15 @@ export default function App() {
   const [barcodeNotice, setBarcodeNotice] = useState('');
   const [billData, setBillData] = useState({ billItems: [], customerName: 'Walk-in Customer', paymentMode: 'cash', customerBalance: 0 });
   const [isMuted, setIsMuted] = useState(false);
+  const [nameDisplayMode, setNameDisplayMode] = useState(() => (
+    typeof window !== 'undefined' ? window.localStorage.getItem('kiranasync-name-display') || 'both' : 'both'
+  ));
+
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      window.localStorage.setItem('kiranasync-name-display', nameDisplayMode);
+    }
+  }, [nameDisplayMode]);
 
   const checkAuth = useCallback(async () => {
     try {
@@ -557,6 +566,12 @@ export default function App() {
               handleEditCustomer={actions.handleEditCustomer}
               onDirectArchive={actions.archiveEntity}
               transactions={transactions}
+              nameDisplayMode={nameDisplayMode}
+              setNameDisplayMode={setNameDisplayMode}
+              editInvNameHindi={actions.editInvNameHindi}
+              setEditInvNameHindi={actions.setEditInvNameHindi}
+              editCustNameHindi={actions.editCustNameHindi}
+              setEditCustNameHindi={actions.setEditCustNameHindi}
             />
           )}
 

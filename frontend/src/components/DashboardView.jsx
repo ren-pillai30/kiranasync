@@ -26,6 +26,8 @@ export default function DashboardView({
   setEditInvId,
   editInvName,
   setEditInvName,
+  editInvNameHindi,
+  setEditInvNameHindi,
   handleEditInventory,
   onRequestRemoval,
   credit,
@@ -38,9 +40,13 @@ export default function DashboardView({
   setEditCustId,
   editCustName,
   setEditCustName,
+  editCustNameHindi,
+  setEditCustNameHindi,
   handleEditCustomer,
   onDirectArchive,
   transactions,
+  nameDisplayMode,
+  setNameDisplayMode,
 }) {
   return (
     <motion.div
@@ -60,6 +66,22 @@ export default function DashboardView({
           </span>
         </div>
         <div className="flex items-center gap-2.5 flex-wrap">
+          <div className="flex rounded-lg border border-[#D8CEBA] bg-[#FFFDF9] p-0.5" aria-label="Entity name language">
+            {[
+              ['en', 'EN'],
+              ['hi', 'हिंदी'],
+              ['both', 'Both'],
+            ].map(([mode, label]) => (
+              <button
+                key={mode}
+                type="button"
+                onClick={() => setNameDisplayMode(mode)}
+                className={`px-2 py-1 rounded-md text-[11px] font-bold transition-colors ${nameDisplayMode === mode ? 'bg-[#991B1B] text-white' : 'text-stone-600 hover:bg-[#F4EFE6]'}`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
           <button
             type="button"
             onClick={onOpenEvalModal}
@@ -126,8 +148,11 @@ export default function DashboardView({
           setEditInvId={setEditInvId}
           editInvName={editInvName}
           setEditInvName={setEditInvName}
+          editInvNameHindi={editInvNameHindi}
+          setEditInvNameHindi={setEditInvNameHindi}
           handleEditInventory={handleEditInventory}
           onRequestRemoval={onRequestRemoval}
+          nameDisplayMode={nameDisplayMode}
         />
 
         {/* CREDIT PANEL */}
@@ -144,9 +169,12 @@ export default function DashboardView({
           setEditCustId={setEditCustId}
           editCustName={editCustName}
           setEditCustName={setEditCustName}
+          editCustNameHindi={editCustNameHindi}
+          setEditCustNameHindi={setEditCustNameHindi}
           handleEditCustomer={handleEditCustomer}
           onRequestRemoval={onRequestRemoval}
           onDirectArchive={onDirectArchive}
+          nameDisplayMode={nameDisplayMode}
         />
       </div>
 

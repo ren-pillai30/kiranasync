@@ -51,6 +51,7 @@ class StoreInventory(db.Model):
     store_id = db.Column(db.Integer, db.ForeignKey("stores.id"), nullable=False, index=True)
     item_id = db.Column(db.Integer, nullable=False)
     item_name = db.Column(db.String(255), nullable=False)
+    item_name_hindi = db.Column(db.String(255), nullable=True)
     stock_quantity = db.Column(db.Integer, nullable=False, default=0)
     price = db.Column(db.Float, nullable=False, default=0)
     is_active = db.Column(db.Boolean, nullable=False, default=True)
@@ -63,6 +64,7 @@ class StoreCredit(db.Model):
     store_id = db.Column(db.Integer, db.ForeignKey("stores.id"), nullable=False, index=True)
     customer_id = db.Column(db.Integer, nullable=False)
     customer_name = db.Column(db.String(255), nullable=False)
+    customer_name_hindi = db.Column(db.String(255), nullable=True)
     outstanding_balance = db.Column(db.Float, nullable=False, default=0)
     is_active = db.Column(db.Boolean, nullable=False, default=True)
 

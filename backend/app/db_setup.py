@@ -60,6 +60,18 @@ def ensure_archive_schema(conn):
     conn.commit()
 
 
+def ensure_bilingual_name_schema(conn):
+    cursor = conn.cursor()
+    for table, column in (
+        ("Inventory", "ItemNameHindi"),
+        ("CustomerCredit", "CustomerNameHindi"),
+    ):
+        columns = {row[1] for row in cursor.execute(f"PRAGMA table_info({table})")}
+        if columns and column not in columns:
+            cursor.execute(f"ALTER TABLE {table} ADD COLUMN {column} TEXT")
+    conn.commit()
+
+
 def init_db():
     conn = sqlite3.connect('kirana.db')
     cursor = conn.cursor()
@@ -69,6 +81,7 @@ def init_db():
         CREATE TABLE IF NOT EXISTS Inventory (
             ItemID INTEGER PRIMARY KEY AUTOINCREMENT,
             ItemName TEXT NOT NULL UNIQUE,
+            ItemNameHindi TEXT,
             Category TEXT,
             StockQuantity INTEGER NOT NULL,
             Price REAL NOT NULL
@@ -80,11 +93,13 @@ def init_db():
         CREATE TABLE IF NOT EXISTS CustomerCredit (
             CustomerID INTEGER PRIMARY KEY AUTOINCREMENT,
             CustomerName TEXT NOT NULL UNIQUE,
+            CustomerNameHindi TEXT,
             PhoneNumber TEXT,
             OutstandingBalance REAL DEFAULT 0.0
         )
     ''')
     ensure_archive_schema(conn)
+    ensure_bilingual_name_schema(conn)
 
     # 3. Transaction Logging Table
     cursor.execute('''

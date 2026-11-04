@@ -146,8 +146,9 @@ def initialize_store_database(store_id):
         """
     )
     ensure_transactions_schema(connection)
-    from backend.app.db_setup import ensure_archive_schema
+    from backend.app.db_setup import ensure_archive_schema, ensure_bilingual_name_schema
     ensure_archive_schema(connection)
+    ensure_bilingual_name_schema(connection)
     connection.commit()
     connection.close()
     return path
@@ -196,8 +197,9 @@ def ensure_transactions_schema(connection):
             connection.execute(
                 f"ALTER TABLE Transactions ADD COLUMN {column} {column_type}"
             )
-    from backend.app.db_setup import ensure_archive_schema
+    from backend.app.db_setup import ensure_archive_schema, ensure_bilingual_name_schema
     ensure_archive_schema(connection)
+    ensure_bilingual_name_schema(connection)
     connection.commit()
 
 
@@ -1016,6 +1018,24 @@ def parse_and_execute(raw_transcript, quantity_override=None, interpretation=Non
     cursor = conn.cursor()
     db_items = get_db_records('Inventory', 'ItemName', db_path=target_db)
     db_customers = get_db_records('CustomerCredit', 'CustomerName', db_path=target_db)
+    cursor.execute('SELECT ItemName, ItemNameHindi FROM Inventory WHERE IsActive = 1')
+    item_catalog = []
+    item_alias_to_canonical = {}
+    for english, hindi in cursor.fetchall():
+        item_catalog.append(english)
+        item_alias_to_canonical[english.casefold()] = english
+        if hindi and hindi.strip():
+            item_catalog.append(hindi.strip())
+            item_alias_to_canonical[hindi.strip().casefold()] = english
+    cursor.execute('SELECT CustomerName, CustomerNameHindi FROM CustomerCredit WHERE IsActive = 1')
+    customer_catalog = []
+    customer_alias_to_canonical = {}
+    for english, hindi in cursor.fetchall():
+        customer_catalog.append(english)
+        customer_alias_to_canonical[english.casefold()] = english
+        if hindi and hindi.strip():
+            customer_catalog.append(hindi.strip())
+            customer_alias_to_canonical[hindi.strip().casefold()] = english
 
     from backend.app.services.alias_service import AliasService
     alias_service = AliasService(target_db)
@@ -1043,11 +1063,15 @@ def parse_and_execute(raw_transcript, quantity_override=None, interpretation=Non
             "phonetic_english_translation": interpretation.get("phonetic_english_translation"),
         }
         gemini_item = resolve_catalog_entity(
-            raw_transcript, db_items, "product", translations
+            raw_transcript, item_catalog, "product", translations
         ) if intent in {"sell", "restock", "add_product", "remove_product", "query_stock"} else None
         gemini_customer = resolve_catalog_entity(
-            raw_transcript, db_customers, "customer", translations
+            raw_transcript, customer_catalog, "customer", translations
         ) if intent in {"credit", "add_customer", "repayment", "remove_customer", "query_customer"} else None
+        if gemini_item:
+            gemini_item = item_alias_to_canonical.get(gemini_item.casefold(), gemini_item)
+        if gemini_customer:
+            gemini_customer = customer_alias_to_canonical.get(gemini_customer.casefold(), gemini_customer)
         explicit_quantity = extract_explicit_quantity(raw_transcript)
         if explicit_quantity is not None and intent in {"sell", "restock", "credit", "add_product"}:
             quantity_or_amount = explicit_quantity
@@ -1247,13 +1271,14 @@ def parse_and_execute(raw_transcript, quantity_override=None, interpretation=Non
                 qty = int(item.get("quantity", 1))
                 from backend.app.gemini_understanding import resolve_catalog_entity
                 prod_name = resolve_catalog_entity(
-                    raw_transcript, db_items, "product",
+                    raw_transcript, item_catalog, "product",
                     {
                         "item_transcript": prod_name,
                         "local_translation": interpretation.get("local_translation"),
                         "phonetic_english_translation": interpretation.get("phonetic_english_translation"),
                     },
                 ) or prod_name
+                prod_name = item_alias_to_canonical.get(prod_name.casefold(), prod_name)
                 matched_item = match_entity_with_score(prod_name, db_items, threshold=60)
                 if not matched_item:
                     errors.append(f"'{prod_name}' not found")

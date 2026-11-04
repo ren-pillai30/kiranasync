@@ -65,11 +65,11 @@ export const api = {
       body: JSON.stringify(data),
     }),
 
-  editInventory: (itemId, newItemName) =>
+  editInventory: (itemId, newItemName, newItemNameHindi) =>
     request('/api/inventory/edit', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ ItemID: itemId, NewItemName: newItemName }),
+      body: JSON.stringify({ ItemID: itemId, NewItemName: newItemName, NewItemNameHindi: newItemNameHindi }),
     }),
 
   confirmInventoryCommand: (data) =>
@@ -108,11 +108,11 @@ export const api = {
       body: JSON.stringify(data),
     }),
 
-  editCustomer: (customerId, newCustomerName) =>
+  editCustomer: (customerId, newCustomerName, newCustomerNameHindi) =>
     request('/api/credit/edit', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ CustomerID: customerId, NewCustomerName: newCustomerName }),
+      body: JSON.stringify({ CustomerID: customerId, NewCustomerName: newCustomerName, NewCustomerNameHindi: newCustomerNameHindi }),
     }),
 
   // Entity Archiving / Removal

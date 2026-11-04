@@ -1,3 +1,17 @@
+function EntityName({ english, hindi, mode }) {
+  const hasHindi = Boolean(hindi?.trim());
+  if (mode === 'hi') return <>{hasHindi ? hindi : english}</>;
+  if (mode === 'both') {
+    return (
+      <span className="flex flex-col">
+        <span>{english}</span>
+        {hasHindi && <span className="text-xs text-stone-500">{hindi}</span>}
+      </span>
+    );
+  }
+  return <>{english}</>;
+}
+
 export default function InventoryPanel({
   inventory,
   loading,
@@ -12,7 +26,10 @@ export default function InventoryPanel({
   setEditInvId,
   editInvName,
   setEditInvName,
+  editInvNameHindi,
+  setEditInvNameHindi,
   handleEditInventory,
+  nameDisplayMode,
   onRequestRemoval,
 }) {
   return (
@@ -50,6 +67,13 @@ export default function InventoryPanel({
             className="bg-[#FFFDF9] text-stone-900 placeholder:text-stone-400 p-2.5 rounded-lg border border-[#D8CEBA] focus:outline-none focus:ring-2 focus:ring-[#991B1B]/20 focus:border-[#991B1B] text-sm font-medium transition-all"
             value={invForm.ItemName}
             onChange={(e) => setInvForm({ ...invForm, ItemName: e.target.value })}
+          />
+          <input
+            type="text"
+            placeholder="Hindi product name (optional)"
+            className="bg-[#FFFDF9] text-stone-900 placeholder:text-stone-400 p-2.5 rounded-lg border border-[#D8CEBA] focus:outline-none focus:ring-2 focus:ring-[#991B1B]/20 focus:border-[#991B1B] text-sm font-medium transition-all"
+            value={invForm.ItemNameHindi}
+            onChange={(e) => setInvForm({ ...invForm, ItemNameHindi: e.target.value })}
           />
           <div className="flex space-x-2">
             <input
@@ -119,15 +143,25 @@ export default function InventoryPanel({
                 <tr key={item.ItemID} className="hover:bg-[#FAF6EE] transition-colors">
                   <td className="px-4 py-2.5 font-semibold text-stone-900">
                     {editInvId === item.ItemID ? (
-                      <input
-                        type="text"
-                        className="bg-[#FFFDF9] text-stone-900 p-1.5 rounded border border-[#991B1B] text-sm w-full font-medium focus:outline-none"
-                        value={editInvName}
-                        onChange={(e) => setEditInvName(e.target.value)}
-                        autoFocus
-                      />
+                      <div className="space-y-1">
+                        <input
+                          type="text"
+                          aria-label="English product name"
+                          className="bg-[#FFFDF9] text-stone-900 p-1.5 rounded border border-[#991B1B] text-sm w-full font-medium focus:outline-none"
+                          value={editInvName}
+                          onChange={(e) => setEditInvName(e.target.value)}
+                          autoFocus
+                        />
+                        <input
+                          type="text"
+                          aria-label="Hindi product name"
+                          className="bg-[#FFFDF9] text-stone-900 p-1.5 rounded border border-[#D8CEBA] text-sm w-full font-medium focus:outline-none"
+                          value={editInvNameHindi}
+                          onChange={(e) => setEditInvNameHindi(e.target.value)}
+                        />
+                      </div>
                     ) : (
-                      item.ItemName
+                      <EntityName english={item.ItemName} hindi={item.ItemNameHindi} mode={nameDisplayMode} />
                     )}
                   </td>
                   <td className="px-4 py-2.5 font-mono">
@@ -158,6 +192,7 @@ export default function InventoryPanel({
                           onClick={() => {
                             setEditInvId(item.ItemID);
                             setEditInvName(item.ItemName);
+                            setEditInvNameHindi(item.ItemNameHindi || '');
                           }}
                           className="text-stone-700 hover:text-stone-900 text-xs px-3 py-1 bg-[#F4EFE6] hover:bg-[#EAE2D2] border border-[#D8CEBA] rounded-md font-semibold transition-all shadow-2xs cursor-pointer"
                         >

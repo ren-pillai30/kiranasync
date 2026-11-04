@@ -1,3 +1,17 @@
+function EntityName({ english, hindi, mode }) {
+  const hasHindi = Boolean(hindi?.trim());
+  if (mode === 'hi') return <>{hasHindi ? hindi : english}</>;
+  if (mode === 'both') {
+    return (
+      <span className="flex flex-col">
+        <span>{english}</span>
+        {hasHindi && <span className="text-xs text-stone-500">{hindi}</span>}
+      </span>
+    );
+  }
+  return <>{english}</>;
+}
+
 export default function CreditPanel({
   credit,
   t,
@@ -11,7 +25,10 @@ export default function CreditPanel({
   setEditCustId,
   editCustName,
   setEditCustName,
+  editCustNameHindi,
+  setEditCustNameHindi,
   handleEditCustomer,
+  nameDisplayMode,
   onRequestRemoval,
   onDirectArchive,
 }) {
@@ -50,6 +67,13 @@ export default function CreditPanel({
             className="bg-[#FFFDF9] text-stone-900 placeholder:text-stone-400 p-2.5 rounded-lg border border-[#D8CEBA] focus:outline-none focus:ring-2 focus:ring-[#991B1B]/20 focus:border-[#991B1B] text-sm font-medium transition-all"
             value={custForm.CustomerName}
             onChange={(e) => setCustForm({ ...custForm, CustomerName: e.target.value })}
+          />
+          <input
+            type="text"
+            placeholder="Hindi customer name (optional)"
+            className="bg-[#FFFDF9] text-stone-900 placeholder:text-stone-400 p-2.5 rounded-lg border border-[#D8CEBA] focus:outline-none focus:ring-2 focus:ring-[#991B1B]/20 focus:border-[#991B1B] text-sm font-medium transition-all"
+            value={custForm.CustomerNameHindi}
+            onChange={(e) => setCustForm({ ...custForm, CustomerNameHindi: e.target.value })}
           />
           <input
             required
@@ -95,15 +119,25 @@ export default function CreditPanel({
                 <tr key={person.CustomerID} className="hover:bg-[#FAF6EE] transition-colors">
                   <td className="px-4 py-2.5 font-semibold text-stone-900">
                     {editCustId === person.CustomerID ? (
-                      <input
-                        type="text"
-                        className="bg-[#FFFDF9] text-stone-900 p-1.5 rounded border border-[#991B1B] text-sm w-full font-medium focus:outline-none"
-                        value={editCustName}
-                        onChange={(e) => setEditCustName(e.target.value)}
-                        autoFocus
-                      />
+                      <div className="space-y-1">
+                        <input
+                          type="text"
+                          aria-label="English customer name"
+                          className="bg-[#FFFDF9] text-stone-900 p-1.5 rounded border border-[#991B1B] text-sm w-full font-medium focus:outline-none"
+                          value={editCustName}
+                          onChange={(e) => setEditCustName(e.target.value)}
+                          autoFocus
+                        />
+                        <input
+                          type="text"
+                          aria-label="Hindi customer name"
+                          className="bg-[#FFFDF9] text-stone-900 p-1.5 rounded border border-[#D8CEBA] text-sm w-full font-medium focus:outline-none"
+                          value={editCustNameHindi}
+                          onChange={(e) => setEditCustNameHindi(e.target.value)}
+                        />
+                      </div>
                     ) : (
-                      person.CustomerName
+                      <EntityName english={person.CustomerName} hindi={person.CustomerNameHindi} mode={nameDisplayMode} />
                     )}
                   </td>
                   <td className="px-4 py-2.5 text-[#DC2626] font-mono font-bold">
@@ -125,6 +159,7 @@ export default function CreditPanel({
                           onClick={() => {
                             setEditCustId(person.CustomerID);
                             setEditCustName(person.CustomerName);
+                            setEditCustNameHindi(person.CustomerNameHindi || '');
                           }}
                           className="text-stone-700 hover:text-stone-900 text-xs px-3 py-1 bg-[#F4EFE6] hover:bg-[#EAE2D2] border border-[#D8CEBA] rounded-md font-semibold transition-all shadow-2xs cursor-pointer"
                         >

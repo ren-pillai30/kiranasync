@@ -81,13 +81,15 @@ with app.app_context():
         "stores.address": "VARCHAR(255)",
         "stores.city": "VARCHAR(100)",
         "stores.setup_complete": "BOOLEAN NOT NULL DEFAULT FALSE",
-    }
-    existing_columns = {
-        column["name"]
-        for column in db.inspect(db.engine).get_columns("stores")
+        "store_inventory.item_name_hindi": "VARCHAR(255)",
+        "store_credit.customer_name_hindi": "VARCHAR(255)",
     }
     for column_name, definition in column_definitions.items():
-        _, column = column_name.split(".", 1)
+        table, column = column_name.split(".", 1)
+        existing_columns = {
+            existing["name"]
+            for existing in db.inspect(db.engine).get_columns(table)
+        }
         if column not in existing_columns:
             try:
                 with db.engine.begin() as connection:
@@ -189,6 +191,7 @@ def get_dashboard_data():
         inventory = [{
             'ItemID': row.item_id,
             'ItemName': row.item_name,
+            'ItemNameHindi': row.item_name_hindi,
             'StockQuantity': row.stock_quantity,
             'Price': row.price,
         } for row in StoreInventory.query.filter_by(
@@ -198,6 +201,7 @@ def get_dashboard_data():
         credit = [{
             'CustomerID': row.customer_id,
             'CustomerName': row.customer_name,
+            'CustomerNameHindi': row.customer_name_hindi,
             'OutstandingBalance': row.outstanding_balance,
         } for row in StoreCredit.query.filter_by(
             store_id=current_store_id(),
@@ -234,11 +238,17 @@ def get_dashboard_data():
             )
     conn.commit()
     
-    cursor.execute('SELECT ItemID, ItemName, StockQuantity, Price FROM Inventory WHERE IsActive = 1')
-    inventory = [{'ItemID': row[0], 'ItemName': row[1], 'StockQuantity': row[2], 'Price': row[3]} for row in cursor.fetchall()]
+    inventory_columns = {row[1] for row in cursor.execute('PRAGMA table_info(Inventory)')}
+    if 'ItemNameHindi' not in inventory_columns:
+        cursor.execute('ALTER TABLE Inventory ADD COLUMN ItemNameHindi TEXT')
+    cursor.execute('SELECT ItemID, ItemName, ItemNameHindi, StockQuantity, Price FROM Inventory WHERE IsActive = 1')
+    inventory = [{'ItemID': row[0], 'ItemName': row[1], 'ItemNameHindi': row[2], 'StockQuantity': row[3], 'Price': row[4]} for row in cursor.fetchall()]
     
-    cursor.execute('SELECT CustomerID, CustomerName, OutstandingBalance FROM CustomerCredit WHERE IsActive = 1')
-    credit = [{'CustomerID': row[0], 'CustomerName': row[1], 'OutstandingBalance': row[2]} for row in cursor.fetchall()]
+    customer_columns = {row[1] for row in cursor.execute('PRAGMA table_info(CustomerCredit)')}
+    if 'CustomerNameHindi' not in customer_columns:
+        cursor.execute('ALTER TABLE CustomerCredit ADD COLUMN CustomerNameHindi TEXT')
+    cursor.execute('SELECT CustomerID, CustomerName, CustomerNameHindi, OutstandingBalance FROM CustomerCredit WHERE IsActive = 1')
+    credit = [{'CustomerID': row[0], 'CustomerName': row[1], 'CustomerNameHindi': row[2], 'OutstandingBalance': row[3]} for row in cursor.fetchall()]
 
     conn.close()
     return jsonify({'status': 'success', 'inventory': inventory, 'credit': credit})
@@ -769,6 +779,7 @@ def add_inventory():
         from backend.app.models import StoreInventory
         data = request.get_json(silent=True) or {}
         item_name = str(data.get('ItemName', '')).strip()
+        item_name_hindi = str(data.get('ItemNameHindi', '')).strip() or None
         try:
             quantity = int(data.get('StockQuantity'))
             price = float(data.get('Price'))
@@ -784,6 +795,7 @@ def add_inventory():
             return jsonify({'status': 'error', 'error': 'That product is already active in inventory.'}), 409
         if existing:
             existing.item_name = item_name
+            existing.item_name_hindi = item_name_hindi
             existing.stock_quantity = quantity
             existing.price = price
             existing.is_active = True
@@ -795,6 +807,7 @@ def add_inventory():
                 store_id=current_store_id(),
                 item_id=max_item_id + 1,
                 item_name=item_name,
+                item_name_hindi=item_name_hindi,
                 stock_quantity=quantity,
                 price=price,
                 is_active=True,
@@ -806,6 +819,7 @@ def add_inventory():
             'item': {
                 'ItemID': existing.item_id,
                 'ItemName': existing.item_name,
+                'ItemNameHindi': existing.item_name_hindi,
                 'StockQuantity': existing.stock_quantity,
                 'Price': existing.price,
             },
@@ -818,6 +832,7 @@ def add_inventory():
     ensure_transactions_schema(conn)
     cursor = conn.cursor()
     item_name = str(data.get('ItemName', '')).strip()
+    item_name_hindi = str(data.get('ItemNameHindi', '')).strip() or None
     try:
         quantity = int(data.get('StockQuantity'))
         price = float(data.get('Price'))
@@ -837,13 +852,13 @@ def add_inventory():
         return jsonify({'status': 'error', 'error': 'That product is already active in inventory.'}), 409
     if existing:
         cursor.execute(
-            'UPDATE Inventory SET ItemName = ?, StockQuantity = ?, Price = ?, IsActive = 1 WHERE ItemID = ?',
-            (item_name, quantity, price, existing[0]),
+            'UPDATE Inventory SET ItemName = ?, ItemNameHindi = ?, StockQuantity = ?, Price = ?, IsActive = 1 WHERE ItemID = ?',
+            (item_name, item_name_hindi, quantity, price, existing[0]),
         )
     else:
         cursor.execute(
-            'INSERT INTO Inventory (ItemName, StockQuantity, Price, IsActive) VALUES (?, ?, ?, 1)',
-            (item_name, quantity, price),
+            'INSERT INTO Inventory (ItemName, ItemNameHindi, StockQuantity, Price, IsActive) VALUES (?, ?, ?, ?, 1)',
+            (item_name, item_name_hindi, quantity, price),
         )
     record_transaction(
         cursor,
@@ -863,6 +878,7 @@ def add_credit():
         from backend.app.models import StoreCredit
         data = request.get_json(silent=True) or {}
         customer_name = str(data.get('CustomerName', '')).strip()
+        customer_name_hindi = str(data.get('CustomerNameHindi', '')).strip() or None
         try:
             amount = float(data.get('Amount'))
         except (TypeError, ValueError):
@@ -876,6 +892,7 @@ def add_credit():
         if existing and existing.is_active:
             return jsonify({'status': 'error', 'error': 'That customer is already active.'}), 409
         if existing:
+            existing.customer_name_hindi = customer_name_hindi
             existing.outstanding_balance = float(existing.outstanding_balance or 0) + amount
             existing.is_active = True
         else:
@@ -886,6 +903,7 @@ def add_credit():
                 store_id=current_store_id(),
                 customer_id=max_customer_id + 1,
                 customer_name=customer_name,
+                customer_name_hindi=customer_name_hindi,
                 outstanding_balance=amount,
                 is_active=True,
             ))
@@ -899,6 +917,7 @@ def add_credit():
     ensure_transactions_schema(conn)
     cursor = conn.cursor()
     customer_name = str(data.get('CustomerName', '')).strip()
+    customer_name_hindi = str(data.get('CustomerNameHindi', '')).strip() or None
     try:
         amount = float(data.get('Amount'))
     except (TypeError, ValueError):
@@ -917,13 +936,13 @@ def add_credit():
         return jsonify({'status': 'error', 'error': 'That customer is already active.'}), 409
     if existing:
         cursor.execute(
-            'UPDATE CustomerCredit SET IsActive = 1, OutstandingBalance = ? WHERE CustomerID = ?',
-            (float(existing[1] or 0) + amount, existing[0]),
+            'UPDATE CustomerCredit SET IsActive = 1, CustomerNameHindi = ?, OutstandingBalance = ? WHERE CustomerID = ?',
+            (customer_name_hindi, float(existing[1] or 0) + amount, existing[0]),
         )
     else:
         cursor.execute(
-            'INSERT INTO CustomerCredit (CustomerName, OutstandingBalance, IsActive) VALUES (?, ?, 1)',
-            (customer_name, amount),
+            'INSERT INTO CustomerCredit (CustomerName, CustomerNameHindi, OutstandingBalance, IsActive) VALUES (?, ?, ?, 1)',
+            (customer_name, customer_name_hindi, amount),
         )
     if amount > 0:
         record_transaction(
@@ -1018,10 +1037,12 @@ def edit_inventory():
         if duplicate:
             return jsonify({'status': 'error', 'error': 'An active product with that name already exists.'}), 409
         item.item_name = new_item_name
+        item.item_name_hindi = str(data.get('NewItemNameHindi', '')).strip() or None
         db.session.commit()
         return jsonify({'status': 'success', 'item': {
             'ItemID': item.item_id,
             'ItemName': item.item_name,
+            'ItemNameHindi': item.item_name_hindi,
             'StockQuantity': item.stock_quantity,
             'Price': item.price,
         }})
@@ -1038,14 +1059,14 @@ def edit_inventory():
         conn = sqlite3.connect(DB_PATH)
         cursor = conn.cursor()
         cursor.execute(
-            'UPDATE Inventory SET ItemName = ? WHERE ItemID = ? AND IsActive = 1',
-            (new_item_name, item_id),
+            'UPDATE Inventory SET ItemName = ?, ItemNameHindi = ? WHERE ItemID = ? AND IsActive = 1',
+            (new_item_name, str(data.get('NewItemNameHindi', '')).strip() or None, item_id),
         )
         if cursor.rowcount != 1:
             conn.close()
             return jsonify({'status': 'error', 'error': 'Inventory item not found.'}), 404
         cursor.execute(
-            'SELECT ItemID, ItemName, StockQuantity, Price FROM Inventory WHERE ItemID = ?',
+            'SELECT ItemID, ItemName, ItemNameHindi, StockQuantity, Price FROM Inventory WHERE ItemID = ?',
             (item_id,),
         )
         item = cursor.fetchone()
@@ -1062,8 +1083,9 @@ def edit_inventory():
         'item': {
             'ItemID': item[0],
             'ItemName': item[1],
-            'StockQuantity': item[2],
-            'Price': item[3],
+            'ItemNameHindi': item[2],
+            'StockQuantity': item[3],
+            'Price': item[4],
         },
     })
 
@@ -1082,6 +1104,7 @@ def edit_credit():
         if not customer or not new_customer_name:
             return jsonify({'status': 'error', 'error': 'Valid customer details are required.'}), 400
         customer.customer_name = new_customer_name
+        customer.customer_name_hindi = str(data.get('NewCustomerNameHindi', '')).strip() or None
         db.session.commit()
         return jsonify({'status': 'success'})
     import sqlite3
@@ -1090,7 +1113,11 @@ def edit_credit():
     data = request.json
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
-    cursor.execute('UPDATE CustomerCredit SET CustomerName = ? WHERE CustomerID = ?', (data['NewCustomerName'], data['CustomerID']))
+    cursor.execute('UPDATE CustomerCredit SET CustomerName = ?, CustomerNameHindi = ? WHERE CustomerID = ?', (
+        data['NewCustomerName'],
+        str(data.get('NewCustomerNameHindi', '')).strip() or None,
+        data['CustomerID'],
+    ))
     conn.commit()
     conn.close()
     return jsonify({'status': 'success'})
