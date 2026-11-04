@@ -15,8 +15,10 @@ import requests
 from flask_login import current_user
 
 # Explicitly load .env from the root directory
-load_dotenv(os.path.join(os.path.abspath(os.path.dirname(__file__)), '../../.env'))
-load_dotenv() # Fallback
+load_dotenv(os.path.join(os.path.abspath(os.path.dirname(__file__)), '../../.env'), override=True)
+load_dotenv(override=True) # Fallback
+if os.getenv("GOOGLE_API_KEY") == "no":
+    os.environ.pop("GOOGLE_API_KEY", None)
 
 from backend.app.database import db, get_database_url, get_database_engine_options, is_postgres_database
 from backend.app.auth import login_manager, register_auth_routes
@@ -176,13 +178,16 @@ def synthesize_voice():
     data = request.get_json(silent=True) or {}
     text = data.get("text", "").strip()
     language_code = data.get("language_code", "hi-IN")
-    entity_names = data.get("entity_names", [])
+    entity_names = data.get("entity_names")
 
     if not text:
         return jsonify({'status': 'error', 'error': 'Text is required'}), 400
 
     try:
-        text = translate_for_speech(text, language_code, entity_names)
+        if entity_names is not None:
+            text = translate_for_speech(text, language_code, entity_names)
+        else:
+            text = translate_for_speech(text, language_code)
         audio_bytes, content_type = tts_provider.synthesize(text, language_code=language_code)
         return Response(audio_bytes, mimetype=content_type)
     except GeminiUnderstandingError as e:
@@ -770,11 +775,34 @@ def process_audio():
             store_kpis = {}
 
         try:
+            import sqlite3
+            conn_cat = sqlite3.connect(DB_PATH)
+            c_cat = conn_cat.cursor()
+            c_cat.execute("SELECT ItemName, ItemNameHindi FROM Inventory WHERE IsActive = 1")
+            inv_catalog = []
+            for eng, hin in c_cat.fetchall():
+                if eng:
+                    inv_catalog.append(eng)
+                if hin and hin.strip():
+                    inv_catalog.append(hin.strip())
+            c_cat.execute("SELECT CustomerName, CustomerNameHindi FROM CustomerCredit WHERE IsActive = 1")
+            cust_catalog = []
+            for eng, hin in c_cat.fetchall():
+                if eng:
+                    cust_catalog.append(eng)
+                if hin and hin.strip():
+                    cust_catalog.append(hin.strip())
+            conn_cat.close()
+        except Exception:
+            inv_catalog = get_db_records("Inventory", "ItemName")
+            cust_catalog = get_db_records("CustomerCredit", "CustomerName")
+
+        try:
             interpretation = understand_command(
                 transcript=raw_transcript,
                 hindi_transcript=hindi_transcript,
-                inventory=get_db_records("Inventory", "ItemName"),
-                customers=get_db_records("CustomerCredit", "CustomerName"),
+                inventory=inv_catalog,
+                customers=cust_catalog,
                 language_hint=preferred_lang,
                 store_kpis=store_kpis,
             )

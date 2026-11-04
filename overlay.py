@@ -2,7 +2,9 @@ import os
 from dotenv import load_dotenv
 
 # Explicitly load .env and verify it
-load_dotenv()
+load_dotenv(override=True)
+if os.getenv("GOOGLE_API_KEY") == "no":
+    os.environ.pop("GOOGLE_API_KEY", None)
 api_key_check = bool(os.getenv("GNANI_API_KEY"))
 
 if not api_key_check:

@@ -810,22 +810,6 @@ def find_unresolved_inventory_variants(cursor, entity_name, raw_transcript):
                 }
                 for row in matching_rows
             ]
-        # If there is exactly 1 matching item, but the user used a broad generic term
-        # (e.g. user said 'oil' but item is 'Fortune Sunflower Oil 1L'), require confirmation
-        # so the user can choose this variant or choose to add a brand new product
-        if len(matching_rows) == 1 and is_generic:
-            matched_row = matching_rows[0]
-            matched_tokens = set(re.findall(r'[a-zA-Z0-9]+', matched_row[1].lower()))
-            # If the inventory item has significant brand tokens missing from query
-            if len(matched_tokens - query_tokens) >= 1:
-                return [
-                    {
-                        "ItemID": matched_row[0],
-                        "ItemName": matched_row[1],
-                        "StockQuantity": matched_row[2],
-                        "Price": matched_row[3],
-                    }
-                ]
 
     return []
 
@@ -1077,6 +1061,7 @@ def parse_and_execute(raw_transcript, quantity_override=None, interpretation=Non
             }
         intent = interpretation.get("action")
         clean_translated_entity = interpretation.get("entity")
+        orig_requested_entity = clean_translated_entity
         quantity_or_amount = interpretation.get("quantity")
         entity_candidates = [
             interpretation.get("phonetic_english_translation"),
@@ -1086,6 +1071,7 @@ def parse_and_execute(raw_transcript, quantity_override=None, interpretation=Non
         ]
         from backend.app.gemini_understanding import resolve_catalog_entity
         translations = {
+            "entity": clean_translated_entity,
             "local_translation": interpretation.get("local_translation"),
             "phonetic_english_translation": interpretation.get("phonetic_english_translation"),
         }
@@ -1296,24 +1282,61 @@ def parse_and_execute(raw_transcript, quantity_override=None, interpretation=Non
             for item in items:
                 prod_name = item.get("entity", "").strip()
                 qty = int(item.get("quantity", 1))
-                from backend.app.gemini_understanding import resolve_catalog_entity
-                prod_name = resolve_catalog_entity(
-                    raw_transcript, item_catalog, "product",
-                    {
-                        "item_transcript": prod_name,
-                        "local_translation": interpretation.get("local_translation"),
-                        "phonetic_english_translation": interpretation.get("phonetic_english_translation"),
-                    },
-                ) or prod_name
-                prod_name = item_alias_to_canonical.get(prod_name.casefold(), prod_name)
-                prod_name = resolve_voice_product(
-                    prod_name,
-                    raw_transcript,
-                    item_catalog,
-                    item_alias_to_canonical,
-                    {"item_transcript": prod_name},
-                ) or prod_name
-                matched_item = match_entity_with_score(prod_name, db_items, threshold=60)
+
+                # Step 1: Direct match
+                matched_item = None
+                prod_fold = prod_name.casefold()
+                if prod_fold in item_alias_to_canonical:
+                    matched_item = item_alias_to_canonical[prod_fold]
+                elif prod_fold in {it.casefold() for it in db_items}:
+                    matched_item = next(it for it in db_items if it.casefold() == prod_fold)
+
+                # Step 2: Gemini entity matching
+                if not matched_item:
+                    from backend.app.gemini_understanding import resolve_catalog_entity
+                    gemini_res = resolve_catalog_entity(
+                        prod_name,
+                        item_catalog,
+                        "product",
+                        {
+                            "item_transcript": prod_name,
+                            "raw_transcript": raw_transcript,
+                            "local_translation": interpretation.get("local_translation"),
+                            "phonetic_english_translation": interpretation.get("phonetic_english_translation"),
+                        },
+                    )
+                    if gemini_res:
+                        matched_item = item_alias_to_canonical.get(gemini_res.casefold(), gemini_res)
+
+                if not matched_item:
+                    gemini_res = resolve_catalog_entity(
+                        raw_transcript,
+                        item_catalog,
+                        "product",
+                        {
+                            "item_transcript": prod_name,
+                            "local_translation": interpretation.get("local_translation"),
+                            "phonetic_english_translation": interpretation.get("phonetic_english_translation"),
+                        },
+                    )
+                    if gemini_res:
+                        matched_item = item_alias_to_canonical.get(gemini_res.casefold(), gemini_res)
+
+                if not matched_item:
+                    prod_name_resolved = resolve_voice_product(
+                        prod_name,
+                        raw_transcript,
+                        item_catalog,
+                        item_alias_to_canonical,
+                        {"item_transcript": prod_name},
+                    )
+                    if prod_name_resolved:
+                        matched_item = item_alias_to_canonical.get(prod_name_resolved.casefold(), prod_name_resolved)
+
+                # Step 3: Fuzzy fallback
+                if not matched_item:
+                    matched_item = match_entity_with_score(prod_name, db_items, threshold=60)
+
                 if not matched_item:
                     errors.append(f"'{prod_name}' not found")
                     continue
@@ -1391,44 +1414,97 @@ def parse_and_execute(raw_transcript, quantity_override=None, interpretation=Non
             elif alias_res["EntityType"] == "Customer" and intent in {"credit", "add_customer"}:
                 clean_translated_entity = resolved_target
 
-        target_item = (
-            gemini_item
-            or
-            resolve_voice_product(
-                clean_translated_entity,
-                raw_transcript,
-                item_catalog,
-                item_alias_to_canonical,
-                translations,
-            )
-            or
-            next(
-                (
-                    matched
-                    for candidate in entity_candidates
-                    if candidate
-                    and (matched := match_entity_with_score(candidate, db_items, threshold=60))
-                ),
-                None,
-            )
-            if intent in {"sell", "restock", "add_product"}
-            else None
-        )
-        target_customer = (
-            gemini_customer
-            or
-            next(
-                (
-                    matched
-                    for candidate in entity_candidates
-                    if candidate
-                    and (matched := match_entity_with_score(candidate, db_customers, threshold=60))
-                ),
-                None,
-            )
-            if intent in {"credit", "add_customer"}
-            else None
-        )
+        target_item = None
+        if intent in {"sell", "restock", "add_product"}:
+            clean_entity_fold = clean_translated_entity.casefold() if clean_translated_entity else ""
+            # 1. Direct match with exact or canonical inventory alias
+            if clean_entity_fold and clean_entity_fold in item_alias_to_canonical:
+                target_item = item_alias_to_canonical[clean_entity_fold]
+            elif clean_entity_fold and clean_entity_fold in {it.casefold() for it in db_items}:
+                target_item = next(it for it in db_items if it.casefold() == clean_entity_fold)
+
+            # 2. Gemini entity matching
+            if not target_item:
+                target_item = gemini_item
+
+            if not target_item:
+                gemini_res = resolve_catalog_entity(
+                    raw_transcript,
+                    item_catalog,
+                    "product",
+                    {
+                        "entity": clean_translated_entity,
+                        "local_translation": interpretation.get("local_translation"),
+                        "phonetic_english_translation": interpretation.get("phonetic_english_translation"),
+                    },
+                )
+                if gemini_res:
+                    target_item = item_alias_to_canonical.get(gemini_res.casefold(), gemini_res)
+
+            if not target_item and clean_translated_entity:
+                gemini_res = resolve_catalog_entity(
+                    clean_translated_entity,
+                    item_catalog,
+                    "product",
+                    {
+                        "raw_transcript": raw_transcript,
+                        "local_translation": interpretation.get("local_translation"),
+                    },
+                )
+                if gemini_res:
+                    target_item = item_alias_to_canonical.get(gemini_res.casefold(), gemini_res)
+
+            if not target_item:
+                target_item = resolve_voice_product(
+                    clean_translated_entity,
+                    raw_transcript,
+                    item_catalog,
+                    item_alias_to_canonical,
+                    translations,
+                )
+
+            # 3. Fuzzy fallback
+            if not target_item:
+                for candidate in entity_candidates:
+                    if candidate:
+                        matched = match_entity_with_score(candidate, db_items, threshold=60)
+                        if matched:
+                            target_item = matched
+                            break
+
+        target_customer = None
+        if intent in {"credit", "add_customer"}:
+            clean_cust_fold = clean_translated_entity.casefold() if clean_translated_entity else ""
+            if clean_cust_fold and clean_cust_fold in customer_alias_to_canonical:
+                target_customer = customer_alias_to_canonical[clean_cust_fold]
+            elif clean_cust_fold and clean_cust_fold in {c.casefold() for c in db_customers}:
+                target_customer = next(c for c in db_customers if c.casefold() == clean_cust_fold)
+
+            if not target_customer:
+                target_customer = gemini_customer
+
+            if not target_customer:
+                gemini_cust = resolve_catalog_entity(
+                    raw_transcript,
+                    customer_catalog,
+                    "customer",
+                    {
+                        "entity": clean_translated_entity,
+                        "local_translation": interpretation.get("local_translation"),
+                        "phonetic_english_translation": interpretation.get("phonetic_english_translation"),
+                    },
+                )
+                if gemini_cust:
+                    target_customer = customer_alias_to_canonical.get(gemini_cust.casefold(), gemini_cust)
+
+            if not target_customer:
+                for candidate in entity_candidates:
+                    if candidate:
+                        matched = match_entity_with_score(candidate, db_customers, threshold=60)
+                        if matched:
+                            target_customer = matched
+                            break
+
         if target_item:
             clean_translated_entity = target_item
         elif target_customer:
@@ -1436,6 +1512,7 @@ def parse_and_execute(raw_transcript, quantity_override=None, interpretation=Non
     else:
         # Preserve the local parser path for callers that do not provide an interpretation.
         clean_translated_entity = isolate_clean_entity(english_meaning)
+        orig_requested_entity = clean_translated_entity
         alias_res = alias_service.resolve_alias(clean_translated_entity)
         if alias_res.get("Ambiguous"):
             conn.close()
@@ -1452,12 +1529,22 @@ def parse_and_execute(raw_transcript, quantity_override=None, interpretation=Non
         target_customer = match_entity_with_score(clean_translated_entity, db_customers, threshold=70)
         intent = determine_intent(english_meaning)
         if intent in {"sell", "restock", "add_product"} and not target_item:
-            target_item = resolve_voice_product(
+            from backend.app.gemini_understanding import resolve_catalog_entity
+            gemini_res = resolve_catalog_entity(
                 clean_translated_entity,
-                raw_transcript,
                 item_catalog,
-                item_alias_to_canonical,
+                "product",
+                {"raw_transcript": raw_transcript},
             )
+            if gemini_res:
+                target_item = item_alias_to_canonical.get(gemini_res.casefold(), gemini_res)
+            if not target_item:
+                target_item = resolve_voice_product(
+                    clean_translated_entity,
+                    raw_transcript,
+                    item_catalog,
+                    item_alias_to_canonical,
+                )
             if target_item:
                 clean_translated_entity = target_item
         quantity_or_amount = (
@@ -1540,7 +1627,7 @@ def parse_and_execute(raw_transcript, quantity_override=None, interpretation=Non
     if item_to_check:
         meas_mismatch = check_inventory_item_measurement_mismatch(
             cursor,
-            f"{clean_translated_entity} {raw_transcript}",
+            f"{orig_requested_entity or clean_translated_entity} {raw_transcript}",
             item_to_check,
         )
         if meas_mismatch:

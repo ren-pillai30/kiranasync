@@ -9,28 +9,66 @@ class GeminiUnderstandingError(RuntimeError):
     pass
 
 
+def get_gemini_api_key():
+    key = os.getenv("GEMINI_API_KEY")
+    if not key or key == "no":
+        key = os.getenv("GOOGLE_API_KEY")
+    if not key or key == "no":
+        return None
+    return key
+
+
+def get_gemini_model():
+    return os.getenv("GEMINI_MODEL", "gemini-3.5-flash-lite")
+
+
 def resolve_catalog_entity(transcript, catalog, entity_type, translations=None):
     """Ask Gemini to map a spoken name to exactly one supplied catalog name."""
-    api_key = os.getenv("GEMINI_API_KEY")
-    if not api_key or not catalog:
+    if not catalog:
         return None
 
-    model = os.getenv("GEMINI_MODEL", "gemini-3.5-flash-lite")
+    # Fast-path: Check exact or case-insensitive match against catalog
+    catalog_map = {item.strip().casefold(): item for item in catalog if isinstance(item, str) and item.strip()}
+    t_clean = str(transcript or "").strip()
+    if t_clean.casefold() in catalog_map:
+        return catalog_map[t_clean.casefold()]
+
+    if translations and isinstance(translations, dict):
+        for candidate in (
+            translations.get("entity"),
+            translations.get("spoken_name"),
+            translations.get("item_transcript"),
+            translations.get("phonetic_english_translation"),
+            translations.get("local_translation"),
+        ):
+            if candidate and str(candidate).strip().casefold() in catalog_map:
+                return catalog_map[str(candidate).strip().casefold()]
+
+    api_key = get_gemini_api_key()
+    if not api_key:
+        return None
+
+    model = get_gemini_model()
     endpoint = (
         "https://generativelanguage.googleapis.com/v1beta/models/"
         f"{model}:generateContent"
     )
+    prompt = (
+        "You are an expert Indian retail entity matcher. "
+        "Match the spoken/written entity to exactly ONE item from the catalog. "
+        "CRITICAL MATCHING RULES:\n"
+        "- Cross-lingual and script matching: Match Devanagari/Hindi names to English catalog items and vice versa.\n"
+        "- Transliteration and phonetic matching: Match Hinglish or Romanized Hindi (e.g. 'namak' -> 'Tata Salt', 'cheeni'/'shakkar' -> 'Sugar', 'tel' -> 'Sunflower Oil', 'chawal' -> 'Rice', 'doodh' -> 'Milk', 'sabun' -> 'Soap').\n"
+        "- Synonyms, brand nicknames, and commodities: Match common brand names or generic product terms to catalog items (e.g. 'toothpaste' or 'colgate' -> 'टूथपेस्ट', 'biscoff' -> 'बिस्कॉफ बिस्किट', 'maggi' -> 'Maggi 70g').\n"
+        "- Measurement tolerance: If a product exists in the catalog, match it even if the utterance omits the package size or weight (e.g. 'maggi' -> 'Maggi 70g', 'salt' -> 'Tata Salt 1kg').\n"
+        "- Return null in resolved_name ONLY if the item does not exist at all in the catalog. Never invent a product or customer.\n"
+        f"Entity type: {entity_type}\n"
+        f"Utterance / Transcript: {json.dumps(transcript, ensure_ascii=False)}\n"
+        f"Context / Translations: {json.dumps(translations or {}, ensure_ascii=False)}\n"
+        f"Catalog: {json.dumps(catalog, ensure_ascii=False)}"
+    )
     payload = {
-        "contents": [{"parts": [{"text": (
-            "Resolve the spoken entity to exactly one catalog entry. "
-            "Hindi/Devanagari and English names can refer to the same person or product. "
-            "Use pronunciation, meaning, transliteration, and the supplied translations together. "
-            "Return null if no catalog entry is the same entity; never invent a name. "
-            f"Entity type: {entity_type}\n"
-            f"Transcript: {json.dumps(transcript, ensure_ascii=False)}\n"
-            f"Translations: {json.dumps(translations or {}, ensure_ascii=False)}\n"
-            f"Catalog: {json.dumps(catalog, ensure_ascii=False)}"
-        )}]}],
+        "contents": [{"parts": [{"text": prompt}]}],
         "generationConfig": {
             "temperature": 0,
             "responseMimeType": "application/json",
@@ -57,16 +95,28 @@ def resolve_catalog_entity(transcript, catalog, entity_type, translations=None):
         return None
 
     if isinstance(resolved, str):
-        return resolved if resolved in catalog else None
+        cleaned = resolved.strip()
+        if not cleaned or cleaned.lower() in ("null", "none"):
+            return None
+        # 1. Exact match
+        if cleaned in catalog:
+            return cleaned
+        # 2. Case-insensitive match
+        if cleaned.casefold() in catalog_map:
+            return catalog_map[cleaned.casefold()]
+        # 3. Substring match
+        for item in catalog:
+            if isinstance(item, str) and (cleaned.casefold() in item.casefold() or item.casefold() in cleaned.casefold()):
+                return item
     return None
 
 
 def build_product_mrp_search_query(product_name):
-    api_key = os.getenv("GEMINI_API_KEY")
+    api_key = get_gemini_api_key()
     if not api_key:
         return None
 
-    model = os.getenv("GEMINI_MODEL", "gemini-3.5-flash-lite")
+    model = get_gemini_model()
     endpoint = (
         "https://generativelanguage.googleapis.com/v1beta/models/"
         f"{model}:generateContent"
@@ -134,13 +184,13 @@ def translate_for_speech(text, language_code, entity_names=None):
     if language_code == "en-IN":
         return text
 
-    api_key = os.getenv("GEMINI_API_KEY")
+    api_key = get_gemini_api_key()
     if not api_key:
         raise GeminiUnderstandingError(
             "Gemini is not configured. Set GEMINI_API_KEY to translate spoken responses."
         )
 
-    model = os.getenv("GEMINI_MODEL", "gemini-3.5-flash-lite")
+    model = get_gemini_model()
     endpoint = (
         "https://generativelanguage.googleapis.com/v1beta/models/"
         f"{model}:generateContent"
@@ -214,13 +264,13 @@ SUPPORTED_ACTIONS = {
 
 
 def understand_command(transcript, hindi_transcript=None, inventory=None, customers=None, language_hint=None, store_kpis=None):
-    api_key = os.getenv("GEMINI_API_KEY")
+    api_key = get_gemini_api_key()
     if not api_key:
         raise GeminiUnderstandingError(
             "Gemini is not configured. Set GEMINI_API_KEY in the root .env file."
         )
 
-    model = os.getenv("GEMINI_MODEL", "gemini-3.5-flash-lite")
+    model = get_gemini_model()
     endpoint = (
         "https://generativelanguage.googleapis.com/v1beta/models/"
         f"{model}:generateContent"
@@ -411,9 +461,19 @@ def understand_command(transcript, hindi_transcript=None, inventory=None, custom
             q_val = int(q_digits.group()) if q_digits else 1
             clean_items.append({"entity": it["entity"].strip(), "quantity": q_val})
 
+    matched_entity = result["entity"].strip()
+    if inventory and action in {"sell", "restock", "add_product", "remove_product", "query_stock"}:
+        inv_map = {item.strip().casefold(): item.strip() for item in inventory if isinstance(item, str) and item.strip()}
+        if matched_entity.casefold() in inv_map:
+            matched_entity = inv_map[matched_entity.casefold()]
+    elif customers and action in {"credit", "add_customer", "repayment", "remove_customer", "query_customer"}:
+        cust_map = {c.strip().casefold(): c.strip() for c in customers if isinstance(c, str) and c.strip()}
+        if matched_entity.casefold() in cust_map:
+            matched_entity = cust_map[matched_entity.casefold()]
+
     res_dict = {
         "action": action,
-        "entity": result["entity"].strip(),
+        "entity": matched_entity,
         "quantity": quantity,
     }
     if clean_items:

@@ -19,11 +19,16 @@ class CallGeminiService:
     google-genai SDK and the gemini-2.5-flash model.
     """
 
-    DEFAULT_MODEL = "gemini-2.5-flash"
+    DEFAULT_MODEL = "gemini-3.5-flash-lite"
 
     def __init__(self, api_key: Optional[str] = None, model: Optional[str] = None):
-        self.api_key = api_key or os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
-        self.model = model or os.getenv("GEMINI_CALL_MODEL", self.DEFAULT_MODEL)
+        if os.getenv("GOOGLE_API_KEY") == "no":
+            os.environ.pop("GOOGLE_API_KEY", None)
+        resolved_key = api_key or os.getenv("GEMINI_API_KEY")
+        if not resolved_key or resolved_key == "no":
+            resolved_key = os.getenv("GOOGLE_API_KEY")
+        self.api_key = resolved_key if resolved_key and resolved_key != "no" else None
+        self.model = model or os.getenv("GEMINI_CALL_MODEL") or os.getenv("GEMINI_MODEL") or self.DEFAULT_MODEL
         self.client = None
         if genai and self.api_key:
             try:

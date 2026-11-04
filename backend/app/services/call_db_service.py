@@ -143,8 +143,14 @@ class CallDBService:
                     names.append(item["ItemNameHindi"])
                 return names
 
-            # Gemini resolves speech across scripts, transliterations, and variant names.
-            # Every resolved alias is mapped back to the actual inventory row.
+            # 1. Exact or normalized match, including the stored Hindi name.
+            for it in items:
+                for stored_name in names_for(it):
+                    if stored_name.lower() == clean_name or self._normalize_name(stored_name) == candidate_normalized:
+                        if is_measurement_compatible(it):
+                            return dict(it)
+
+            # 2. Gemini entity matching: resolves speech across scripts, transliterations, and variant names.
             from backend.app.gemini_understanding import resolve_catalog_entity
 
             catalog_to_item = {}
@@ -157,17 +163,12 @@ class CallDBService:
                 "product",
                 {"spoken_name": candidate_name},
             )
-            if gemini_match in catalog_to_item:
-                resolved_item = catalog_to_item[gemini_match]
-                if is_measurement_compatible(resolved_item):
-                    return resolved_item
-
-            # 1. Exact or normalized match, including the stored Hindi name.
-            for it in items:
-                for stored_name in names_for(it):
-                    if stored_name.lower() == clean_name or self._normalize_name(stored_name) == candidate_normalized:
-                        if is_measurement_compatible(it):
-                            return dict(it)
+            if gemini_match:
+                catalog_fold = {k.casefold(): v for k, v in catalog_to_item.items()}
+                if gemini_match.casefold() in catalog_fold:
+                    resolved_item = catalog_fold[gemini_match.casefold()]
+                    if is_measurement_compatible(resolved_item):
+                        return resolved_item
 
             # 2. Substring match
             for it in items:
@@ -269,6 +270,20 @@ class CallDBService:
             for c in customers:
                 if c["CustomerName"].lower() == clean_name:
                     return dict(c)
+
+            # Gemini customer matching across scripts and transliterations
+            from backend.app.gemini_understanding import resolve_catalog_entity
+            cust_catalog = {c["CustomerName"]: dict(c) for c in customers}
+            gemini_match = resolve_catalog_entity(
+                candidate_name,
+                list(cust_catalog.keys()),
+                "customer",
+                {"spoken_name": candidate_name},
+            )
+            if gemini_match:
+                cust_fold = {k.casefold(): v for k, v in cust_catalog.items()}
+                if gemini_match.casefold() in cust_fold:
+                    return cust_fold[gemini_match.casefold()]
 
             for c in customers:
                 if clean_name in c["CustomerName"].lower() or c["CustomerName"].lower() in clean_name:
