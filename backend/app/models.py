@@ -65,3 +65,17 @@ class StoreCredit(db.Model):
     customer_name = db.Column(db.String(255), nullable=False)
     outstanding_balance = db.Column(db.Float, nullable=False, default=0)
     is_active = db.Column(db.Boolean, nullable=False, default=True)
+
+
+class StoreTransaction(db.Model):
+    __tablename__ = "store_transactions"
+
+    id = db.Column(db.Integer, primary_key=True)
+    store_id = db.Column(db.Integer, db.ForeignKey("stores.id"), nullable=False, index=True)
+    txn_id = db.Column(db.Integer, nullable=False)
+    timestamp = db.Column(db.DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+    command_text = db.Column(db.String(1000), nullable=True)
+    total_amount = db.Column(db.Float, nullable=False, default=0)
+    transaction_type = db.Column(db.String(50), nullable=False)
+    entity_name = db.Column(db.String(255), nullable=True)
+    quantity = db.Column(db.Integer, nullable=True)

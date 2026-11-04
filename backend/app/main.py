@@ -245,6 +245,20 @@ def get_dashboard_data():
 
 @app.route('/api/ledger', methods=['GET'])
 def get_transaction_ledger():
+    if is_postgres_database():
+        from backend.app.models import StoreTransaction
+        transactions = [{
+            'TxnID': row.txn_id,
+            'Timestamp': row.timestamp.strftime('%Y-%m-%d %H:%M:%S') if row.timestamp else None,
+            'CommandText': row.command_text,
+            'TotalAmount': row.total_amount,
+            'TransactionType': row.transaction_type or 'Transaction',
+            'EntityName': row.entity_name,
+            'Quantity': row.quantity,
+        } for row in StoreTransaction.query.filter_by(
+            store_id=current_store_id(),
+        ).order_by(StoreTransaction.timestamp.desc(), StoreTransaction.txn_id.desc()).all()]
+        return jsonify({'status': 'success', 'transactions': transactions})
     import sqlite3
     from backend.app.intent_parser import DB_PATH
 
@@ -382,6 +396,59 @@ def lookup_product():
 
 @app.route('/api/inventory/confirm-command', methods=['POST'])
 def confirm_inventory_command():
+    if is_postgres_database():
+        from backend.app.models import StoreInventory, StoreTransaction
+        data = request.get_json(silent=True)
+        if not isinstance(data, dict):
+            return jsonify({'status': 'error', 'error': 'Choose a product variant.'}), 400
+        try:
+            item_id = int(data.get('ItemID'))
+            quantity = int(data.get('Quantity'))
+        except (TypeError, ValueError):
+            return jsonify({'status': 'error', 'error': 'Choose a product and valid quantity.'}), 400
+        intent = data.get('Intent')
+        if intent not in {'sell', 'restock'} or item_id <= 0 or quantity <= 0:
+            return jsonify({'status': 'error', 'error': 'Choose a product and valid quantity.'}), 400
+        item = StoreInventory.query.filter_by(
+            store_id=current_store_id(), item_id=item_id, is_active=True
+        ).first()
+        if not item:
+            return jsonify({'status': 'error', 'error': 'That inventory item no longer exists.'}), 404
+        if intent == 'sell':
+            if item.stock_quantity < quantity:
+                return jsonify({'status': 'error', 'error': f'Not enough {item.item_name} in stock. Only {item.stock_quantity} left.'}), 409
+            item.stock_quantity -= quantity
+            transaction_type = 'Sale'
+            total_amount = float(item.price) * quantity
+            action = 'inventory_updated'
+            message = f'Sold {quantity} {item.item_name}. Stock left: {item.stock_quantity}.'
+        else:
+            item.stock_quantity += quantity
+            transaction_type = 'Restock'
+            total_amount = -float(item.price) * quantity
+            action = 'inventory_restocked'
+            message = f'Restocked {quantity} {item.item_name}. Total stock: {item.stock_quantity}.'
+        max_txn_id = db.session.query(db.func.max(StoreTransaction.txn_id)).filter_by(store_id=current_store_id()).scalar() or 0
+        db.session.add(StoreTransaction(
+            store_id=current_store_id(),
+            txn_id=max_txn_id + 1,
+            command_text=data.get('RawCommand') or message,
+            total_amount=total_amount,
+            transaction_type=transaction_type,
+            entity_name=item.item_name,
+            quantity=quantity,
+        ))
+        db.session.commit()
+        return jsonify({
+            'status': 'success',
+            'item': {
+                'ItemID': item.item_id,
+                'ItemName': item.item_name,
+                'StockQuantity': item.stock_quantity,
+                'Price': item.price,
+            },
+            'database_action': {'status': 'success', 'action': action, 'message': message},
+        })
     import sqlite3
     from backend.app.intent_parser import DB_PATH
 
@@ -1030,6 +1097,68 @@ def edit_credit():
 
 @app.route('/api/inventory/confirm-restock', methods=['POST'])
 def confirm_restock():
+    if is_postgres_database():
+        from backend.app.models import StoreInventory, StoreTransaction
+        data = request.get_json(silent=True) or {}
+        item_name = str(data.get('ItemName') or '').strip()
+        raw_items = data.get('Items')
+        if raw_items is None:
+            raw_items = [{
+                'Price': data.get('Price'),
+                'Quantity': data.get('StockQuantity'),
+            }]
+        if not item_name or not isinstance(raw_items, list) or not raw_items:
+            return jsonify({'status': 'error', 'error': 'Enter a valid product, MRP, and quantity.'}), 400
+        created = []
+        for raw_item in raw_items:
+            try:
+                price = float(raw_item.get('Price'))
+                quantity = float(raw_item.get('Quantity'))
+            except (AttributeError, TypeError, ValueError):
+                return jsonify({'status': 'error', 'error': 'Enter a valid MRP and positive stock quantity.'}), 400
+            if not math.isfinite(price) or price <= 0 or not quantity.is_integer() or quantity <= 0:
+                return jsonify({'status': 'error', 'error': 'Enter a valid MRP and positive stock quantity.'}), 400
+            quantity = int(quantity)
+            variant_name = f"{item_name} (MRP ₹{price:g})"
+            existing = StoreInventory.query.filter(
+                StoreInventory.store_id == current_store_id(),
+                db.func.lower(StoreInventory.item_name) == variant_name.lower(),
+            ).first()
+            if existing and existing.is_active:
+                return jsonify({'status': 'error', 'error': f'{variant_name} already exists.'}), 409
+            if existing:
+                existing.stock_quantity = quantity
+                existing.price = price
+                existing.is_active = True
+            else:
+                max_item_id = db.session.query(db.func.max(StoreInventory.item_id)).filter_by(store_id=current_store_id()).scalar() or 0
+                existing = StoreInventory(
+                    store_id=current_store_id(), item_id=max_item_id + 1,
+                    item_name=variant_name, stock_quantity=quantity, price=price, is_active=True,
+                )
+                db.session.add(existing)
+            max_txn_id = db.session.query(db.func.max(StoreTransaction.txn_id)).filter_by(store_id=current_store_id()).scalar() or 0
+            db.session.add(StoreTransaction(
+                store_id=current_store_id(), txn_id=max_txn_id + 1,
+                command_text=data.get('RawCommand') or 'Manual Confirmation',
+                total_amount=-price * quantity,
+                transaction_type='Restock',
+                entity_name=variant_name,
+                quantity=quantity,
+            ))
+            created.append({
+                'ItemID': existing.item_id,
+                'ItemName': existing.item_name,
+                'StockQuantity': existing.stock_quantity,
+                'Price': existing.price,
+            })
+        db.session.commit()
+        names = ', '.join(item['ItemName'] for item in created)
+        return jsonify({
+            'status': 'success',
+            'items': created,
+            'database_action': {'status': 'success', 'action': 'product_added', 'message': f'Added {names} to inventory.'},
+        })
     import sqlite3
     from backend.app.intent_parser import DB_PATH
     

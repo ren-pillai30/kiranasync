@@ -130,6 +130,9 @@ export function useStoreActions({
         setDbAction(result.database_action);
         if (playVoiceReceipt) playVoiceReceipt(result.database_action.message);
       }
+      for (const item of result.items || []) {
+        onInventoryUpdated?.(item);
+      }
       onRefreshAll();
     } catch (error) {
       console.error('Product confirmation error:', error);
@@ -192,6 +195,7 @@ export function useStoreActions({
       setSelectedItemId(null);
       setConfirmationError('');
       setDbAction(result.database_action);
+      if (result.item) onInventoryUpdated?.(result.item);
       onRefreshAll();
     } catch (error) {
       console.error('Inventory variant confirmation error:', error);
@@ -209,6 +213,7 @@ export function useStoreActions({
       setPendingTransaction(null);
       setDbAction(result.database_action);
       if (playVoiceReceipt) playVoiceReceipt(result.database_action.message);
+      if (result.item) onInventoryUpdated?.(result.item);
       onRefreshAll();
     } catch (error) {
       console.error('Transaction confirmation failed:', error);
