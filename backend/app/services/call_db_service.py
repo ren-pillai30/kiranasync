@@ -143,6 +143,25 @@ class CallDBService:
                     names.append(item["ItemNameHindi"])
                 return names
 
+            # Gemini resolves speech across scripts, transliterations, and variant names.
+            # Every resolved alias is mapped back to the actual inventory row.
+            from backend.app.gemini_understanding import resolve_catalog_entity
+
+            catalog_to_item = {}
+            for it in items:
+                for stored_name in names_for(it):
+                    catalog_to_item[stored_name] = dict(it)
+            gemini_match = resolve_catalog_entity(
+                candidate_name,
+                list(catalog_to_item.keys()),
+                "product",
+                {"spoken_name": candidate_name},
+            )
+            if gemini_match in catalog_to_item:
+                resolved_item = catalog_to_item[gemini_match]
+                if is_measurement_compatible(resolved_item):
+                    return resolved_item
+
             # 1. Exact or normalized match, including the stored Hindi name.
             for it in items:
                 for stored_name in names_for(it):

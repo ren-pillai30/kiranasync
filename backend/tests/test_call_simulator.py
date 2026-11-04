@@ -4,7 +4,7 @@ import os
 import json
 import tempfile
 import asyncio
-from unittest.mock import MagicMock, AsyncMock
+from unittest.mock import MagicMock, AsyncMock, patch
 
 from backend.app.services.gnani_service import GnaniService
 from backend.app.services.call_db_service import CallDBService
@@ -140,6 +140,28 @@ class TestCallSimulatorServices(unittest.TestCase):
         )
         self.assertEqual(result["status"], "success")
         self.assertEqual(result["items"][0]["item_name"], "Maggi noodles (MRP ₹14)")
+
+    def test_execute_order_uses_gemini_for_cross_script_product_alias(self):
+        conn = sqlite3.connect(self.temp_db_path)
+        conn.execute("ALTER TABLE Inventory ADD COLUMN ItemNameHindi TEXT")
+        conn.execute(
+            "UPDATE Inventory SET ItemNameHindi = CASE ItemName "
+            "WHEN 'Maggi 70g' THEN 'मैगी' END"
+        )
+        conn.commit()
+        conn.close()
+
+        with patch(
+            "backend.app.gemini_understanding.resolve_catalog_entity",
+            return_value="मैगी",
+        ):
+            result = self.db_service.execute_order(
+                items=[{"name": "Maggi best brand", "quantity": 1}],
+                payment_mode="cash",
+            )
+
+        self.assertEqual(result["status"], "success")
+        self.assertEqual(result["items"][0]["item_name"], "Maggi 70g")
 
     def test_execute_order_insufficient_stock(self):
         result = self.db_service.execute_order(
