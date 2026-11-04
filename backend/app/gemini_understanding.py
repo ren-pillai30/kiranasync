@@ -305,7 +305,7 @@ def translate_for_speech(text, language_code, entity_names=None):
 
 _TRANSIENT_STATUS_CODES = {408, 429, 500, 502, 503, 504}
 _MAX_ATTEMPTS = 2
-_GEMINI_REQUEST_TIMEOUT = (3, 16)
+_GEMINI_REQUEST_TIMEOUT = (3, 30)
 
 SUPPORTED_ACTIONS = {
     "sell",
@@ -430,6 +430,12 @@ def understand_command(transcript, hindi_transcript=None, inventory=None, custom
                 json=payload,
                 timeout=_GEMINI_REQUEST_TIMEOUT,
             )
+        except requests.ReadTimeout as exc:
+            logger.warning("Gemini command response timed out: %s", exc)
+            raise GeminiUnderstandingError(
+                "Gemini took longer than 30 seconds to respond. Please try again; "
+                "no changes were made."
+            ) from exc
         except (requests.Timeout, requests.ConnectionError) as exc:
             if attempt == _MAX_ATTEMPTS - 1:
                 logger.warning(

@@ -238,7 +238,7 @@ class GeminiUnderstandingTests(unittest.TestCase):
             post.call_args.kwargs["headers"]["x-goog-api-key"],
             "test-key",
         )
-        self.assertEqual(post.call_args.kwargs["timeout"], (3, 16))
+        self.assertEqual(post.call_args.kwargs["timeout"], (3, 30))
         self.assertEqual(
             post.call_args.kwargs["json"]["generationConfig"]["maxOutputTokens"],
             512,
@@ -388,7 +388,7 @@ class GeminiUnderstandingTests(unittest.TestCase):
     @patch.dict(os.environ, {"GEMINI_API_KEY": "test-key"})
     @patch("backend.app.gemini_understanding.time.sleep")
     @patch("backend.app.gemini_understanding.requests.post")
-    def test_retries_network_errors_and_logs_exhausted_failure(self, post, sleep):
+    def test_read_timeout_uses_extended_deadline_without_repeating_request(self, post, sleep):
         post.side_effect = requests.ReadTimeout("read timeout=10")
 
         with self.assertLogs(
@@ -397,14 +397,42 @@ class GeminiUnderstandingTests(unittest.TestCase):
         ) as captured_logs:
             with self.assertRaisesRegex(
                 GeminiUnderstandingError,
-                "temporarily unreachable",
+                "longer than 30 seconds",
             ) as raised:
                 understand_command("sugar bhej do", None, ["Sugar 1kg"], [])
 
-        self.assertEqual(post.call_count, 2)
-        self.assertEqual(sleep.call_count, 1)
+        self.assertEqual(post.call_count, 1)
+        sleep.assert_not_called()
         self.assertIsInstance(raised.exception.__cause__, requests.ReadTimeout)
         self.assertIn("read timeout=10", captured_logs.output[0])
+
+    @patch.dict(os.environ, {"GEMINI_API_KEY": "test-key"})
+    @patch("backend.app.gemini_understanding.time.sleep")
+    @patch("backend.app.gemini_understanding.requests.post")
+    def test_retries_connection_errors(self, post, sleep):
+        success = post.return_value
+        success.json.return_value = {
+            "candidates": [{
+                "content": {
+                    "parts": [{
+                        "text": (
+                            '{"action":"sell","entity":"Sugar 1kg",'
+                            '"quantity":"1"}'
+                        )
+                    }]
+                }
+            }]
+        }
+        post.side_effect = [requests.ConnectionError("connection reset"), success]
+
+        result = understand_command("sugar bhej do", None, ["Sugar 1kg"], [])
+
+        self.assertEqual(
+            result,
+            {"action": "sell", "entity": "Sugar 1kg", "quantity": 1},
+        )
+        self.assertEqual(post.call_count, 2)
+        sleep.assert_called_once_with(0.5)
 
     @patch.dict(os.environ, {}, clear=True)
     @patch("backend.app.gemini_understanding.requests.post")
