@@ -100,15 +100,6 @@ export function useVoiceRecorder({
     }
 
     try {
-      if (!navigator.permissions?.query || !navigator.mediaDevices?.getUserMedia) {
-        return;
-      }
-
-      const permission = await navigator.permissions.query({ name: 'microphone' });
-      if (permission.state !== 'granted') {
-        return;
-      }
-
       if (onSpeechDetected) onSpeechDetected();
       setIsRecording(true);
 
