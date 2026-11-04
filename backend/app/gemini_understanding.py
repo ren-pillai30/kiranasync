@@ -304,7 +304,8 @@ def translate_for_speech(text, language_code, entity_names=None):
 
 
 _TRANSIENT_STATUS_CODES = {408, 429, 500, 502, 503, 504}
-_MAX_ATTEMPTS = 3
+_MAX_ATTEMPTS = 2
+_GEMINI_REQUEST_TIMEOUT = (3, 16)
 
 SUPPORTED_ACTIONS = {
     "sell",
@@ -388,6 +389,7 @@ def understand_command(transcript, hindi_transcript=None, inventory=None, custom
         "contents": [{"parts": [{"text": prompt}]}],
         "generationConfig": {
             "temperature": 0,
+            "maxOutputTokens": 512,
             "responseMimeType": "application/json",
             "responseSchema": {
                 "type": "OBJECT",
@@ -426,7 +428,7 @@ def understand_command(transcript, hindi_transcript=None, inventory=None, custom
                 endpoint,
                 headers={"x-goog-api-key": api_key},
                 json=payload,
-                timeout=10,
+                timeout=_GEMINI_REQUEST_TIMEOUT,
             )
         except (requests.Timeout, requests.ConnectionError) as exc:
             if attempt == _MAX_ATTEMPTS - 1:
