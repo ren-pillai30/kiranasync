@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Kirana Call Assistant</title>
+  <style>
+    body {font-family: Arial, Helvetica, sans-serif; background:#f0f2f5; margin:0; padding:0;}
+    .chat-container {max-width: 600px; margin:auto; height:100vh; display:flex; flex-direction:column;}
+    .messages {flex:1; overflow-y:auto; padding:10px;}
+    .msg {margin:8px 0; max-width:80%; padding:10px 14px; border-radius:18px; line-height:1.4;}
+    .msg.user   {background:#dcf8c6; align-self:flex-end;}
+    .msg.bot    {background:#fff; align-self:flex-start; border:1px solid #e0e0e0;}
+    .input-bar {display:flex; padding:10px; background:#fff; border-top:1px solid #ddd;}
+    .input-bar input {flex:1; padding:10px; border:1px solid #ccc; border-radius:20px; outline:none;}
+    .input-bar button {margin-left:6px; background:#008069; border:none; color:#fff; padding:0 12px; border-radius:20px; cursor:pointer;}
+    .mic-btn {background:#25D366; width:40px; height:40px; border-radius:50%; display:flex; align-items:center; justify-content:center;}
+    .mic-btn svg {fill:#fff; width:24px; height:24px;}
+  </style>
+</head>
+<body>
+  <div class="chat-container">
+    <div id="messages" class="messages"></div>
+    <div class="input-bar">
+      <input id="textInput" type="text" placeholder="Type a message…" autocomplete="off"/>
+      <button id="sendBtn">Send</button>
+      <button id="micBtn" class="mic-btn" title="Hold to speak">
+        <svg viewBox="0 0 24 24"><path d="M12 14a3 3 0 0 0 3-3V5a3 3 0 1 0-6 0v6a3 3 0 0 0 3 3zm5-3a5 5 0 0 1-10 0H5a7 7 0 0 0 14 0h-2zM12 16a7 7 0 0 0 7-7h-2a5 5 0 0 1-10 0H5a7 7 0 0 0 7 7z"/></svg>
+      </button>
+    </div>
+  </div>
+  <script>
+    const messagesEl = document.getElementById('messages');
+    const textInput = document.getElementById('textInput');
+    const sendBtn = document.getElementById('sendBtn');
+    const micBtn = document.getElementById('micBtn');
+    function addMessage(text, fromUser) {
+      const div = document.createElement('div');
+      div.className = 'msg ' + (fromUser ? 'user' : 'bot');
+      div.textContent = text;
+      messagesEl.appendChild(div);
+      messagesEl.scrollTop = messagesEl.scrollHeight;
+    }
+    async function sendText() {
+      // Read the typed text (may be empty for an initial greeting)
+      const userText = textInput.value.trim();
+      // Only show a user bubble if there is actual text
+      if (userText) {
+        addMessage(userText, true);
+        textInput.value = '';
+      }
+      const payload = {user_input: userText};
+      const resp = await fetch('/api/call/simulate', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(payload)});
+      const data = await resp.json();
+      // Show assistant reply text
+      addMessage(data.reply_text || '[no reply]', false);
+      // Play TTS if present
+      if (data.audio_base64) {
+        const audio = new Audio('data:' + data.audio_content_type + ';base64,' + data.audio_base64);
+        audio.play();
+      }
+    }
+      const userText = textInput.value.trim();
+      if (!userText) return;
+      addMessage(userText, true);
+      textInput.value = '';
+      const payload = {user_input: userText};
+      const resp = await fetch('/api/call/simulate', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(payload)});
+      const data = await resp.json();
+      addMessage(data.reply_text || '[no reply]', false);
+      if (data.audio_base64) {
+        const audio = new Audio('data:' + data.audio_content_type + ';base64,' + data.audio_base64);
+        audio.play();
+      }
+    }
+    sendBtn.addEventListener('click', sendText);
+    textInput.addEventListener('keypress', e => { if (e.key === 'Enter') sendText(); });
+    let recorder; let audioChunks = [];
+    async function startRecording() {
+      const stream = await navigator.mediaDevices.getUserMedia({audio:true});
+      recorder = new MediaRecorder(stream);
+      recorder.ondataavailable = e => audioChunks.push(e.data);
+      recorder.start();
+    }
+    async function stopRecordingAndSend() {
+      if (!recorder) return;
+      await new Promise(r => recorder.onstop = r);
+      const audioBlob = new Blob(audioChunks, {type:'audio/webm'});
+      audioChunks = [];
+      addMessage('[recorded voice]', true);
+      const form = new FormData();
+      form.append('audio', audioBlob, 'voice.webm');
+      const resp = await fetch('/api/call/simulate/audio', {method:'POST', body:form});
+      if (!resp.ok) { const err = await resp.json(); addMessage('Error: ' + err.error, false); return; }
+      const audioBytes = await resp.arrayBuffer();
+      const mime = resp.headers.get('Content-Type') || 'audio/mpeg';
+      const audioUrl = URL.createObjectURL(new Blob([audioBytes], {type:mime}));
+      const audio = new Audio(audioUrl);
+      audio.play();
+      // fetch textual reply for display
+      const txtResp = await fetch('/api/call/simulate', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({user_input:''})});
+      const txtData = await txtResp.json();
+      addMessage(txtData.reply_text || '[no reply]', false);
+    }
+    micBtn.addEventListener('mousedown', async () => { micBtn.style.background = '#128C7E'; await startRecording(); });
+    micBtn.addEventListener('mouseup', async () => { micBtn.style.background = '#25D366'; await recorder.stop(); await stopRecordingAndSend(); });
+    micBtn.addEventListener('touchstart', async e => { e.preventDefault(); await startRecording(); });
+    micBtn.addEventListener('touchend', async e => { e.preventDefault(); await recorder.stop(); await stopRecordingAndSend(); });
+  </script>
+</body>
+</html>
+

@@ -70,8 +70,10 @@ def simulate_call():
 
     payload = request.get_json(silent=True) or {}
     user_input = str(payload.get('user_input') or '').strip()
-    if not user_input:
-        return jsonify({'status': 'error', 'error': 'Enter a call message.'}), 400
+    # If no explicit user_input is provided, proceed with an empty string.
+    # CallGeminiService will handle empty input by returning a generic greeting.
+    # This allows the endpoint to act like an autonomous personal assistant.
+    # (No error response is raised here.)
 
     db_service = CallDBService()
     gemini_service = CallGeminiService()
@@ -164,8 +166,10 @@ def simulate_call():
 
     payload = request.get_json(silent=True) or {}
     user_input = str(payload.get('user_input') or '').strip()
-    if not user_input:
-        return jsonify({'status': 'error', 'error': 'Enter a call message.'}), 400
+    # If no explicit user_input is provided, proceed with an empty string.
+    # CallGeminiService will handle empty input by returning a generic greeting.
+    # This allows the endpoint to act like an autonomous personal assistant.
+    # (No error response is raised here.)
 
     db_service = CallDBService()
     gemini_service = CallGeminiService()
