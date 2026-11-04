@@ -2,6 +2,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 export default function VoiceRecordingHud({
   isActive,
   isRecording,
+  isProcessing,
   lang,
   audioLevel,
   transcript,
@@ -57,7 +58,26 @@ export default function VoiceRecordingHud({
               </div>
             </div>
           )}
-          <p className="text-sm font-bold text-stone-900 mb-3 leading-snug">"{transcript}"</p>
+          {isProcessing ? (
+            <div
+              role="status"
+              aria-live="polite"
+              className="mb-3 rounded-xl border border-[#E2D9C8] bg-white/70 px-3 py-2.5"
+            >
+              <p className="text-sm font-bold text-stone-900 leading-snug">{transcript}</p>
+              <div className="mt-2 flex items-center gap-1.5" aria-hidden="true">
+                {[0, 150, 300].map((delay) => (
+                  <span
+                    key={delay}
+                    className="h-2 w-2 rounded-full bg-[#991B1B] motion-safe:animate-bounce motion-reduce:animate-none"
+                    style={{ animationDelay: `${delay}ms` }}
+                  />
+                ))}
+              </div>
+            </div>
+          ) : (
+            <p className="text-sm font-bold text-stone-900 mb-3 leading-snug">"{transcript}"</p>
+          )}
           {dbAction && (
             <motion.div
               className={`p-3 rounded-xl flex items-center space-x-2.5 border text-xs font-semibold shadow-2xs ${

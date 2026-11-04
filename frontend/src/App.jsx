@@ -35,6 +35,7 @@ export default function App() {
   const t = text[lang];
 
   const [isActive, setIsActive] = useState(false);
+  const [isProcessingVoice, setIsProcessingVoice] = useState(false);
   const [showDashboard, setShowDashboard] = useState(true);
   const [showArchives, setShowArchives] = useState(false);
   const [archives, setArchives] = useState([]);
@@ -169,6 +170,7 @@ export default function App() {
   });
 
   const handleVoiceSuccess = useCallback((data) => {
+    setIsProcessingVoice(false);
     setTranscript(data.transcript);
     if (data.database_action?.status === 'success') {
       fetchDashboardData();
@@ -253,13 +255,18 @@ export default function App() {
     selectedLangCode,
     onSpeechDetected: () => {
       setIsActive(true);
+      setIsProcessingVoice(false);
       setVoiceError('');
       setTranscript(t.defaultListening);
       setDbAction(null);
     },
-    onProcessing: () => setTranscript(t.processing),
+    onProcessing: () => {
+      setIsProcessingVoice(true);
+      setTranscript(t.processing);
+    },
     onSuccess: handleVoiceSuccess,
     onError: (errMsg) => {
+      setIsProcessingVoice(false);
       setTranscript(`Notice: ${errMsg}`);
       setTimeout(() => setIsActive(false), 4000);
     },
@@ -505,6 +512,7 @@ export default function App() {
         <VoiceRecordingHud
           isActive={isActive}
           isRecording={voiceRecorder.isRecording}
+          isProcessing={isProcessingVoice}
           lang={lang}
           audioLevel={voiceRecorder.audioLevel}
           transcript={transcript}
