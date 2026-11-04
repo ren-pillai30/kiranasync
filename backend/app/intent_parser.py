@@ -1031,6 +1031,12 @@ def parse_and_execute(raw_transcript, quantity_override=None, interpretation=Non
         intent = interpretation.get("action")
         clean_translated_entity = interpretation.get("entity")
         quantity_or_amount = interpretation.get("quantity")
+        entity_candidates = [
+            interpretation.get("phonetic_english_translation"),
+            interpretation.get("local_translation"),
+            interpretation.get("entity"),
+            raw_transcript,
+        ]
         explicit_quantity = extract_explicit_quantity(raw_transcript)
         if explicit_quantity is not None and intent in {"sell", "restock", "credit", "add_product"}:
             quantity_or_amount = explicit_quantity
@@ -1307,15 +1313,35 @@ def parse_and_execute(raw_transcript, quantity_override=None, interpretation=Non
                 clean_translated_entity = resolved_target
 
         target_item = (
-            match_entity_with_score(clean_translated_entity, db_items, threshold=70)
+            next(
+                (
+                    matched
+                    for candidate in entity_candidates
+                    if candidate
+                    and (matched := match_entity_with_score(candidate, db_items, threshold=60))
+                ),
+                None,
+            )
             if intent in {"sell", "restock", "add_product"}
             else None
         )
         target_customer = (
-            match_entity_with_score(clean_translated_entity, db_customers, threshold=70)
+            next(
+                (
+                    matched
+                    for candidate in entity_candidates
+                    if candidate
+                    and (matched := match_entity_with_score(candidate, db_customers, threshold=60))
+                ),
+                None,
+            )
             if intent in {"credit", "add_customer"}
             else None
         )
+        if target_item:
+            clean_translated_entity = target_item
+        elif target_customer:
+            clean_translated_entity = target_customer
     else:
         # Preserve the local parser path for callers that do not provide an interpretation.
         clean_translated_entity = isolate_clean_entity(english_meaning)
