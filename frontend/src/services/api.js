@@ -124,6 +124,14 @@ export const api = {
     }),
 
   // Voice Processing
+  processText: (text, languageCode = 'hi-IN') =>
+    fetch(`${API_BASE}/api/process-text`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify({ text, lang: languageCode }),
+    }).then((res) => res.json()),
+
   processAudio: (formData) =>
     fetch(`${API_BASE}/api/process-audio`, {
       method: 'POST',

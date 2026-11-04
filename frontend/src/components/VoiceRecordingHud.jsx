@@ -1,4 +1,5 @@
 import { motion, AnimatePresence } from 'framer-motion';
+import { useState } from 'react';
 
 export default function VoiceRecordingHud({
   isActive,
@@ -10,7 +11,18 @@ export default function VoiceRecordingHud({
   voiceError,
   t,
   stopAndProcessRecording,
+  onProcessText,
 }) {
+  const [commandText, setCommandText] = useState('');
+
+  const submitCommand = (event) => {
+    event.preventDefault();
+    const command = commandText.trim();
+    if (!command) return;
+    onProcessText(command);
+    setCommandText('');
+  };
+
   return (
     <AnimatePresence>
       {isActive && (
@@ -59,6 +71,19 @@ export default function VoiceRecordingHud({
             </div>
           )}
           <p className="text-sm font-bold text-stone-900 mb-3 leading-snug">"{transcript}"</p>
+          {!isRecording && (
+            <form onSubmit={submitCommand} className="flex gap-2 mb-3">
+              <input
+                value={commandText}
+                onChange={(event) => setCommandText(event.target.value)}
+                placeholder="Type what you want to say"
+                className="min-w-0 flex-1 rounded-lg border border-[#D8CEBA] bg-white px-3 py-2 text-sm"
+              />
+              <button type="submit" className="rounded-lg bg-[#991B1B] px-3 py-2 text-xs font-bold text-white">
+                Send
+              </button>
+            </form>
+          )}
           {dbAction && (
             <motion.div
               className={`p-3 rounded-xl flex items-center space-x-2.5 border text-xs font-semibold shadow-2xs ${

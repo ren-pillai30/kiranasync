@@ -655,6 +655,48 @@ def cancel_command_route(command_id):
     status_code = 200 if result.get("status") == "success" else 400
     return jsonify(result), status_code
 
+@app.route('/api/process-text', methods=['POST'])
+def process_text():
+    text = (request.get_json(silent=True) or {}).get('text', '').strip()
+    if not text:
+        return jsonify({'status': 'error', 'error': 'Please enter a voice command.'}), 400
+
+    preferred_lang = (request.get_json(silent=True) or {}).get('lang', 'hi-IN')
+    from backend.app.intent_parser import DB_PATH
+    from backend.app.services.query_service import QueryService
+    try:
+        store_kpis = QueryService(DB_PATH).get_store_kpis()
+    except Exception:
+        store_kpis = {}
+
+    try:
+        interpretation = understand_command(
+            transcript=text,
+            hindi_transcript=None,
+            inventory=get_db_records("Inventory", "ItemName"),
+            customers=get_db_records("CustomerCredit", "CustomerName"),
+            language_hint=preferred_lang,
+            store_kpis=store_kpis,
+        )
+    except GeminiUnderstandingError as exc:
+        return jsonify({
+            'status': 'error',
+            'error': str(exc),
+            'transcript': text,
+        }), 503
+
+    db_result = parse_and_execute(text, interpretation=interpretation)
+    if isinstance(db_result, dict) and interpretation.get("spoken_response"):
+        if db_result.get("action") == "assistant_qa" or not db_result.get("message"):
+            db_result["message"] = interpretation["spoken_response"]
+
+    return jsonify({
+        'status': 'success',
+        'transcript': text,
+        'database_action': db_result,
+    })
+
+
 @app.route('/api/process-audio', methods=['POST'])
 def process_audio():
     import tempfile
