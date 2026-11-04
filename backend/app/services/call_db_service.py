@@ -1,6 +1,8 @@
 import os
 import sqlite3
 import difflib
+import re
+import unicodedata
 from typing import Dict, List, Optional, Any
 from backend.app.intent_parser import DB_PATH, ensure_transactions_schema, record_transaction
 from backend.app.measurement_utils import (
@@ -31,6 +33,18 @@ class CallDBService:
         ensure_transactions_schema(conn)
         return conn
 
+    @staticmethod
+    def _column_names(cursor: sqlite3.Cursor, table: str) -> set:
+        cursor.execute(f"PRAGMA table_info({table})")
+        return {row[1] for row in cursor.fetchall()}
+
+    @staticmethod
+    def _normalize_name(value: str) -> str:
+        normalized = unicodedata.normalize("NFKC", value or "").casefold()
+        normalized = re.sub(r"\(.*?\)|\[.*?\]", " ", normalized)
+        normalized = re.sub(r"(?:\b(?:mrp|price)\b\s*[₹rs.]?\s*)?\d+(?:\.\d+)?\s*(?:kg|g|gm|gram|grams|ml|l|litre|liters|pcs?|pack|packet)?", " ", normalized)
+        return " ".join(re.findall(r"\w+", normalized, flags=re.UNICODE))
+
     def get_store_context(self) -> Dict[str, Any]:
         """
         Fetches live inventory items and customer credit accounts for LLM reasoning prompt.
@@ -38,26 +52,38 @@ class CallDBService:
         conn = self._get_connection()
         try:
             cursor = conn.cursor()
-            cursor.execute(
-                "SELECT ItemID, ItemName, StockQuantity, Price FROM Inventory WHERE IsActive = 1"
+            inventory_columns = self._column_names(cursor, "Inventory")
+            hindi_inventory_column = "ItemNameHindi" if "ItemNameHindi" in inventory_columns else None
+            inventory_query = (
+                "SELECT ItemID, ItemName, StockQuantity, Price"
+                + (", ItemNameHindi" if hindi_inventory_column else "")
+                + " FROM Inventory WHERE IsActive = 1"
             )
+            cursor.execute(inventory_query)
             inventory = [
                 {
                     "ItemID": row["ItemID"],
                     "ItemName": row["ItemName"],
+                    "ItemNameHindi": row["ItemNameHindi"] if hindi_inventory_column else "",
                     "StockQuantity": row["StockQuantity"],
                     "Price": float(row["Price"]),
                 }
                 for row in cursor.fetchall()
             ]
 
-            cursor.execute(
-                "SELECT CustomerID, CustomerName, OutstandingBalance FROM CustomerCredit WHERE IsActive = 1"
+            customer_columns = self._column_names(cursor, "CustomerCredit")
+            customer_hindi_column = "CustomerNameHindi" if "CustomerNameHindi" in customer_columns else None
+            customer_query = (
+                "SELECT CustomerID, CustomerName, OutstandingBalance"
+                + (", CustomerNameHindi" if customer_hindi_column else "")
+                + " FROM CustomerCredit WHERE IsActive = 1"
             )
+            cursor.execute(customer_query)
             customers = [
                 {
                     "CustomerID": row["CustomerID"],
                     "CustomerName": row["CustomerName"],
+                    "CustomerNameHindi": row["CustomerNameHindi"] if customer_hindi_column else "",
                     "OutstandingBalance": float(row["OutstandingBalance"] or 0.0),
                 }
                 for row in cursor.fetchall()
@@ -97,22 +123,39 @@ class CallDBService:
 
         try:
             cursor = conn.cursor()
-            cursor.execute(
-                "SELECT ItemID, ItemName, StockQuantity, Price FROM Inventory WHERE IsActive = 1"
+            inventory_columns = self._column_names(cursor, "Inventory")
+            has_hindi = "ItemNameHindi" in inventory_columns
+            query = (
+                "SELECT ItemID, ItemName, StockQuantity, Price"
+                + (", ItemNameHindi" if has_hindi else "")
+                + " FROM Inventory WHERE IsActive = 1"
             )
+            cursor.execute(query)
             items = cursor.fetchall()
             if not items:
                 return None
 
-            # 1. Exact case-insensitive match
+            candidate_normalized = self._normalize_name(candidate_name)
+
+            def names_for(item):
+                names = [item["ItemName"]]
+                if has_hindi and item["ItemNameHindi"]:
+                    names.append(item["ItemNameHindi"])
+                return names
+
+            # 1. Exact or normalized match, including the stored Hindi name.
             for it in items:
-                if it["ItemName"].lower() == clean_name and is_measurement_compatible(it):
-                    return dict(it)
+                for stored_name in names_for(it):
+                    if stored_name.lower() == clean_name or self._normalize_name(stored_name) == candidate_normalized:
+                        if is_measurement_compatible(it):
+                            return dict(it)
 
             # 2. Substring match
             for it in items:
                 if is_measurement_compatible(it) and (
-                    clean_name in it["ItemName"].lower() or it["ItemName"].lower() in clean_name
+                    clean_name in it["ItemName"].lower()
+                    or it["ItemName"].lower() in clean_name
+                    or (has_hindi and it["ItemNameHindi"] and clean_name in it["ItemNameHindi"].lower())
                 ):
                     return dict(it)
 
@@ -120,10 +163,13 @@ class CallDBService:
             if fuzz_process:
                 compatible_items = [it for it in items if is_measurement_compatible(it)]
                 if compatible_items:
-                    name_map = {it["ItemName"]: dict(it) for it in compatible_items}
-                    best_match, score = fuzz_process.extractOne(candidate_name, list(name_map.keys()))
+                    name_map = {}
+                    for it in compatible_items:
+                        for stored_name in names_for(it):
+                            name_map[stored_name] = dict(it)
+                    best_match, score = fuzz_process.extractOne(candidate_normalized, [self._normalize_name(name) for name in name_map])
                     if score >= 65:
-                        return name_map[best_match]
+                        return next((item for name, item in name_map.items() if self._normalize_name(name) == best_match))
 
             return None
         finally:
@@ -514,4 +560,3 @@ class CallDBService:
             return {"status": "success", "action": "inquiry_answered"}
 
         return {"status": "noop", "action": "general_chitchat"}
-

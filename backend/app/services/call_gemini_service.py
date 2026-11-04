@@ -38,11 +38,25 @@ class CallGeminiService:
         store_name: str = "Kirana Store",
     ) -> str:
         inv_str = ", ".join(
-            [f"'{it['ItemName']}' (Price: ₹{it['Price']}, Stock: {it['StockQuantity']})" for it in inventory_items]
+            [
+                (
+                    f"'{it['ItemName']}'"
+                    + (f" / '{it['ItemNameHindi']}'" if it.get('ItemNameHindi') else "")
+                    + f" (Price: ₹{it['Price']}, Stock: {it['StockQuantity']})"
+                )
+                for it in inventory_items
+            ]
         ) or "None"
 
         cust_str = ", ".join(
-            [f"'{c['CustomerName']}' (Udhaar Balance: ₹{c['OutstandingBalance']})" for c in customers]
+            [
+                (
+                    f"'{c['CustomerName']}'"
+                    + (f" / '{c['CustomerNameHindi']}'" if c.get('CustomerNameHindi') else "")
+                    + f" (Udhaar Balance: ₹{c['OutstandingBalance']})"
+                )
+                for c in customers
+            ]
         ) or "None"
 
         return f"""You are the friendly, intelligent AI voice assistant for '{store_name}', a local Indian Kirana (retail & grocery) store.
@@ -209,4 +223,3 @@ You MUST respond strictly in valid JSON matching this exact structure:
             return f"নমস্কার{name_part}! মুদির দোকানে স্বাগতম। আমি আপনাকে কীভাবে সাহায্য করতে পারি?"
         else:
             return f"नमस्ते{name_part}! किराना स्टोर में आपका स्वागत है। बताइए आज क्या सेवा करूँ?"
-

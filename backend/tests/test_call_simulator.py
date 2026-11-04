@@ -108,6 +108,39 @@ class TestCallSimulatorServices(unittest.TestCase):
         self.assertEqual(txn[2], 50.0)
         conn.close()
 
+    def test_execute_order_matches_hindi_alias_and_variant_name(self):
+        conn = sqlite3.connect(self.temp_db_path)
+        conn.execute("ALTER TABLE Inventory ADD COLUMN ItemNameHindi TEXT")
+        conn.execute(
+            "UPDATE Inventory SET ItemNameHindi = CASE ItemName "
+            "WHEN 'Tata Salt 1kg' THEN 'टाटा नमक 1kg' "
+            "WHEN 'Maggi 70g' THEN 'मैगी 70g' END"
+        )
+        conn.commit()
+        conn.close()
+
+        result = self.db_service.execute_order(
+            items=[{"name": "टाटा नमक", "quantity": 1}],
+            payment_mode="cash",
+        )
+        self.assertEqual(result["status"], "success")
+        self.assertEqual(result["items"][0]["item_name"], "Tata Salt 1kg")
+
+    def test_execute_order_matches_short_product_name_with_variant_suffix(self):
+        conn = sqlite3.connect(self.temp_db_path)
+        conn.execute(
+            "UPDATE Inventory SET ItemName = 'Maggi noodles (MRP ₹14)' WHERE ItemName = 'Maggi 70g'"
+        )
+        conn.commit()
+        conn.close()
+
+        result = self.db_service.execute_order(
+            items=[{"name": "Maggi", "quantity": 1}],
+            payment_mode="cash",
+        )
+        self.assertEqual(result["status"], "success")
+        self.assertEqual(result["items"][0]["item_name"], "Maggi noodles (MRP ₹14)")
+
     def test_execute_order_insufficient_stock(self):
         result = self.db_service.execute_order(
             items=[{"name": "Tata Salt 1kg", "quantity": 999}],
@@ -235,4 +268,3 @@ class TestCallSimulatorServices(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
-
