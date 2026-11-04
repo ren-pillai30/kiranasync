@@ -562,7 +562,6 @@ def confirm_transaction():
                 customer_id=(max_id or 0) + 1,
                 store_id=store_id,
                 customer_name=resolved_name,
-                phone_number='',
                 outstanding_balance=amount,
                 is_active=True,
             )
