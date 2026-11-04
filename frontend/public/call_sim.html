@@ -29,7 +29,66 @@
     </div>
   </div>
   <script>
-    const messagesEl = document.getElementById('messages');
+    window.addEventListener('load', () => {
+    // Hide manual input UI – the assistant runs automatically
+    const inputBar = document.querySelector('.input-bar');
+    if (inputBar) inputBar.style.display = 'none';
+    // Keep a conversation history to send to the backend for context
+    let conversationHistory = [];
+    // Automatic assistant loop – no user input needed
+    async function assistantLoop() {
+      // Send empty user_input (or a placeholder) with history for context
+      const payload = {user_input: '', conversation_history: conversationHistory};
+      const resp = await fetch('/api/call/simulate', {
+        method: 'POST',
+        headers: {'Content-Type':'application/json'},
+        body: JSON.stringify(payload)
+      });
+      const data = await resp.json();
+      // Show assistant reply text
+      addMessage(data.reply_text || '[no reply]', false);
+      // Add to history as assistant turn
+      conversationHistory.push({role: 'assistant', text: data.reply_text || ''});
+      // Play TTS if present
+      if (data.audio_base64) {
+        const audio = new Audio('data:' + data.audio_content_type + ';base64,' + data.audio_base64);
+        audio.play();
+        audio.onended = () => setTimeout(assistantLoop, 500);
+      } else {
+        setTimeout(assistantLoop, 1500);
+      }
+    }
+    // Start the automatic conversation when the page loads
+    window.addEventListener('load', () => {
+      assistantLoop();
+    });
+    async function assistantLoop() {
+      // Send empty user_input to get a greeting / next reply
+      const resp = await fetch('/api/call/simulate', {
+        method: 'POST',
+        headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({user_input: ''})
+      });
+      const data = await resp.json();
+      // Show assistant reply text
+      addMessage(data.reply_text || '[no reply]', false);
+      // Play TTS if present
+      if (data.audio_base64) {
+        const audio = new Audio('data:' + data.audio_content_type + ';base64,' + data.audio_base64);
+        audio.play();
+        // When the audio finishes, start the next turn after a short pause
+        audio.onended = () => setTimeout(assistantLoop, 500);
+      } else {
+        // No audio – just wait a moment before next turn
+        setTimeout(assistantLoop, 1500);
+      }
+    }
+    // Start the automatic conversation when the page loads
+    window.addEventListener('load', () => {
+      assistantLoop();
+    });
+  });
+
     const textInput = document.getElementById('textInput');
     const sendBtn = document.getElementById('sendBtn');
     const micBtn = document.getElementById('micBtn');
