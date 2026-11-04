@@ -212,6 +212,9 @@ export default function App() {
         setDbAction({ status: 'pending', message: data.database_action.message });
         return;
       }
+      if (draft?.ItemName) {
+        playVoiceReceipt(data.database_action.speech_message || data.database_action.message);
+      }
       const options =
         draft.PriceOptions ||
         (Number(draft.Price) > 0
