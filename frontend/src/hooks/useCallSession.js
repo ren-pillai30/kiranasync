@@ -1,5 +1,8 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import RecordRTC, { StereoAudioRecorder } from 'recordrtc';
+import { buildRecentCallHistory } from '../utils/callHistory';
+
+const MAX_CALL_AUDIO_BYTES = 4 * 1024 * 1024;
 
 async function readCallResponse(response, fallbackMessage) {
   const contentType = response.headers.get('content-type') || '';
@@ -9,6 +12,9 @@ async function readCallResponse(response, fallbackMessage) {
   try {
     data = JSON.parse(responseText);
   } catch {
+    if (response.status === 413) {
+      throw new Error('Call request is too large. Please record a shorter voice message and try again.');
+    }
     const isHtml = contentType.includes('text/html') || /^\s*<!doctype html|^\s*<html/i.test(responseText);
     if (isHtml) {
       throw new Error(
@@ -383,7 +389,7 @@ export function useCallSession({ onRefreshStore, initialCallerName = 'Ramesh', i
           user_input: text,
           caller_name: callerName,
           language_code: languageCode,
-          conversation_history: transcripts,
+          conversation_history: buildRecentCallHistory(transcripts),
         }),
       })
         .then(async (response) => {
@@ -435,11 +441,17 @@ export function useCallSession({ onRefreshStore, initialCallerName = 'Ramesh', i
       return;
     }
 
+    if (blob.size > MAX_CALL_AUDIO_BYTES) {
+      setSystemNotice('Voice recording is too large to send. Please record a shorter message and try again.');
+      setCallStatus('connected');
+      return;
+    }
+
     const formData = new FormData();
     formData.append('audio', blob, 'call-audio.wav');
     formData.append('caller_name', callerName);
     formData.append('language_code', languageCode);
-    formData.append('conversation_history', JSON.stringify(transcripts));
+    formData.append('conversation_history', JSON.stringify(buildRecentCallHistory(transcripts)));
     try {
       setCallStatus('connecting');
       const response = await fetch('/api/call/http/turn', {
