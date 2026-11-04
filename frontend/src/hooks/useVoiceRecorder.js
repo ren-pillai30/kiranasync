@@ -1,6 +1,7 @@
 import { useState, useRef } from 'react';
 import RecordRTC, { StereoAudioRecorder } from 'recordrtc';
 import { api } from '../services/api';
+import { acquireMicrophoneStream } from '../utils/microphone';
 
 export function useVoiceRecorder({
   selectedLangCode,
@@ -109,10 +110,7 @@ export function useVoiceRecorder({
 
       let stream;
       try {
-        if (!navigator.mediaDevices?.getUserMedia) {
-          throw new Error('Microphone capture is unavailable');
-        }
-        stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        stream = await acquireMicrophoneStream();
       } catch (err) {
         console.warn('Microphone access error:', err);
         setIsRecording(false);
