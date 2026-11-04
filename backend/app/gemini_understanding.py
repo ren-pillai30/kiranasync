@@ -304,7 +304,7 @@ def translate_for_speech(text, language_code, entity_names=None):
 
 
 _TRANSIENT_STATUS_CODES = {408, 429, 500, 502, 503, 504}
-_MAX_ATTEMPTS = 2
+_MAX_ATTEMPTS = 3
 
 SUPPORTED_ACTIONS = {
     "sell",
@@ -430,6 +430,11 @@ def understand_command(transcript, hindi_transcript=None, inventory=None, custom
             )
         except (requests.Timeout, requests.ConnectionError) as exc:
             if attempt == _MAX_ATTEMPTS - 1:
+                logger.warning(
+                    "Gemini command request failed after %s attempts: %s",
+                    attempt + 1,
+                    exc,
+                )
                 raise GeminiUnderstandingError(
                     "Gemini is temporarily unreachable. Please try again; no changes were made."
                 ) from exc

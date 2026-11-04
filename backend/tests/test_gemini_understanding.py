@@ -354,7 +354,7 @@ class GeminiUnderstandingTests(unittest.TestCase):
                 }
             ]
         }
-        post.side_effect = [unavailable, success]
+        post.side_effect = [unavailable, unavailable, success]
 
         result = understand_command("sugar bhej do", None, ["Sugar 1kg"], [])
 
@@ -362,8 +362,11 @@ class GeminiUnderstandingTests(unittest.TestCase):
             result,
             {"action": "sell", "entity": "Sugar 1kg", "quantity": 1},
         )
-        self.assertEqual(post.call_count, 2)
-        sleep.assert_called_once_with(0.5)
+        self.assertEqual(post.call_count, 3)
+        self.assertEqual(
+            [call.args[0] for call in sleep.call_args_list],
+            [0.5, 1.0],
+        )
 
     @patch.dict(os.environ, {"GEMINI_API_KEY": "test-key"})
     @patch("backend.app.gemini_understanding.time.sleep")
@@ -377,8 +380,29 @@ class GeminiUnderstandingTests(unittest.TestCase):
         ):
             understand_command("sugar bhej do", None, ["Sugar 1kg"], [])
 
-        self.assertEqual(post.call_count, 2)
-        self.assertEqual(sleep.call_count, 1)
+        self.assertEqual(post.call_count, 3)
+        self.assertEqual(sleep.call_count, 2)
+
+    @patch.dict(os.environ, {"GEMINI_API_KEY": "test-key"})
+    @patch("backend.app.gemini_understanding.time.sleep")
+    @patch("backend.app.gemini_understanding.requests.post")
+    def test_retries_network_errors_and_logs_exhausted_failure(self, post, sleep):
+        post.side_effect = requests.ConnectionError("connection reset")
+
+        with self.assertLogs(
+            "backend.app.gemini_understanding",
+            level="WARNING",
+        ) as captured_logs:
+            with self.assertRaisesRegex(
+                GeminiUnderstandingError,
+                "temporarily unreachable",
+            ) as raised:
+                understand_command("sugar bhej do", None, ["Sugar 1kg"], [])
+
+        self.assertEqual(post.call_count, 3)
+        self.assertEqual(sleep.call_count, 2)
+        self.assertIsInstance(raised.exception.__cause__, requests.ConnectionError)
+        self.assertIn("connection reset", captured_logs.output[0])
 
     @patch.dict(os.environ, {}, clear=True)
     @patch("backend.app.gemini_understanding.requests.post")
