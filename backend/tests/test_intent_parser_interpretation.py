@@ -6,6 +6,7 @@ from contextlib import closing
 from unittest.mock import patch
 
 from backend.app import intent_parser
+from backend.app.gemini_understanding import GeminiUnderstandingError
 from ddgs.exceptions import DDGSException
 
 
@@ -277,6 +278,50 @@ class IntentParserInterpretationTests(unittest.TestCase):
             ).fetchone()[0]
         self.assertEqual(stock, 100)
         self.assertEqual(transaction_count, 0)
+
+    def test_gemini_unavailable_during_sale_offers_confirmation_instead_of_failing(self):
+        candidate = {
+            "ItemID": 3,
+            "ItemName": "Toothpaste",
+            "StockQuantity": 110,
+            "Price": 33,
+        }
+        with (
+            patch(
+                "backend.app.gemini_understanding.resolve_catalog_entity",
+                side_effect=GeminiUnderstandingError(
+                    "Gemini catalog matching is temporarily unavailable."
+                ),
+            ),
+            patch.object(intent_parser, "match_entity_with_score", return_value=None),
+            patch.object(
+                intent_parser,
+                "find_nearest_inventory_items",
+                return_value=[candidate],
+            ) as nearest_matches,
+        ):
+            result = intent_parser.parse_and_execute(
+                "sell two toothpase",
+                interpretation={
+                    "action": "sell",
+                    "entity": "toothpase",
+                    "quantity": 2,
+                },
+            )
+
+        self.assertEqual(result["status"], "pending_selection")
+        self.assertEqual(result["action"], "select_inventory_item")
+        self.assertTrue(result["draft"]["NearestMatch"])
+        self.assertEqual(result["draft"]["Candidates"], [candidate])
+        nearest_matches.assert_called_once()
+        with closing(sqlite3.connect(self.database_path)) as connection:
+            stock = connection.execute(
+                "SELECT StockQuantity FROM Inventory WHERE ItemName = 'Toothpaste'"
+            ).fetchone()[0]
+            transaction_count = connection.execute(
+                "SELECT COUNT(*) FROM Transactions"
+            ).fetchone()[0]
+        self.assertEqual((stock, transaction_count), (110, 0))
 
     def test_unresolved_hindi_sale_shows_tied_variants_instead_of_guessing(self):
         with closing(sqlite3.connect(self.database_path)) as connection:
