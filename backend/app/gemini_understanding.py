@@ -184,6 +184,7 @@ def understand_command(transcript, hindi_transcript=None, inventory=None, custom
         "- assistant_qa: Answering 2nd-degree analytical questions, store revenue calculations, inventory valuation, profit, top debtor, or business questions. Calculate the exact answer using live_store_kpis and state the exact calculated figures clearly in spoken_response!\n"
         "- unknown: Unintelligible or unrelated input\n\n"
         "Matching rules:\n"
+        "- For names spoken in Hindi/Devanagari or another Indian script, resolve their identity against inventory_items/customer_names and return the exact catalog spelling. Do the same for Latin transliterations. Never preserve a script-only variant when the catalog contains the same entity.\n"
         "- For sell/restock/add_product/remove_product/query_stock, entity must be the best matching inventory item name from the catalog if one matches; otherwise a clean product name.\n"
         "- For multi_sell, populate the 'items' list where each item has 'entity' (product name) and 'quantity' (integer digits as string).\n"
         "- For credit/add_customer/repayment/remove_customer/query_customer, entity must be the best matching customer name from the catalog if one matches; otherwise the customer's name.\n"
