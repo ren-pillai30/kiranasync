@@ -7,6 +7,7 @@ from unittest.mock import ANY, patch
 
 from backend.app import main
 from backend.app import intent_parser
+from backend.app.gemini_understanding import GeminiUnderstandingError
 
 
 class ProcessAudioRouteTests(unittest.TestCase):
@@ -86,6 +87,46 @@ class ProcessAudioRouteTests(unittest.TestCase):
             language_code="hi-IN",
         )
         understand_command.assert_called_once()
+        parse_and_execute.assert_called_once()
+
+    @patch.dict(
+        os.environ,
+        {"GNANI_API_KEY": "test-key", "GEMINI_API_KEY": "test-key"},
+    )
+    @patch("backend.app.services.query_service.QueryService")
+    @patch(
+        "backend.app.main.parse_and_execute",
+        side_effect=GeminiUnderstandingError(
+            "Gemini's API quota or rate limit was reached (429)."
+        ),
+    )
+    @patch("backend.app.main.understand_command")
+    @patch("backend.app.main.transcribe_audio", return_value="मैगी बेच दीजिए")
+    def test_voice_route_surfaces_gemini_catalog_matching_errors(
+        self,
+        transcribe_audio,
+        understand_command,
+        parse_and_execute,
+        query_service,
+    ):
+        understand_command.return_value = {
+            "action": "sell",
+            "entity": "मैगी",
+            "quantity": 2,
+        }
+        query_service.return_value.get_store_kpis.return_value = {}
+
+        response = main.app.test_client().post(
+            "/api/process-audio",
+            data={
+                "audio": (io.BytesIO(b"audio"), "command.wav"),
+                "lang": "hi-IN",
+            },
+            content_type="multipart/form-data",
+        )
+
+        self.assertEqual(response.status_code, 503)
+        self.assertIn("quota or rate limit", response.get_json()["error"])
         parse_and_execute.assert_called_once()
 
 

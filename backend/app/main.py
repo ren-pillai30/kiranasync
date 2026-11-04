@@ -100,18 +100,22 @@ def _process_call_http_turn(audio_file=None):
     db_service = CallDBService()
     gemini_service = CallGeminiService()
     context = db_service.get_store_context()
-    result = process_call_turn(
-        user_utterance=user_input,
-        conversation_history=history_value,
-        inventory_items=context['inventory'],
-        customers=context['customers'],
-        caller_name=caller_name,
-        language_code=language_code,
-        gemini_service=gemini_service,
-        db_service=db_service,
-        pending_action=session.get('call_sim_pending_action'),
-        raw_call_text=f"Call ({caller_name}): {user_input}",
-    )
+    try:
+        result = process_call_turn(
+            user_utterance=user_input,
+            conversation_history=history_value,
+            inventory_items=context['inventory'],
+            customers=context['customers'],
+            caller_name=caller_name,
+            language_code=language_code,
+            gemini_service=gemini_service,
+            db_service=db_service,
+            pending_action=session.get('call_sim_pending_action'),
+            raw_call_text=f"Call ({caller_name}): {user_input}",
+        )
+    except GeminiUnderstandingError as exc:
+        app.logger.warning("Gemini catalog matching failed during call simulation: %s", exc)
+        return jsonify({"status": "error", "error": str(exc)}), 503
     pending_action = result.pop('pending_action', None)
     if pending_action:
         session['call_sim_pending_action'] = pending_action
@@ -938,7 +942,15 @@ def process_audio():
             }), 503
 
         # Execute only after the model's fields have been validated by the parser.
-        db_result = parse_and_execute(raw_transcript, interpretation=interpretation)
+        try:
+            db_result = parse_and_execute(raw_transcript, interpretation=interpretation)
+        except GeminiUnderstandingError as exc:
+            app.logger.warning("Gemini catalog matching failed: %s", exc)
+            return jsonify({
+                "status": "error",
+                "error": str(exc),
+                "transcript": raw_transcript,
+            }), 503
         if isinstance(db_result, dict) and interpretation.get("spoken_response"):
             if db_result.get("action") == "assistant_qa" or not db_result.get("message"):
                 db_result["message"] = interpretation["spoken_response"]

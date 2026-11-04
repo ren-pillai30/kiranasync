@@ -82,9 +82,8 @@ class IntentParserInterpretationTests(unittest.TestCase):
         self.assertEqual((stock, transaction_count), (5, 0))
 
     def test_gemini_resolves_variant_product_for_normal_voice_command(self):
-        with patch.object(
-            intent_parser,
-            "resolve_voice_product",
+        with patch(
+            "backend.app.gemini_understanding.resolve_catalog_entity",
             return_value="Sugar 1kg",
         ):
             result = intent_parser.parse_and_execute(
@@ -127,6 +126,31 @@ class IntentParserInterpretationTests(unittest.TestCase):
         self.assertEqual(result["draft"]["ItemName"], "Maggi 70g")
         self.assertEqual(result["draft"]["Quantity"], 50)
         resolve_entity.assert_called_once()
+        self.assertEqual(resolve_entity.call_args.args[0], "मैगी")
+        self.assertEqual(
+            resolve_entity.call_args.args[3]["raw_transcript"],
+            "पचास मैगी बेच दो",
+        )
+
+    def test_inventory_match_is_attempted_once_for_an_unresolved_voice_product(self):
+        with patch(
+            "backend.app.gemini_understanding.resolve_catalog_entity",
+            return_value=None,
+        ) as resolve_entity:
+            result = intent_parser.parse_and_execute(
+                "७० मैगी बेच २",
+                interpretation={
+                    "action": "sell",
+                    "entity": "मैगी",
+                    "quantity": 2,
+                    "local_translation": "sell 2 Maggi",
+                    "phonetic_english_translation": "Maggi",
+                },
+            )
+
+        self.assertEqual(result["action"], "item_not_found")
+        resolve_entity.assert_called_once()
+        self.assertEqual(resolve_entity.call_args.args[0], "मैगी")
 
     def test_explicit_transcript_quantity_overrides_model_quantity(self):
         result = intent_parser.parse_and_execute(

@@ -2,6 +2,8 @@ import os
 import unittest
 from unittest.mock import patch
 
+import requests
+
 from backend.app.gemini_understanding import (
     GeminiUnderstandingError,
     build_product_mrp_search_query,
@@ -38,9 +40,53 @@ class GeminiUnderstandingTests(unittest.TestCase):
             "Maggi 70g",
         )
         prompt = post.call_args.kwargs["json"]["contents"][0]["parts"][0]["text"]
-        self.assertIn('Translated / phonetic candidate: "50 Maggi sell please"', prompt)
+        self.assertIn('Requested entity: "मैगी"', prompt)
         self.assertIn('Original utterance: "५० मैगी बेच दो"', prompt)
+        self.assertIn('"50 Maggi sell please"', prompt)
         self.assertIn('"Maggi 70g"', prompt)
+
+    @patch.dict(os.environ, {"GEMINI_API_KEY": "test-key", "GOOGLE_API_KEY": ""})
+    @patch("backend.app.gemini_understanding.requests.post")
+    def test_catalog_match_surfaces_gemini_quota_errors(self, post):
+        post.return_value.status_code = 429
+        post.return_value.raise_for_status.side_effect = requests.HTTPError("HTTP 429")
+
+        with self.assertRaisesRegex(GeminiUnderstandingError, "quota or rate limit"):
+            resolve_catalog_entity(
+                "Cereal",
+                ["Cereal 250g"],
+                "product",
+                {"entity": "Cereal"},
+            )
+
+    @patch.dict(os.environ, {"GEMINI_API_KEY": "test-key", "GOOGLE_API_KEY": ""})
+    @patch("backend.app.gemini_understanding.requests.post")
+    def test_catalog_match_uses_parsed_item_not_full_sentence(self, post):
+        post.return_value.raise_for_status.return_value = None
+        post.return_value.json.return_value = {
+            "candidates": [{
+                "content": {
+                    "parts": [{"text": '{"resolved_name":"Cereal 250g"}'}]
+                }
+            }]
+        }
+
+        self.assertEqual(
+            resolve_catalog_entity(
+                "sell two of it",
+                ["Cereal 250g"],
+                "product",
+                {
+                    "entity": "अनाज",
+                    "local_translation": "sell two packets of cereal",
+                    "phonetic_english_translation": "sell two cereal",
+                },
+            ),
+            "Cereal 250g",
+        )
+        prompt = post.call_args.kwargs["json"]["contents"][0]["parts"][0]["text"]
+        self.assertIn('Requested entity: "अनाज"', prompt)
+        self.assertIn('"sell two packets of cereal"', prompt)
 
     @patch.dict(os.environ, {"GEMINI_API_KEY": "test-key", "GOOGLE_API_KEY": ""})
     @patch("backend.app.gemini_understanding.requests.post")

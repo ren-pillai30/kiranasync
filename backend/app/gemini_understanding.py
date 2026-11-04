@@ -1,8 +1,12 @@
 import json
+import logging
 import os
 import re
 import time
 import requests
+
+
+logger = logging.getLogger(__name__)
 
 
 class GeminiUnderstandingError(RuntimeError):
@@ -48,26 +52,25 @@ def resolve_catalog_entity(transcript, catalog, entity_type, translations=None):
     if not api_key:
         return None
 
-    translated_candidates = []
+    entity_candidates = []
     if isinstance(translations, dict):
-        translated_candidates = [
+        entity_candidates = [
             str(translations.get(key) or "").strip()
             for key in (
-                "phonetic_english_translation",
-                "local_translation",
+                "item_transcript",
+                "spoken_name",
                 "entity",
             )
         ]
-    usable_translations = [
-        candidate
-        for candidate in translated_candidates
-        if candidate and candidate.casefold() not in catalog_map
-    ]
-    translated_text = next(
-        (candidate for candidate in usable_translations if re.search(r"[A-Za-z]", candidate)),
-        usable_translations[0] if usable_translations else "",
+    match_text = next(
+        (candidate for candidate in entity_candidates if candidate),
+        str(transcript or "").strip(),
     )
-    match_text = translated_text or str(transcript or "").strip()
+    original_utterance = (
+        translations.get("raw_transcript", transcript)
+        if isinstance(translations, dict)
+        else transcript
+    )
 
     model = get_gemini_model()
     endpoint = (
@@ -77,15 +80,15 @@ def resolve_catalog_entity(transcript, catalog, entity_type, translations=None):
     prompt = (
         "You are an expert Indian retail entity matcher. "
         "Match the spoken/written entity to exactly ONE item from the catalog. "
-        "Use the supplied English/phonetic translation as the primary matching text "
-        "when present, while using the original utterance for context. "
+        "Treat the requested entity as the primary matching text. Use full-utterance "
+        "translations only as additional context, not as the entity itself. "
         "CRITICAL MATCHING RULES:\n"
         "- Match names across languages and writing systems, including phonetic transliterations and synonyms.\n"
         "- Match a product to a catalog entry when the request omits package size, but do not ignore an explicitly requested size that conflicts with the catalog.\n"
         "- Return null in resolved_name ONLY if the item does not exist at all in the catalog. Never invent a product or customer.\n"
         f"Entity type: {entity_type}\n"
-        f"Translated / phonetic candidate: {json.dumps(match_text, ensure_ascii=False)}\n"
-        f"Original utterance: {json.dumps(transcript, ensure_ascii=False)}\n"
+        f"Requested entity: {json.dumps(match_text, ensure_ascii=False)}\n"
+        f"Original utterance: {json.dumps(original_utterance, ensure_ascii=False)}\n"
         f"Context / Translations: {json.dumps(translations or {}, ensure_ascii=False)}\n"
         f"Catalog: {json.dumps(catalog, ensure_ascii=False)}"
     )
@@ -110,11 +113,50 @@ def resolve_catalog_entity(transcript, catalog, entity_type, translations=None):
             json=payload,
             timeout=10,
         )
+    except requests.RequestException as exc:
+        logger.warning("Gemini catalog matching request failed for model %s: %s", model, exc)
+        raise GeminiUnderstandingError(
+            "Gemini catalog matching is temporarily unavailable. Please try again; "
+            "no inventory or account transaction was recorded."
+        ) from exc
+
+    try:
         response.raise_for_status()
+    except requests.RequestException as exc:
+        status_code = response.status_code
+        logger.warning(
+            "Gemini catalog matching failed for model %s with HTTP %s",
+            model,
+            status_code,
+        )
+        if status_code == 429:
+            message = (
+                "Gemini's API quota or rate limit was reached (429). Check the "
+                "Gemini API quota and try again; no inventory or account "
+                "transaction was recorded."
+            )
+        elif status_code in (400, 403):
+            message = (
+                f"Gemini rejected catalog matching (HTTP {status_code}). Check the "
+                "API key, model name, and API access; no inventory or account "
+                "transaction was recorded."
+            )
+        else:
+            message = (
+                f"Gemini catalog matching failed (HTTP {status_code}). Please try "
+                "again; no inventory or account transaction was recorded."
+            )
+        raise GeminiUnderstandingError(message) from exc
+
+    try:
         text = response.json()["candidates"][0]["content"]["parts"][0]["text"]
         resolved = json.loads(text).get("resolved_name")
-    except (requests.RequestException, KeyError, IndexError, TypeError, ValueError):
-        return None
+    except (KeyError, IndexError, TypeError, ValueError) as exc:
+        logger.warning("Gemini returned an unusable catalog-matching response for model %s", model)
+        raise GeminiUnderstandingError(
+            "Gemini returned an unusable catalog match. Please try again; "
+            "no inventory or account transaction was recorded."
+        ) from exc
 
     if isinstance(resolved, str):
         cleaned = resolved.strip()

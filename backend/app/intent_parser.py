@@ -1075,14 +1075,9 @@ def parse_and_execute(raw_transcript, quantity_override=None, interpretation=Non
             "local_translation": interpretation.get("local_translation"),
             "phonetic_english_translation": interpretation.get("phonetic_english_translation"),
         }
-        gemini_item = resolve_catalog_entity(
-            raw_transcript, item_catalog, "product", translations
-        ) if intent in {"sell", "restock", "add_product", "remove_product", "query_stock"} else None
         gemini_customer = resolve_catalog_entity(
             raw_transcript, customer_catalog, "customer", translations
         ) if intent in {"credit", "add_customer", "repayment", "remove_customer", "query_customer"} else None
-        if gemini_item:
-            gemini_item = item_alias_to_canonical.get(gemini_item.casefold(), gemini_item)
         if gemini_customer:
             gemini_customer = customer_alias_to_canonical.get(gemini_customer.casefold(), gemini_customer)
         explicit_quantity = extract_explicit_quantity(raw_transcript)
@@ -1425,43 +1420,17 @@ def parse_and_execute(raw_transcript, quantity_override=None, interpretation=Non
 
             # 2. Gemini entity matching
             if not target_item:
-                target_item = gemini_item
-
-            if not target_item:
-                gemini_res = resolve_catalog_entity(
-                    raw_transcript,
+                gemini_item = resolve_catalog_entity(
+                    clean_translated_entity or raw_transcript,
                     item_catalog,
                     "product",
-                    {
-                        "entity": clean_translated_entity,
-                        "local_translation": interpretation.get("local_translation"),
-                        "phonetic_english_translation": interpretation.get("phonetic_english_translation"),
-                    },
+                    {**translations, "raw_transcript": raw_transcript},
                 )
-                if gemini_res:
-                    target_item = item_alias_to_canonical.get(gemini_res.casefold(), gemini_res)
-
-            if not target_item and clean_translated_entity:
-                gemini_res = resolve_catalog_entity(
-                    clean_translated_entity,
-                    item_catalog,
-                    "product",
-                    {
-                        "raw_transcript": raw_transcript,
-                        "local_translation": interpretation.get("local_translation"),
-                    },
-                )
-                if gemini_res:
-                    target_item = item_alias_to_canonical.get(gemini_res.casefold(), gemini_res)
-
-            if not target_item:
-                target_item = resolve_voice_product(
-                    clean_translated_entity,
-                    raw_transcript,
-                    item_catalog,
-                    item_alias_to_canonical,
-                    translations,
-                )
+                if gemini_item:
+                    target_item = item_alias_to_canonical.get(
+                        gemini_item.casefold(),
+                        gemini_item,
+                    )
 
             # 3. Fuzzy fallback
             if not target_item:
