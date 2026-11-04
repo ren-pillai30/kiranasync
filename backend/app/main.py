@@ -82,16 +82,19 @@ with app.app_context():
         "stores.setup_complete": "BOOLEAN NOT NULL DEFAULT FALSE",
     }
     existing_columns = {
-        column.name
+        column["name"]
         for column in db.inspect(db.engine).get_columns("stores")
     }
     for column_name, definition in column_definitions.items():
         _, column = column_name.split(".", 1)
         if column not in existing_columns:
-            db.session.execute(db.text(
-                f"ALTER TABLE stores ADD COLUMN {column} {definition}"
-            ))
-            db.session.commit()
+            try:
+                with db.engine.begin() as connection:
+                    connection.execute(db.text(
+                        f"ALTER TABLE stores ADD COLUMN {column} {definition}"
+                    ))
+            except Exception:
+                app.logger.exception("Could not add stores.%s during startup", column)
 
 @app.before_request
 def require_authenticated_session():
