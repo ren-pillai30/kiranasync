@@ -195,6 +195,7 @@ def build_product_mrp_search_query(product_name):
         )}]}],
         "generationConfig": {
             "temperature": 0,
+            "maxOutputTokens": 96,
             "responseMimeType": "application/json",
             "responseSchema": {
                 "type": "OBJECT",
@@ -208,7 +209,7 @@ def build_product_mrp_search_query(product_name):
             endpoint,
             headers={"x-goog-api-key": api_key},
             json=payload,
-            timeout=25,
+            timeout=(2, 8),
         )
         response.raise_for_status()
         response_data = response.json()
@@ -245,6 +246,11 @@ def translate_for_speech(text, language_code, entity_names=None):
 
     if language_code == "en-IN":
         return text
+    if language_code == "hi-IN":
+        hindi_letters = sum("\u0900" <= char <= "\u097f" for char in text)
+        latin_letters = sum(char.isascii() and char.isalpha() for char in text)
+        if hindi_letters and hindi_letters >= latin_letters:
+            return text
 
     api_key = get_gemini_api_key()
     if not api_key:
@@ -272,6 +278,7 @@ def translate_for_speech(text, language_code, entity_names=None):
         }],
         "generationConfig": {
             "temperature": 0,
+            "maxOutputTokens": 128,
             "responseMimeType": "application/json",
             "responseSchema": {
                 "type": "OBJECT",
@@ -285,7 +292,7 @@ def translate_for_speech(text, language_code, entity_names=None):
             endpoint,
             headers={"x-goog-api-key": api_key},
             json=payload,
-            timeout=25,
+            timeout=(2, 8),
         )
         response.raise_for_status()
         response_data = response.json()

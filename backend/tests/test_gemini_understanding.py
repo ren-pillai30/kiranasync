@@ -160,6 +160,11 @@ class GeminiUnderstandingTests(unittest.TestCase):
         query = build_product_mrp_search_query("मैगी मसाला 70 ग्राम")
 
         self.assertEqual(query, "Maggi 2 Minute Masala Noodles 70 g MRP India")
+        self.assertEqual(post.call_args.kwargs["timeout"], (2, 8))
+        self.assertEqual(
+            post.call_args.kwargs["json"]["generationConfig"]["maxOutputTokens"],
+            96,
+        )
 
     @patch.dict(os.environ, {"GEMINI_API_KEY": "test-key"})
     @patch("backend.app.gemini_understanding.requests.post")
@@ -192,6 +197,32 @@ class GeminiUnderstandingTests(unittest.TestCase):
         request_text = post.call_args.kwargs["json"]["contents"][0]["parts"][0]["text"]
         self.assertIn("hi-IN", request_text)
         self.assertIn("Sugar: 5 in stock.", request_text)
+        self.assertEqual(post.call_args.kwargs["timeout"], (2, 8))
+
+    @patch.dict(os.environ, {"GEMINI_API_KEY": "test-key"})
+    @patch("backend.app.gemini_understanding.requests.post")
+    def test_skips_translation_when_response_is_already_in_hindi(self, post):
+        response = "चीनी के 5 पैकेट बचे हैं।"
+
+        self.assertEqual(translate_for_speech(response, "hi-IN"), response)
+        post.assert_not_called()
+
+    @patch.dict(os.environ, {"GEMINI_API_KEY": "test-key"})
+    @patch("backend.app.gemini_understanding.requests.post")
+    def test_translates_english_response_with_hindi_entity(self, post):
+        post.return_value.raise_for_status.return_value = None
+        post.return_value.json.return_value = {
+            "candidates": [{
+                "content": {
+                    "parts": [{"text": '{"translation":"चीनी के 5 पैकेट बचे हैं।"}'}]
+                }
+            }]
+        }
+
+        result = translate_for_speech("Added चीनी: 5 in stock.", "hi-IN")
+
+        self.assertEqual(result, "चीनी के 5 पैकेट बचे हैं।")
+        post.assert_called_once()
 
     @patch("backend.app.gemini_understanding.requests.post")
     def test_does_not_translate_english_response(self, post):

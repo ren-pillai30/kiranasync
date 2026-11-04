@@ -687,6 +687,26 @@ class IntentParserInterpretationTests(unittest.TestCase):
         self.assertEqual(ddgs.text.call_args.kwargs["max_results"], 5)
         self.assertEqual(ddgs.text.call_args.args[0], '"New Tea" MRP India')
 
+    @patch.object(intent_parser, "build_product_mrp_search_query")
+    @patch.object(intent_parser, "DDGS")
+    def test_hindi_product_lookup_uses_gemini_normalized_search_name(
+        self, ddgs_class, build_query
+    ):
+        build_query.return_value = "Surf Excel 1 kg MRP India"
+        ddgs = ddgs_class.return_value.__enter__.return_value
+        ddgs.text.side_effect = [[{
+            "title": "Surf Excel Detergent Powder 1 kg MRP ₹125",
+            "body": "Pack of 1 kg",
+            "href": "https://example.test/surf-excel",
+        }], []]
+
+        result = intent_parser.search_product_online("सर्फ़ एक्सेल 1 किलो")
+
+        build_query.assert_called_once_with("सर्फ़ एक्सेल 1 किलो")
+        self.assertEqual(ddgs.text.call_args_list[0].args[0], '"Surf Excel 1 kg" MRP India')
+        self.assertEqual(result["Price"], 125)
+        self.assertTrue(result["PriceIsMRP"])
+
     @patch.object(intent_parser, "DDGS")
     def test_web_lookup_excludes_unrelated_sources_and_prices(self, ddgs_class):
         ddgs = ddgs_class.return_value.__enter__.return_value

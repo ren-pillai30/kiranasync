@@ -34,6 +34,7 @@ from backend.app.measurement_utils import (
     analyze_measurement_matches,
     check_inventory_item_measurement_mismatch,
 )
+from backend.app.gemini_understanding import build_product_mrp_search_query
 
 try:
     from ddgs import DDGS
@@ -275,10 +276,23 @@ def search_product_online(clean_item_name):
             "SearchQuery": "",
         }
 
+    if any(not character.isascii() and character.isalpha() for character in product_name):
+        search_product_name = (
+            build_product_mrp_search_query(product_name) or normalized_search_name
+        )
+        search_product_name = re.sub(
+            r"\s+(?:mrp(?:\s+india)?|india\s+mrp)$",
+            "",
+            search_product_name,
+            flags=re.IGNORECASE,
+        ).strip()
+
     normalized_query_name = re.sub(
         r"\band\b", "&", search_product_name, flags=re.IGNORECASE
     )
     query_names = [search_product_name, normalized_query_name]
+    if search_product_name != corrected_name:
+        query_names.append(corrected_name)
     if normalized_search_name and normalized_search_name.casefold() not in {
         name.casefold() for name in query_names
     }:
@@ -348,9 +362,17 @@ def search_product_online(clean_item_name):
         "pack", "packet", "piece", "pieces", "product", "products",
         "biscuit", "biscuits", "snack", "snacks", "brand",
     }
+    search_name_for_matching = re.sub(
+        r"\s+(?:mrp(?:\s+india)?|india\s+mrp)$",
+        "",
+        search_product_name,
+        flags=re.IGNORECASE,
+    )
     requested_tokens = {
         token
-        for token in normalize_entity_name(strip_measurement(corrected_name)).split()
+        for token in normalize_entity_name(
+            strip_measurement(search_name_for_matching)
+        ).split()
         if token not in ignored_name_tokens and (len(token) > 1 or token.isdigit())
     }
 
