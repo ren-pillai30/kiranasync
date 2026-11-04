@@ -394,6 +394,7 @@ export default function App() {
           onRefreshStore={refreshAll}
           onOpenBill={(data) => handleOpenBill(data)}
           existingCustomers={credit}
+          nameDisplayMode={nameDisplayMode}
         />
 
         <BillModal
@@ -420,6 +421,7 @@ export default function App() {
           isOpen={showBarcodeModal}
           onClose={() => setShowBarcodeModal(false)}
           inventory={inventory}
+          nameDisplayMode={nameDisplayMode}
           onAddToBill={(data) => handleOpenBill(data)}
           onQuickSell={handleQuickSellFromBarcode}
           onRefreshAll={refreshAll}
@@ -435,6 +437,7 @@ export default function App() {
 
         <ProductConfirmModal
           pendingDraft={actions.pendingDraft}
+          nameDisplayMode={nameDisplayMode}
           setPendingDraft={actions.setPendingDraft}
           confirmationError={actions.confirmationError}
           setConfirmationError={actions.setConfirmationError}
@@ -449,6 +452,7 @@ export default function App() {
             actions.setConfirmationError('');
           }}
           t={t}
+          nameDisplayMode={nameDisplayMode}
         />
 
         <ItemChoiceModal
@@ -468,6 +472,9 @@ export default function App() {
 
         <TransactionConfirmModal
           pendingTransaction={actions.pendingTransaction}
+          inventory={inventory}
+          credit={credit}
+          nameDisplayMode={nameDisplayMode}
           confirmationError={actions.confirmationError}
           onConfirm={actions.confirmTransaction}
           onCancel={() => {

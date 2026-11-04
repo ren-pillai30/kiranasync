@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { api } from "../../services/api";
+import { getEntityName } from "../../utils/entityNames";
 
 export default function BarcodeScannerModal({
   isOpen,
@@ -9,6 +10,7 @@ export default function BarcodeScannerModal({
   onAddToBill,
   onQuickSell,
   onRefreshAll,
+  nameDisplayMode = "en",
 }) {
   const [barcodeInput, setBarcodeInput] = useState("");
   const [loading, setLoading] = useState(false);
@@ -153,7 +155,7 @@ export default function BarcodeScannerModal({
                        Product Found
                     </span>
                     <h4 className="text-sm font-black text-stone-900 mt-0.5">
-                      {matchedItem.ItemName}
+                      {getEntityName(matchedItem, nameDisplayMode)}
                     </h4>
                   </div>
                   <span className="text-base font-black text-emerald-900 tabular-nums">
@@ -237,7 +239,7 @@ export default function BarcodeScannerModal({
                       <option value="">Select product to link...</option>
                       {inventory.map((inv) => (
                         <option key={inv.ItemID} value={inv.ItemID}>
-                          {inv.ItemName} (₹{inv.Price})
+                          {getEntityName(inv, nameDisplayMode)} (₹{inv.Price})
                         </option>
                       ))}
                     </select>

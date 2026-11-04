@@ -1,19 +1,27 @@
 import { AnimatePresence, motion } from 'framer-motion';
+import { getEntityName } from '../../utils/entityNames';
 
 export default function TransactionConfirmModal({
   pendingTransaction,
   onConfirm,
   onCancel,
   confirmationError,
+  inventory = [],
+  credit = [],
+  nameDisplayMode = 'en',
 }) {
   if (!pendingTransaction) return null;
 
   const isCredit = pendingTransaction.Intent === 'credit';
+  const customer = credit.find((entry) => entry.CustomerName === pendingTransaction.CustomerName);
+  const item = inventory.find((entry) => entry.ItemName === pendingTransaction.ItemName);
+  const customerName = customer ? getEntityName(customer, nameDisplayMode, 'CustomerName', 'CustomerNameHindi') : pendingTransaction.CustomerName;
+  const itemName = item ? getEntityName(item, nameDisplayMode) : pendingTransaction.ItemName;
   const summary = isCredit
-    ? `Add Rs ${pendingTransaction.Amount} to ${pendingTransaction.CustomerName}?`
+    ? `Add Rs ${pendingTransaction.Amount} to ${customerName}?`
     : pendingTransaction.Intent === 'sell'
-      ? `Sell ${pendingTransaction.Quantity} ${pendingTransaction.ItemName}?`
-      : `Restock ${pendingTransaction.Quantity} ${pendingTransaction.ItemName}?`;
+      ? `Sell ${pendingTransaction.Quantity} ${itemName}?`
+      : `Restock ${pendingTransaction.Quantity} ${itemName}?`;
 
   return (
     <AnimatePresence>

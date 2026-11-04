@@ -2,6 +2,7 @@ import { useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { INDIAN_LANGUAGES } from '../constants/languages';
 import { useCallSession } from '../hooks/useCallSession';
+import { getEntityName } from '../utils/entityNames';
                 <span aria-hidden="true" />
 const SAMPLE_PROMPTS = [
   { label: 'Check Maggi stock', text: 'Maggi ka kitna stock hai aur price kya hai?' },
@@ -13,7 +14,7 @@ const SAMPLE_PROMPTS = [
   { label: 'Customer Repayment', text: 'Ramesh ne 100 rupaye jama kar diye hain.' },
 ];
 
-export default function CallSimulator({ isOpen, onClose, onRefreshStore, onOpenBill, existingCustomers = [] }) {
+export default function CallSimulator({ isOpen, onClose, onRefreshStore, onOpenBill, existingCustomers = [], nameDisplayMode = 'en' }) {
   const {
     callActive,
     callStatus,
@@ -133,7 +134,7 @@ export default function CallSimulator({ isOpen, onClose, onRefreshStore, onOpenB
                   </option>
                   {existingCustomers.map((c) => (
                     <option key={c.CustomerID} value={c.CustomerName}>
-                      {c.CustomerName} (₹{c.OutstandingBalance})
+                      {getEntityName(c, nameDisplayMode, 'CustomerName', 'CustomerNameHindi')} (₹{c.OutstandingBalance})
                     </option>
                   ))}
                 </select>

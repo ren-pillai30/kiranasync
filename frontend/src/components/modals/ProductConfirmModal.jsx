@@ -4,6 +4,7 @@ import LoadingSpinner from '../LoadingSpinner';
 
 export default function ProductConfirmModal({
   pendingDraft,
+  nameDisplayMode = 'en',
   setPendingDraft,
   confirmationError,
   setConfirmationError,
@@ -54,11 +55,13 @@ export default function ProductConfirmModal({
                 <input
                   type="text"
                   className="w-full bg-[#FFFDF9] text-stone-900 p-2.5 rounded-xl mt-1 border border-[#D8CEBA] focus:border-[#991B1B] focus:ring-2 focus:ring-[#991B1B]/20 outline-none text-sm font-semibold transition-all"
-                  value={pendingDraft.ItemName}
+                  value={nameDisplayMode === 'hi' && pendingDraft.ItemNameHindi
+                    ? pendingDraft.ItemNameHindi
+                    : pendingDraft.ItemName}
                   onChange={(e) => {
                     setPendingDraft({
                       ...pendingDraft,
-                      ItemName: e.target.value,
+                      [nameDisplayMode === 'hi' ? 'ItemNameHindi' : 'ItemName']: e.target.value,
                       Price: null,
                       PriceFound: false,
                       PriceIsMRP: false,

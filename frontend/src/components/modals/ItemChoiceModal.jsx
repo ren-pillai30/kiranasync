@@ -1,4 +1,5 @@
 import { motion, AnimatePresence } from 'framer-motion';
+import { getEntityName } from '../../utils/entityNames';
 
 export default function ItemChoiceModal({
   pendingItemChoice,
@@ -9,6 +10,7 @@ export default function ItemChoiceModal({
   onAddNewProduct,
   onCancel,
   t,
+  nameDisplayMode = 'en',
 }) {
   return (
     <AnimatePresence>
@@ -71,7 +73,7 @@ export default function ItemChoiceModal({
                     className="mt-1 accent-[#991B1B]"
                   />
                   <span className="flex-1">
-                    <span className="block font-bold text-stone-900 text-sm">{item.ItemName}</span>
+                    <span className="block font-bold text-stone-900 text-sm">{getEntityName(item, nameDisplayMode)}</span>
                     <span className="block text-xs font-medium text-[#78716C] mt-0.5">
                       ₹{Number(item.Price).toLocaleString('en-IN')} · {t.availableStock}:{' '}
                       <span className="font-mono font-bold text-stone-800">{item.StockQuantity}</span>
