@@ -2,10 +2,12 @@ import io
 import json
 import unittest
 import asyncio
+from types import SimpleNamespace
 from unittest.mock import patch
 
 from backend.app.main import app
 from backend.app.routers import call_router
+from backend.app.services.call_db_service import CallDBService
 
 
 class CallSimulatorConfirmationRouteTests(unittest.TestCase):
@@ -19,6 +21,81 @@ class CallSimulatorConfirmationRouteTests(unittest.TestCase):
             TESTING=self.previous_testing,
             LOGIN_DISABLED=self.previous_login_disabled,
         )
+
+    def test_postgres_call_context_uses_current_store_inventory(self):
+        from backend.app.models import StoreCredit, StoreInventory
+
+        with app.app_context(), patch(
+            "backend.app.services.call_db_service.is_postgres_database",
+            return_value=True,
+        ), patch("backend.app.models.StoreInventory.query") as inventory_query, patch(
+            "backend.app.models.StoreCredit.query"
+        ) as customer_query:
+            inventory_query.filter_by.return_value.order_by.return_value.all.return_value = [
+                SimpleNamespace(
+                    item_id=3,
+                    item_name="Chocos (MRP ₹10)",
+                    item_name_hindi="चोकोस",
+                    stock_quantity=80,
+                    price=10,
+                )
+            ]
+            customer_query.filter_by.return_value.order_by.return_value.all.return_value = []
+            service = CallDBService(store_id=42)
+            context = service.get_store_context()
+
+        self.assertEqual(context["inventory"][0]["ItemName"], "Chocos (MRP ₹10)")
+        self.assertEqual(context["inventory"][0]["ItemNameHindi"], "चोकोस")
+        self.assertEqual(context["inventory"][0]["StockQuantity"], 80)
+        inventory_query.filter_by.assert_called_once_with(store_id=42, is_active=True)
+
+    def test_postgres_confirmed_call_order_writes_to_current_store(self):
+        from backend.app.database import db
+        from backend.app.models import StoreInventory
+
+        with app.app_context():
+            service = CallDBService(store_id=42)
+            service.use_postgres = True
+            inventory_item = SimpleNamespace(
+                item_id=3,
+                item_name="Chocos (MRP ₹10)",
+                stock_quantity=80,
+            )
+            with patch.object(
+                service,
+                "match_inventory_item",
+                return_value={
+                    "ItemID": 3,
+                    "ItemName": "Chocos (MRP ₹10)",
+                    "StockQuantity": 80,
+                    "Price": 10,
+                },
+            ), patch.object(
+                service, "_record_postgres_transaction"
+            ) as record_transaction, patch.object(
+                db.session, "commit"
+            ) as commit, patch.object(
+                db.session, "rollback"
+            ) as rollback, patch(
+                "backend.app.models.StoreInventory.query"
+            ) as inventory_query:
+                inventory_query.filter_by.return_value.with_for_update.return_value.first.return_value = inventory_item
+                result = service.execute_order(
+                    [{"name": "Chocos", "quantity": 10}],
+                    raw_call_text="Call order: 10 packets Chocos",
+                )
+
+        self.assertEqual(result["status"], "success")
+        self.assertEqual(result["items"][0]["item_name"], "Chocos (MRP ₹10)")
+        self.assertEqual(inventory_item.stock_quantity, 70)
+        inventory_query.filter_by.assert_called_once_with(
+            store_id=42,
+            item_id=3,
+            is_active=True,
+        )
+        record_transaction.assert_called_once()
+        commit.assert_called_once()
+        rollback.assert_not_called()
 
     @patch("backend.app.services.gnani_service.GnaniService")
     @patch("backend.app.services.call_db_service.CallDBService")
@@ -56,39 +133,44 @@ class CallSimulatorConfirmationRouteTests(unittest.TestCase):
         }
         gnani_class.return_value.synthesize_speech.return_value = (b"audio", "audio/wav")
 
-        with app.test_client() as client:
-            response = client.post(
-                "/api/call/turn",
-                json={
-                    "user_input": "Sell two Maggi",
-                    "caller_name": "Ramesh",
-                    "language_code": "en-IN",
-                    "conversation_history": [],
-                },
-            )
-            self.assertEqual(response.status_code, 200)
-            pending = response.get_json()
-            self.assertTrue(pending["confirmation_required"])
-            self.assertEqual(pending["transcript_text"], "Sell two Maggi")
-            self.assertEqual(pending["audio_base64"], "YXVkaW8=")
-            self.assertEqual(pending["audio_content_type"], "audio/wav")
-            db.execute_action.assert_not_called()
+        with patch("backend.app.main.current_store_id", return_value=42):
+            with app.test_client() as client:
+                response = client.post(
+                    "/api/call/turn",
+                    json={
+                        "user_input": "Sell two Maggi",
+                        "caller_name": "Ramesh",
+                        "language_code": "en-IN",
+                        "conversation_history": [],
+                    },
+                )
+                self.assertEqual(response.status_code, 200)
+                pending = response.get_json()
+                self.assertTrue(pending["confirmation_required"])
+                self.assertEqual(pending["transcript_text"], "Sell two Maggi")
+                self.assertEqual(pending["audio_base64"], "YXVkaW8=")
+                self.assertEqual(pending["audio_content_type"], "audio/wav")
+                db.execute_action.assert_not_called()
 
-            confirmation = client.post(
-                "/api/call/turn",
-                json={
-                    "user_input": "Yes, go ahead",
-                    "caller_name": "Ramesh",
-                    "language_code": "en-IN",
-                    "conversation_history": [],
-                },
-            )
+                confirmation = client.post(
+                    "/api/call/turn",
+                    json={
+                        "user_input": "Yes, go ahead",
+                        "caller_name": "Ramesh",
+                        "language_code": "en-IN",
+                        "conversation_history": [],
+                    },
+                )
 
         self.assertEqual(confirmation.status_code, 200)
         completed = confirmation.get_json()
         self.assertFalse(completed["confirmation_required"])
         self.assertEqual(completed["db_result"]["status"], "success")
         db.execute_action.assert_called_once()
+        self.assertEqual(
+            [call_args.kwargs for call_args in db_class.call_args_list],
+            [{"store_id": 42}, {"store_id": 42}],
+        )
 
     @patch("backend.app.services.gnani_service.GnaniService")
     @patch("backend.app.services.call_db_service.CallDBService")

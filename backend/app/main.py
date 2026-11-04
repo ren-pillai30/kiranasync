@@ -98,7 +98,7 @@ def _process_call_http_turn(audio_file=None):
         if not user_input:
             return jsonify({'status': 'error', 'error': 'Enter or record a call message.'}), 400
 
-    db_service = CallDBService()
+    db_service = CallDBService(store_id=current_store_id())
     gemini_service = CallGeminiService()
     context = db_service.get_store_context()
     try:
