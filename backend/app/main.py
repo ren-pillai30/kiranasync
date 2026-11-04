@@ -987,6 +987,223 @@ def build_postgres_voice_sale_result(interpretation, raw_transcript, inventory):
     }
 
 
+def build_postgres_voice_customer_result(interpretation, raw_transcript, customers):
+    action = interpretation.get("action")
+    if action not in {"credit", "query_customer", "repayment", "add_customer", "remove_customer"}:
+        return None
+
+    entity = str(interpretation.get("entity") or "").strip()
+    if not entity:
+        return {
+            "status": "failed",
+            "action": "entity_unrecognized",
+            "message": "Could not identify the customer. No account was changed.",
+        }
+
+    from backend.app.database import db
+    from backend.app.gemini_understanding import resolve_catalog_entity
+    from backend.app.models import StoreCredit, StoreTransaction
+
+    alias_to_customers = {}
+    for customer in customers:
+        for alias in (customer.customer_name, customer.customer_name_hindi):
+            if alias and alias.strip():
+                alias_to_customers.setdefault(alias.strip().casefold(), {})[
+                    customer.customer_id
+                ] = customer
+
+    unique_aliases = {
+        alias: next(iter(records.values()))
+        for alias, records in alias_to_customers.items()
+        if len(records) == 1
+    }
+    matched_customer = unique_aliases.get(entity.casefold())
+    if not matched_customer and unique_aliases:
+        resolved_alias = resolve_catalog_entity(
+            entity,
+            list(unique_aliases),
+            "customer",
+            {
+                "entity": entity,
+                "raw_transcript": raw_transcript,
+                "local_translation": interpretation.get("local_translation"),
+                "phonetic_english_translation": interpretation.get(
+                    "phonetic_english_translation"
+                ),
+            },
+        )
+        if resolved_alias:
+            matched_customer = unique_aliases.get(resolved_alias.casefold())
+
+    if action == "query_customer":
+        if not matched_customer:
+            return {
+                "status": "failed",
+                "action": "query_customer",
+                "message": f"Customer '{entity}' not found.",
+                "data": {"found": False, "message": f"Customer '{entity}' not found."},
+            }
+        balance = float(matched_customer.outstanding_balance or 0)
+        data = {
+            "found": True,
+            "ambiguous": False,
+            "CustomerID": matched_customer.customer_id,
+            "CustomerName": matched_customer.customer_name,
+            "OutstandingBalance": balance,
+            "message": (
+                f"{matched_customer.customer_name} has an outstanding balance "
+                f"of ₹{balance:g}."
+            ),
+        }
+        return {
+            "status": "success",
+            "action": "query_customer",
+            "message": data["message"],
+            "data": data,
+        }
+
+    if action == "add_customer":
+        if matched_customer:
+            return {
+                "status": "failed",
+                "action": "customer_already_exists",
+                "message": f"{matched_customer.customer_name} is already in the active customer list.",
+            }
+        store_id = current_store_id()
+        max_customer_id = db.session.query(
+            db.func.max(StoreCredit.customer_id)
+        ).filter_by(store_id=store_id).scalar() or 0
+        db.session.add(StoreCredit(
+            store_id=store_id,
+            customer_id=max_customer_id + 1,
+            customer_name=entity,
+            outstanding_balance=0,
+            is_active=True,
+        ))
+        db.session.commit()
+        return {
+            "status": "success",
+            "action": "customer_added",
+            "message": f"Added {entity} to the active customer list.",
+        }
+
+    if action == "credit":
+        amount = extract_explicit_quantity(raw_transcript)
+        if amount is None:
+            try:
+                amount = float(interpretation.get("quantity"))
+            except (TypeError, ValueError):
+                amount = 0
+        if amount <= 0:
+            return {
+                "status": "failed",
+                "action": "quantity_unrecognized",
+                "message": "Could not recognize the amount. Please repeat it clearly.",
+            }
+        customer_name = matched_customer.customer_name if matched_customer else entity
+        return {
+            "status": "pending_confirmation",
+            "action": "confirm_credit",
+            "message": f"Confirm adding Rs {amount:g} to {customer_name}.",
+            "draft": {
+                "Intent": "credit",
+                "CustomerName": customer_name,
+                "Amount": amount,
+                "RawCommand": raw_transcript,
+            },
+        }
+
+    if not matched_customer:
+        return {
+            "status": "failed",
+            "action": "entity_not_found",
+            "message": f"Customer '{entity}' was not found in records.",
+        }
+
+    if action == "remove_customer":
+        if float(matched_customer.outstanding_balance or 0) <= 0:
+            matched_customer.is_active = False
+            db.session.commit()
+            return {
+                "status": "success",
+                "action": "customer_archived",
+                "message": f"Archived {matched_customer.customer_name} from the active udhaar list.",
+            }
+        return {
+            "status": "pending_confirmation",
+            "action": "archive_entity",
+            "message": (
+                f"Confirm removal of {matched_customer.customer_name} "
+                "from the active udhaar list."
+            ),
+            "draft": {
+                "EntityType": "Customer",
+                "EntityID": matched_customer.customer_id,
+                "EntityName": matched_customer.customer_name,
+                "QuantityOrBalance": matched_customer.outstanding_balance,
+                "Reason": interpretation.get("reason", ""),
+                "RawCommand": raw_transcript,
+            },
+        }
+
+    amount = extract_explicit_quantity(raw_transcript)
+    if amount is None:
+        try:
+            amount = float(interpretation.get("quantity"))
+        except (TypeError, ValueError):
+            amount = 0
+    if amount <= 0:
+        return {
+            "status": "failed",
+            "action": "quantity_unrecognized",
+            "message": "Could not recognize a positive repayment amount.",
+        }
+
+    store_id = current_store_id()
+    customer = StoreCredit.query.filter_by(
+        store_id=store_id,
+        customer_id=matched_customer.customer_id,
+        is_active=True,
+    ).with_for_update().first()
+    if not customer:
+        return {
+            "status": "failed",
+            "action": "entity_not_found",
+            "message": f"Customer '{entity}' is no longer active.",
+        }
+    customer.outstanding_balance = max(
+        0.0,
+        float(customer.outstanding_balance or 0) - amount,
+    )
+    new_balance = float(customer.outstanding_balance)
+    max_txn_id = db.session.query(
+        db.func.max(StoreTransaction.txn_id)
+    ).filter_by(store_id=store_id).scalar() or 0
+    db.session.add(StoreTransaction(
+        store_id=store_id,
+        txn_id=max_txn_id + 1,
+        command_text=(raw_transcript or f"Repayment Rs {amount:g} by {customer.customer_name}")[:1000],
+        total_amount=-amount,
+        transaction_type="Repayment",
+        entity_name=customer.customer_name,
+        quantity=None,
+    ))
+    db.session.commit()
+    return {
+        "status": "success",
+        "action": "repayment_recorded",
+        "message": (
+            f"Recorded Rs {amount:g} repayment from {customer.customer_name}. "
+            f"Remaining balance: Rs {new_balance:g}."
+        ),
+        "data": {
+            "CustomerName": customer.customer_name,
+            "Amount": amount,
+            "NewBalance": new_balance,
+        },
+    }
+
+
 @app.route('/api/process-audio', methods=['POST'])
 def process_audio():
     import tempfile
@@ -1142,6 +1359,18 @@ def process_audio():
                     interpretation,
                     raw_transcript,
                     postgres_inventory,
+                )
+            elif postgres_inventory is not None and interpretation.get("action") in {
+                "credit",
+                "query_customer",
+                "repayment",
+                "add_customer",
+                "remove_customer",
+            }:
+                db_result = build_postgres_voice_customer_result(
+                    interpretation,
+                    raw_transcript,
+                    postgres_customers,
                 )
             else:
                 db_result = parse_and_execute(raw_transcript, interpretation=interpretation)

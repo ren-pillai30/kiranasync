@@ -18,7 +18,8 @@ class ProcessAudioRouteTests(unittest.TestCase):
         self.database_file = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
         self.database_path = self.database_file.name
         self.database_file.close()
-        with sqlite3.connect(self.database_path) as connection:
+        connection = sqlite3.connect(self.database_path)
+        try:
             connection.executescript(
                 """
                 CREATE TABLE Inventory (
@@ -35,6 +36,8 @@ class ProcessAudioRouteTests(unittest.TestCase):
                 );
                 """
             )
+        finally:
+            connection.close()
         self.database_patch = patch.object(intent_parser, "DB_PATH", self.database_path)
         self.database_patch.start()
 
@@ -103,6 +106,126 @@ class ProcessAudioRouteTests(unittest.TestCase):
             ["मैगी (MRP ₹14)"],
         )
         parse_and_execute.assert_not_called()
+
+    def test_postgres_voice_credit_uses_store_customer_and_requires_confirmation(self):
+        from backend.app.models import StoreCredit, StoreInventory
+
+        with (
+            main.app.app_context(),
+            patch.dict(
+                os.environ,
+                {"GNANI_API_KEY": "test-key", "GEMINI_API_KEY": "test-key"},
+            ),
+            patch("backend.app.main.is_postgres_database", return_value=True),
+            patch("backend.app.main.current_store_id", return_value=7),
+            patch(
+                "backend.app.main.transcribe_audio",
+                return_value="100 रुपये रमेश के खाते में जोड़ो",
+            ),
+            patch("backend.app.main.understand_command") as understand_command,
+            patch("backend.app.main.parse_and_execute") as parse_and_execute,
+            patch("backend.app.models.StoreInventory.query") as inventory_query,
+            patch("backend.app.models.StoreCredit.query") as customer_query,
+        ):
+            understand_command.return_value = {
+                "action": "credit",
+                "entity": "रमेश",
+                "quantity": "100",
+            }
+            inventory_query.filter_by.return_value.order_by.return_value.all.return_value = []
+            customer_query.filter_by.return_value.order_by.return_value.all.return_value = [
+                SimpleNamespace(
+                    customer_id=4,
+                    customer_name="Ramesh",
+                    customer_name_hindi="रमेश",
+                    outstanding_balance=250,
+                )
+            ]
+
+            response = main.app.test_client().post(
+                "/api/process-audio",
+                data={
+                    "audio": (io.BytesIO(b"audio"), "command.wav"),
+                    "lang": "hi-IN",
+                },
+                content_type="multipart/form-data",
+            )
+
+        self.assertEqual(response.status_code, 200)
+        database_action = response.get_json()["database_action"]
+        self.assertEqual(database_action["status"], "pending_confirmation")
+        self.assertEqual(database_action["action"], "confirm_credit")
+        self.assertEqual(database_action["draft"]["CustomerName"], "Ramesh")
+        self.assertEqual(database_action["draft"]["Amount"], 100)
+        self.assertEqual(understand_command.call_args.kwargs["customers"], ["Ramesh", "रमेश"])
+        parse_and_execute.assert_not_called()
+
+    def test_postgres_voice_customer_query_uses_hindi_alias(self):
+        customer = SimpleNamespace(
+            customer_id=4,
+            customer_name="Ramesh",
+            customer_name_hindi="रमेश",
+            outstanding_balance=250,
+        )
+        with (
+            patch("backend.app.main.current_store_id", return_value=7),
+            patch(
+                "backend.app.gemini_understanding.resolve_catalog_entity"
+            ) as resolve_entity,
+        ):
+            result = main.build_postgres_voice_customer_result(
+                {"action": "query_customer", "entity": "रमेश"},
+                "रमेश का उधार कितना है",
+                [customer],
+            )
+
+        self.assertEqual(result["status"], "success")
+        self.assertEqual(result["data"]["CustomerName"], "Ramesh")
+        self.assertEqual(result["data"]["OutstandingBalance"], 250)
+        resolve_entity.assert_not_called()
+
+    def test_postgres_voice_repayment_updates_customer_and_ledger(self):
+        from backend.app.database import db
+        from backend.app.models import StoreCredit, StoreTransaction
+
+        customer = SimpleNamespace(
+            customer_id=4,
+            customer_name="Ramesh",
+            customer_name_hindi="रमेश",
+            outstanding_balance=250.0,
+            is_active=True,
+        )
+        with (
+            main.app.app_context(),
+            patch("backend.app.main.current_store_id", return_value=7),
+            patch("backend.app.models.StoreCredit.query") as customer_query,
+            patch("backend.app.main.db.session.query") as session_query,
+            patch("backend.app.main.db.session.add") as session_add,
+            patch("backend.app.main.db.session.commit") as session_commit,
+        ):
+            customer_query.filter_by.return_value.with_for_update.return_value.first.return_value = customer
+            session_query.return_value.filter_by.return_value.scalar.return_value = 9
+            result = main.build_postgres_voice_customer_result(
+                {"action": "repayment", "entity": "रमेश", "quantity": "100"},
+                "Ramesh paid 100 rupees",
+                [customer],
+            )
+
+        self.assertEqual(result["status"], "success")
+        self.assertEqual(result["action"], "repayment_recorded")
+        self.assertEqual(customer.outstanding_balance, 150)
+        session_add.assert_called_once()
+        transaction = session_add.call_args.args[0]
+        self.assertEqual(transaction.store_id, 7)
+        self.assertEqual(transaction.txn_id, 10)
+        self.assertEqual(transaction.transaction_type, "Repayment")
+        self.assertEqual(transaction.total_amount, -100)
+        session_commit.assert_called_once()
+        customer_query.filter_by.assert_called_once_with(
+            store_id=7,
+            customer_id=4,
+            is_active=True,
+        )
 
     @patch.dict(
         os.environ,
