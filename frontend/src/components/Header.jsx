@@ -16,9 +16,9 @@ export default function Header({
   handleClose,
 }) {
   return (
-    <header className="overlay-header absolute top-0 left-0 w-full flex justify-between items-center px-5 py-2.5 bg-[#991B1B] border-b border-[#7F1D1D] pointer-events-auto z-50 shadow-md select-none">
+    <header className="overlay-header relative top-0 left-0 w-full shrink-0 flex items-center gap-2 px-2 py-2 sm:px-5 sm:py-2.5 bg-[#991B1B] border-b border-[#7F1D1D] pointer-events-auto z-50 shadow-md select-none overflow-x-auto">
       {/* BRAND & POS COUNTER BADGE */}
-      <div className="flex items-center gap-3.5 flex-wrap">
+      <div className="flex items-center gap-2 sm:gap-3.5 flex-nowrap min-w-max">
         <div className="flex items-center space-x-2">
           <span className="text-sm font-black text-[#FFFDF7] tracking-wider uppercase drop-shadow-xs">
             KIRANA<span className="text-[#FEF3C7]">SYNC</span>

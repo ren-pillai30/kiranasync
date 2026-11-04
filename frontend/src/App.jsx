@@ -486,7 +486,7 @@ export default function App() {
         />
       </div>
 
-      <div className="flex-grow flex items-center justify-center p-6 pointer-events-none mt-10">
+      <div className="flex-grow min-h-0 flex items-start sm:items-center justify-center p-2 sm:p-6 pointer-events-none overflow-hidden">
         <button id="voice-trigger" onClick={voiceRecorder.startRecording} className="hidden">
           Voice
         </button>

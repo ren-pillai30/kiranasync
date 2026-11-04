@@ -47,9 +47,9 @@ export default function DashboardView({
       initial={{ opacity: 0, scale: 0.98 }}
       animate={{ opacity: 1, scale: 1 }}
       exit={{ opacity: 0, scale: 0.98 }}
-      className="w-full max-w-5xl bg-[#FAF7F2] border border-[#DFD5C3] rounded-2xl p-7 shadow-[0_20px_50px_rgba(28,25,23,0.18)] pointer-events-auto max-h-[86vh] overflow-y-auto text-stone-900 select-none"
+      className="w-full max-w-5xl bg-[#FAF7F2] border border-[#DFD5C3] rounded-xl sm:rounded-2xl p-3 sm:p-7 shadow-[0_20px_50px_rgba(28,25,23,0.18)] pointer-events-auto max-h-[calc(100dvh-90px)] overflow-y-auto text-stone-900 select-none"
     >
-      <div className="flex justify-between items-center mb-5 pb-4 border-b border-[#E2D9C8]">
+      <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-3 mb-5 pb-4 border-b border-[#E2D9C8]">
         <div>
           <div className="flex items-center space-x-2">
             <h2 className="text-xl font-black text-stone-900 tracking-tight">{t.title}</h2>
@@ -110,7 +110,7 @@ export default function DashboardView({
       {/* QUICK HISAAB SUMMARY BANNER */}
       <HisaabBanner hisaabData={hisaabData} />
 
-      <div className="grid grid-cols-2 gap-6">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 sm:gap-6">
         {/* INVENTORY PANEL */}
         <InventoryPanel
           inventory={inventory}

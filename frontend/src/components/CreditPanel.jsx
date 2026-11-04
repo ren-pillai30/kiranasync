@@ -74,8 +74,8 @@ export default function CreditPanel({
         </form>
       )}
 
-      <div className="bg-[#FFFDF9] rounded-xl overflow-y-auto max-h-72 border border-[#E2D9C8] shadow-xs custom-scrollbar">
-        <table className="w-full text-left text-sm text-stone-700">
+      <div className="bg-[#FFFDF9] rounded-xl overflow-auto max-h-72 border border-[#E2D9C8] shadow-xs custom-scrollbar">
+        <table className="w-full min-w-[420px] text-left text-sm text-stone-700">
           <thead className="bg-[#F4EFE6] text-[#57534E] uppercase text-[11px] tracking-wider font-bold border-b border-[#E2D9C8] sticky top-0 z-10">
             <tr>
               <th className="px-4 py-2.5">{t.thCust}</th>

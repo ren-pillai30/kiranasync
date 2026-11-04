@@ -2,7 +2,7 @@ export default function HisaabBanner({ hisaabData }) {
   if (!hisaabData) return null;
 
   return (
-    <div className="grid grid-cols-4 gap-4 mb-6">
+    <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 mb-6">
       {/* TODAY'S SALES */}
       <div className="bg-[#FFFDF9] border border-[#E2D9C8] p-4 rounded-xl shadow-xs hover:shadow-md transition-all flex flex-col justify-between border-t-4 border-t-[#991B1B]">
         <div className="flex items-center justify-between text-[#78716C] text-xs mb-2">
