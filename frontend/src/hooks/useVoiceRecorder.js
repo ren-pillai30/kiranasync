@@ -9,6 +9,9 @@ export function useVoiceRecorder({
   onSuccess,
   onError,
   microphoneError,
+  microphoneUnavailableError,
+  microphoneBusyError,
+  recordingStartError,
 }) {
   const [isRecording, setIsRecording] = useState(false);
   const [audioLevel, setAudioLevel] = useState(0);
@@ -104,7 +107,26 @@ export function useVoiceRecorder({
       if (onSpeechDetected) onSpeechDetected();
       setIsRecording(true);
 
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      let stream;
+      try {
+        if (!navigator.mediaDevices?.getUserMedia) {
+          throw new Error('Microphone capture is unavailable');
+        }
+        stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      } catch (err) {
+        console.warn('Microphone access error:', err);
+        setIsRecording(false);
+        const message = ['NotAllowedError', 'SecurityError'].includes(err?.name)
+          ? microphoneError
+          : err?.name === 'NotFoundError' || err?.name === 'DevicesNotFoundError'
+            ? microphoneUnavailableError
+            : err?.name === 'NotReadableError' || err?.name === 'TrackStartError'
+              ? microphoneBusyError
+              : microphoneUnavailableError;
+        if (onError) onError(message || 'Could not access a microphone.');
+        return;
+      }
+
       mediaStreamRef.current = stream;
 
       recordRTC.current = new RecordRTC(stream, {
@@ -163,9 +185,14 @@ export function useVoiceRecorder({
         stopAndProcessRecording();
       }, 16000);
     } catch (err) {
-      console.warn('Microphone access error:', err);
+      console.error('Voice recorder startup error:', err);
+      if (mediaStreamRef.current) {
+        mediaStreamRef.current.getTracks().forEach((track) => track.stop());
+        mediaStreamRef.current = null;
+      }
+      recordRTC.current = null;
       setIsRecording(false);
-      if (onError) onError(microphoneError || 'Please allow microphone permissions.');
+      if (onError) onError(recordingStartError || 'Could not start voice recording.');
     }
   };
 
