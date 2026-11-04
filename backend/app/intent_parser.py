@@ -695,6 +695,33 @@ def match_entity_with_score(query_text, db_records, threshold=70):
     return best_token_record if best_token_score >= 88 else None
 
 
+def resolve_voice_product(query_text, raw_transcript, item_catalog, alias_to_canonical, translations=None):
+    """Resolve a spoken product through Gemini, then return its canonical inventory name."""
+    from backend.app.gemini_understanding import resolve_catalog_entity
+
+    candidates = [
+        query_text,
+        raw_transcript,
+        translations.get("phonetic_english_translation") if translations else None,
+        translations.get("local_translation") if translations else None,
+    ]
+    for candidate in candidates:
+        if not candidate:
+            continue
+        resolved = resolve_catalog_entity(
+            raw_transcript,
+            item_catalog,
+            "product",
+            {
+                "entity": candidate,
+                **(translations or {}),
+            },
+        )
+        if resolved:
+            return alias_to_canonical.get(resolved.casefold(), resolved)
+    return None
+
+
 def find_unresolved_inventory_variants(cursor, entity_name, raw_transcript):
     cursor.execute(
         "SELECT ItemID, ItemName, StockQuantity, Price FROM Inventory WHERE IsActive = 1"
@@ -1279,6 +1306,13 @@ def parse_and_execute(raw_transcript, quantity_override=None, interpretation=Non
                     },
                 ) or prod_name
                 prod_name = item_alias_to_canonical.get(prod_name.casefold(), prod_name)
+                prod_name = resolve_voice_product(
+                    prod_name,
+                    raw_transcript,
+                    item_catalog,
+                    item_alias_to_canonical,
+                    {"item_transcript": prod_name},
+                ) or prod_name
                 matched_item = match_entity_with_score(prod_name, db_items, threshold=60)
                 if not matched_item:
                     errors.append(f"'{prod_name}' not found")
@@ -1360,6 +1394,14 @@ def parse_and_execute(raw_transcript, quantity_override=None, interpretation=Non
         target_item = (
             gemini_item
             or
+            resolve_voice_product(
+                clean_translated_entity,
+                raw_transcript,
+                item_catalog,
+                item_alias_to_canonical,
+                translations,
+            )
+            or
             next(
                 (
                     matched
@@ -1409,6 +1451,15 @@ def parse_and_execute(raw_transcript, quantity_override=None, interpretation=Non
         target_item = match_entity_with_score(clean_translated_entity, db_items, threshold=70)
         target_customer = match_entity_with_score(clean_translated_entity, db_customers, threshold=70)
         intent = determine_intent(english_meaning)
+        if intent in {"sell", "restock", "add_product"} and not target_item:
+            target_item = resolve_voice_product(
+                clean_translated_entity,
+                raw_transcript,
+                item_catalog,
+                item_alias_to_canonical,
+            )
+            if target_item:
+                clean_translated_entity = target_item
         quantity_or_amount = (
             quantity_override
             if quantity_override is not None

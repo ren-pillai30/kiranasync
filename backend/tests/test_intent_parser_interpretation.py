@@ -81,6 +81,24 @@ class IntentParserInterpretationTests(unittest.TestCase):
             transaction_count = connection.execute("SELECT COUNT(*) FROM Transactions").fetchone()[0]
         self.assertEqual((stock, transaction_count), (5, 0))
 
+    def test_gemini_resolves_variant_product_for_normal_voice_command(self):
+        with patch.object(
+            intent_parser,
+            "resolve_voice_product",
+            return_value="Sugar 1kg",
+        ):
+            result = intent_parser.parse_and_execute(
+                "मैगी बेच दो",
+                interpretation={
+                    "action": "sell",
+                    "entity": "मैगी",
+                    "quantity": 2,
+                },
+            )
+
+        self.assertEqual(result["status"], "pending_confirmation")
+        self.assertEqual(result["draft"]["ItemName"], "Sugar 1kg")
+
     def test_explicit_transcript_quantity_overrides_model_quantity(self):
         result = intent_parser.parse_and_execute(
             "12 toothpaste bech do",
