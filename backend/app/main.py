@@ -58,6 +58,42 @@ db.init_app(app)
 login_manager.init_app(app)
 register_auth_routes(app)
 
+@app.route('/api/call/simulate', methods=['POST'])
+def simulate_call():
+    from backend.app.services.call_gemini_service import CallGeminiService
+    from backend.app.services.call_db_service import CallDBService
+
+    payload = request.get_json(silent=True) or {}
+    user_input = str(payload.get('user_input') or '').strip()
+    if not user_input:
+        return jsonify({'status': 'error', 'error': 'Enter a call message.'}), 400
+
+    db_service = CallDBService()
+    gemini_service = CallGeminiService()
+    context = db_service.get_store_context()
+    result = gemini_service.process_call_turn(
+        user_utterance=user_input,
+        conversation_history=payload.get('conversation_history') or [],
+        inventory_items=context['inventory'],
+        customers=context['customers'],
+        caller_name=payload.get('caller_name') or 'Customer',
+        language_preference=payload.get('language_code') or 'hi-IN',
+    )
+
+    action_type = result.get('action_type', 'general')
+    db_result = None
+    if action_type in ('order', 'credit_log', 'repayment'):
+        db_result = db_service.execute_action(
+            action_type,
+            result.get('action_data') or {},
+            raw_call_text=f"Call: {user_input}",
+        )
+
+    response = dict(result)
+    response['status'] = 'success'
+    response['db_result'] = db_result
+    return jsonify(response)
+
 @app.errorhandler(Exception)
 def handle_unexpected_error(error):
     if isinstance(error, HTTPException):

@@ -45,6 +45,11 @@ export function useCallSession({ onRefreshStore, initialCallerName = 'Ramesh', i
     return `${protocol}//${window.location.host}/ws/call`;
   }, []);
 
+  const isWebSocketAvailable = useCallback(
+    () => window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1',
+    []
+  );
+
   const playBase64Audio = useCallback((audioBase64) => {
     if (isMuted || !audioBase64) return;
     try {
@@ -209,6 +214,20 @@ export function useCallSession({ onRefreshStore, initialCallerName = 'Ramesh', i
     setCallStatus('connecting');
     setSystemNotice(null);
     setCurrentBill({ items: [], total: 0 });
+    if (!isWebSocketAvailable()) {
+      setCallActive(true);
+      setCallStatus('connected');
+      setTranscripts([
+        {
+          id: Date.now().toString(),
+          role: 'assistant',
+          text: 'Call connected. You can send text commands here.',
+          timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
+        },
+      ]);
+      return;
+    }
+
     const wsUrl = getWebSocketUrl();
 
     try {
@@ -252,11 +271,11 @@ export function useCallSession({ onRefreshStore, initialCallerName = 'Ramesh', i
       setSystemNotice('Could not initiate call session.');
       setCallStatus('idle');
     }
-  }, [callerName, getWebSocketUrl, handleWebSocketMessage, languageCode]);
+  }, [callerName, getWebSocketUrl, handleWebSocketMessage, isWebSocketAvailable, languageCode]);
 
   const sendTextMessage = useCallback((textToSend) => {
     const text = (textToSend || inputText).trim();
-    if (!text || !wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) return;
+    if (!text) return;
 
     const timestamp = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
     setTranscripts((prev) => [
@@ -269,16 +288,45 @@ export function useCallSession({ onRefreshStore, initialCallerName = 'Ramesh', i
       },
     ]);
 
-    wsRef.current.send(
-      JSON.stringify({
-        type: 'text_input',
-        text,
-        language_code: languageCode,
+    if (!isWebSocketAvailable()) {
+      fetch('/api/call/simulate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          user_input: text,
+          caller_name: callerName,
+          language_code: languageCode,
+          conversation_history: transcripts,
+        }),
       })
-    );
+        .then(async (response) => {
+          const data = await response.json();
+          if (!response.ok) throw new Error(data.error || data.detail || 'Call request failed.');
+          handleWebSocketMessage({
+            type: 'call_response',
+            reply_text: data.reply_text,
+            action_type: data.action_type,
+            action_data: data.action_data,
+            db_result: data.db_result,
+            current_bill: data.current_bill,
+          });
+        })
+        .catch((error) => {
+          console.error('Call REST request failed:', error);
+          setSystemNotice(error.message || 'Could not process call message.');
+        });
+    } else if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+      wsRef.current.send(
+        JSON.stringify({
+          type: 'text_input',
+          text,
+          language_code: languageCode,
+        })
+      );
+    }
 
     setInputText('');
-  }, [inputText, languageCode]);
+  }, [callerName, handleWebSocketMessage, inputText, isWebSocketAvailable, languageCode, transcripts]);
 
   const startMicRecording = useCallback(async () => {
     if (!callActive || !wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) {
@@ -357,4 +405,3 @@ export function useCallSession({ onRefreshStore, initialCallerName = 'Ramesh', i
     currentBill,
   };
 }
-
