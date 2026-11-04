@@ -62,6 +62,103 @@ register_auth_routes(app)
 
 @app.route('/api/call/simulate', methods=['POST'])
 def simulate_call():
+    """Existing endpoint that returns JSON with optional base64 audio.
+    This is kept for backward compatibility.
+    """
+    from backend.app.services.call_gemini_service import CallGeminiService
+    from backend.app.services.call_db_service import CallDBService
+
+    payload = request.get_json(silent=True) or {}
+    user_input = str(payload.get('user_input') or '').strip()
+    if not user_input:
+        return jsonify({'status': 'error', 'error': 'Enter a call message.'}), 400
+
+    db_service = CallDBService()
+    gemini_service = CallGeminiService()
+    context = db_service.get_store_context()
+    result = gemini_service.process_call_turn(
+        user_utterance=user_input,
+        conversation_history=payload.get('conversation_history') or [],
+        inventory_items=context['inventory'],
+        customers=context['customers'],
+        caller_name=payload.get('caller_name') or 'Customer',
+        language_preference=payload.get('language_code') or 'hi-IN',
+    )
+
+    action_type = result.get('action_type', 'general')
+    db_result = None
+    if action_type in ('order', 'credit_log', 'repayment'):
+        db_result = db_service.execute_action(
+            action_type,
+            result.get('action_data') or {},
+            raw_call_text=f"Call: {user_input}",
+        )
+
+    # Generate TTS audio for the assistant's reply
+    reply_text = result.get('reply_text', '')
+    language_code = result.get('detected_language_code', payload.get('language_code') or 'hi-IN')
+    try:
+        audio_bytes, content_type = tts_provider.synthesize(reply_text, language_code=language_code)
+        import base64
+        audio_base64 = base64.b64encode(audio_bytes).decode('utf-8')
+    except Exception as e:
+        app.logger.exception("TTS synthesis failed: %s", e)
+        audio_base64 = None
+        content_type = None
+
+    response = dict(result)
+    response['status'] = 'success'
+    response['db_result'] = db_result
+    response['audio_base64'] = audio_base64
+    response['audio_content_type'] = content_type
+    return jsonify(response)
+
+# New endpoint that accepts an audio file, runs STT, Gemini, then returns synthesized audio binary
+@app.route('/api/call/simulate/audio', methods=['POST'])
+def simulate_call_audio():
+    """Accepts an audio file (multipart/form-data), transcribes via STT, processes with Gemini,
+    synthesizes the reply, and streams the audio bytes back.
+    """
+    from backend.app.services.call_gemini_service import CallGeminiService
+    from backend.app.services.call_db_service import CallDBService
+    from flask import Response
+
+    if 'audio' not in request.files:
+        return jsonify({'status': 'error', 'error': 'Audio file is required.'}), 400
+    audio_file = request.files['audio']
+    # Save to a temporary path
+    tmp_path = os.path.join(os.getcwd(), 'tmp_audio_' + audio_file.filename)
+    audio_file.save(tmp_path)
+
+    # Transcribe using the global STT provider (expects a file path)
+    language_code = request.form.get('language_code', 'hi-IN')
+    transcribed_text = transcribe_audio(tmp_path, language_code=language_code)
+    os.remove(tmp_path)  # Clean up
+
+    db_service = CallDBService()
+    gemini_service = CallGeminiService()
+    context = db_service.get_store_context()
+    result = gemini_service.process_call_turn(
+        user_utterance=transcribed_text,
+        conversation_history=[],
+        inventory_items=context['inventory'],
+        customers=context['customers'],
+        caller_name='Customer',
+        language_preference=language_code,
+    )
+
+    # Synthesize reply
+    reply_text = result.get('reply_text', '')
+    detected_lang = result.get('detected_language_code', language_code)
+    try:
+        audio_bytes, content_type = tts_provider.synthesize(reply_text, language_code=detected_lang)
+    except Exception as e:
+        app.logger.exception("TTS synthesis failed: %s", e)
+        return jsonify({'status': 'error', 'error': str(e)}), 503
+
+    return Response(audio_bytes, mimetype=content_type)
+
+def simulate_call():
     from backend.app.services.call_gemini_service import CallGeminiService
     from backend.app.services.call_db_service import CallDBService
 
