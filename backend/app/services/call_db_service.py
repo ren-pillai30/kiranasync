@@ -12,12 +12,6 @@ from backend.app.measurement_utils import (
     are_measurements_equal,
 )
 
-try:
-    from thefuzz import process as fuzz_process
-except ImportError:
-    fuzz_process = None
-
-
 class CallDBService:
     """
     Manages database reads and atomic updates for the Virtual Call Assistant.
@@ -212,7 +206,10 @@ class CallDBService:
         return "Gemini is temporarily unavailable. " + "; ".join(details) + "."
 
     def match_inventory_item(
-        self, candidate_name: str, conn: Optional[sqlite3.Connection] = None
+        self,
+        candidate_name: str,
+        conn: Optional[sqlite3.Connection] = None,
+        raw_transcript: str = "",
     ) -> Optional[Dict[str, Any]]:
         """
         Matches a spoken or typed item name to an active item in Inventory.
@@ -258,12 +255,26 @@ class CallDBService:
                     names.append(item["ItemNameHindi"])
                 return names
 
-            # 1. Exact or normalized match, including the stored Hindi name.
+            # Prefer exact names; normalized matches can collapse distinct package variants.
             for it in items:
                 for stored_name in names_for(it):
-                    if stored_name.lower() == clean_name or self._normalize_name(stored_name) == candidate_normalized:
+                    if stored_name.casefold() == clean_name.casefold():
                         if is_measurement_compatible(it):
                             return dict(it)
+
+            name_matches = {
+                it["ItemID"]: dict(it)
+                for it in items
+                if is_measurement_compatible(it)
+                and any(
+                    self._normalize_name(stored_name) == candidate_normalized
+                    or clean_name in stored_name.casefold()
+                    or stored_name.casefold() in clean_name
+                    for stored_name in names_for(it)
+                )
+            }
+            if len(name_matches) == 1:
+                return next(iter(name_matches.values()))
 
             # 2. Gemini entity matching: resolves speech across scripts, transliterations, and variant names.
             from backend.app.gemini_understanding import resolve_catalog_entity
@@ -276,7 +287,10 @@ class CallDBService:
                 candidate_name,
                 list(catalog_to_item.keys()),
                 "product",
-                {"spoken_name": candidate_name},
+                {
+                    "spoken_name": candidate_name,
+                    "raw_transcript": raw_transcript or candidate_name,
+                },
             )
             if gemini_match:
                 catalog_fold = {k.casefold(): v for k, v in catalog_to_item.items()}
@@ -284,27 +298,6 @@ class CallDBService:
                     resolved_item = catalog_fold[gemini_match.casefold()]
                     if is_measurement_compatible(resolved_item):
                         return resolved_item
-
-            # 2. Substring match
-            for it in items:
-                if is_measurement_compatible(it) and (
-                    clean_name in it["ItemName"].lower()
-                    or it["ItemName"].lower() in clean_name
-                    or (has_hindi and it["ItemNameHindi"] and clean_name in it["ItemNameHindi"].lower())
-                ):
-                    return dict(it)
-
-            # 3. Fuzzy match if thefuzz is available
-            if fuzz_process:
-                compatible_items = [it for it in items if is_measurement_compatible(it)]
-                if compatible_items:
-                    name_map = {}
-                    for it in compatible_items:
-                        for stored_name in names_for(it):
-                            name_map[stored_name] = dict(it)
-                    best_match, score = fuzz_process.extractOne(candidate_normalized, [self._normalize_name(name) for name in name_map])
-                    if score >= 65:
-                        return next((item for name, item in name_map.items() if self._normalize_name(name) == best_match))
 
             return None
         finally:
@@ -359,7 +352,10 @@ class CallDBService:
                 conn.close()
 
     def match_customer(
-        self, candidate_name: str, conn: Optional[sqlite3.Connection] = None
+        self,
+        candidate_name: str,
+        conn: Optional[sqlite3.Connection] = None,
+        raw_transcript: str = "",
     ) -> Optional[Dict[str, Any]]:
         """
         Matches a customer name to an active CustomerCredit record.
@@ -375,40 +371,64 @@ class CallDBService:
 
         try:
             cursor = conn.cursor()
+            customer_columns = self._column_names(cursor, "CustomerCredit")
+            has_hindi_name = "CustomerNameHindi" in customer_columns
             cursor.execute(
-                "SELECT CustomerID, CustomerName, OutstandingBalance FROM CustomerCredit WHERE IsActive = 1"
+                "SELECT CustomerID, CustomerName, OutstandingBalance"
+                + (", CustomerNameHindi" if has_hindi_name else "")
+                + " FROM CustomerCredit WHERE IsActive = 1"
             )
             customers = cursor.fetchall()
             if not customers:
                 return None
 
+            alias_candidates = {}
+            alias_values = {}
             for c in customers:
-                if c["CustomerName"].lower() == clean_name:
-                    return dict(c)
+                aliases = [c["CustomerName"]]
+                if has_hindi_name and c["CustomerNameHindi"]:
+                    aliases.append(c["CustomerNameHindi"].strip())
+                for alias in aliases:
+                    if alias:
+                        key = alias.casefold()
+                        alias_candidates.setdefault(key, {})[c["CustomerID"]] = dict(c)
+                        alias_values.setdefault(key, alias)
 
-            # Gemini customer matching across scripts and transliterations
+            customer_aliases = {
+                key: next(iter(records.values()))
+                for key, records in alias_candidates.items()
+                if len(records) == 1
+            }
+            customer_catalog = [
+                alias_values[key]
+                for key in customer_aliases
+            ]
+
+            if clean_name.casefold() in customer_aliases:
+                return customer_aliases[clean_name.casefold()]
+
+            # Gemini resolves transliterations and pronunciations to one supplied customer name.
             from backend.app.gemini_understanding import resolve_catalog_entity
-            cust_catalog = {c["CustomerName"]: dict(c) for c in customers}
             gemini_match = resolve_catalog_entity(
                 candidate_name,
-                list(cust_catalog.keys()),
+                customer_catalog,
                 "customer",
-                {"spoken_name": candidate_name},
+                {
+                    "spoken_name": candidate_name,
+                    "raw_transcript": raw_transcript or candidate_name,
+                },
             )
             if gemini_match:
-                cust_fold = {k.casefold(): v for k, v in cust_catalog.items()}
-                if gemini_match.casefold() in cust_fold:
-                    return cust_fold[gemini_match.casefold()]
+                return customer_aliases.get(gemini_match.casefold())
 
-            for c in customers:
-                if clean_name in c["CustomerName"].lower() or c["CustomerName"].lower() in clean_name:
-                    return dict(c)
-
-            if fuzz_process:
-                name_map = {c["CustomerName"]: dict(c) for c in customers}
-                best_match, score = fuzz_process.extractOne(candidate_name, list(name_map.keys()))
-                if score >= 70:
-                    return name_map[best_match]
+            substring_matches = {
+                c["CustomerID"]: dict(c)
+                for c in customers
+                if clean_name.casefold() in c["CustomerName"].casefold()
+                or c["CustomerName"].casefold() in clean_name.casefold()
+            }
+            if len(substring_matches) == 1:
+                return next(iter(substring_matches.values()))
 
             return None
         finally:
@@ -447,7 +467,11 @@ class CallDBService:
                 if qty <= 0:
                     continue
 
-                matched = self.match_inventory_item(req_name, conn=conn)
+                matched = self.match_inventory_item(
+                    req_name,
+                    conn=conn,
+                    raw_transcript=raw_call_text,
+                )
                 if not matched:
                     mismatch = self.check_inventory_measurement_mismatch(req_name, conn=conn)
                     if mismatch:
@@ -506,7 +530,11 @@ class CallDBService:
             cust_name_clean = (customer_name or "").strip()
 
             if is_credit and cust_name_clean:
-                matched_cust = self.match_customer(cust_name_clean, conn=conn)
+                matched_cust = self.match_customer(
+                    cust_name_clean,
+                    conn=conn,
+                    raw_transcript=raw_call_text,
+                )
                 if matched_cust:
                     cust_id = matched_cust["CustomerID"]
                     cust_actual_name = matched_cust["CustomerName"]
@@ -576,7 +604,11 @@ class CallDBService:
         conn = self._get_connection()
         try:
             cursor = conn.cursor()
-            matched_cust = self.match_customer(cust_name, conn=conn)
+            matched_cust = self.match_customer(
+                cust_name,
+                conn=conn,
+                raw_transcript=raw_call_text,
+            )
 
             if matched_cust:
                 cust_id = matched_cust["CustomerID"]
@@ -640,7 +672,11 @@ class CallDBService:
         conn = self._get_connection()
         try:
             cursor = conn.cursor()
-            matched_cust = self.match_customer(cust_name, conn=conn)
+            matched_cust = self.match_customer(
+                cust_name,
+                conn=conn,
+                raw_transcript=raw_call_text,
+            )
             if not matched_cust:
                 return {"status": "error", "message": f"Customer '{cust_name}' was not found in records."}
 

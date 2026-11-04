@@ -114,12 +114,32 @@ class GeminiUnderstandingTests(unittest.TestCase):
 
     @patch.dict(os.environ, {"GEMINI_API_KEY": "", "GOOGLE_API_KEY": ""})
     def test_cross_script_match_requires_gemini(self):
-        self.assertIsNone(
+        with self.assertRaisesRegex(GeminiUnderstandingError, "not configured"):
             resolve_catalog_entity(
                 "मैगी",
                 ["Maggi 70g"],
                 "product",
                 {"entity": "मैगी"},
+            )
+
+    @patch.dict(os.environ, {"GEMINI_API_KEY": "test-key", "GOOGLE_API_KEY": ""})
+    @patch("backend.app.gemini_understanding.requests.post")
+    def test_rejects_gemini_output_that_is_not_an_exact_catalog_entry(self, post):
+        post.return_value.raise_for_status.return_value = None
+        post.return_value.json.return_value = {
+            "candidates": [{
+                "content": {
+                    "parts": [{"text": '{"resolved_name":"Maggi"}'}]
+                }
+            }]
+        }
+
+        self.assertIsNone(
+            resolve_catalog_entity(
+                "Maggi",
+                ["Maggi noodles 70g"],
+                "product",
+                {"entity": "Maggi"},
             )
         )
 

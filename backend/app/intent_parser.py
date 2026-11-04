@@ -1063,23 +1063,15 @@ def parse_and_execute(raw_transcript, quantity_override=None, interpretation=Non
         clean_translated_entity = interpretation.get("entity")
         orig_requested_entity = clean_translated_entity
         quantity_or_amount = interpretation.get("quantity")
-        entity_candidates = [
-            interpretation.get("phonetic_english_translation"),
-            interpretation.get("local_translation"),
-            interpretation.get("entity"),
-            raw_transcript,
-        ]
-        from backend.app.gemini_understanding import resolve_catalog_entity
+        from backend.app.gemini_understanding import (
+            get_gemini_api_key,
+            resolve_catalog_entity,
+        )
         translations = {
             "entity": clean_translated_entity,
             "local_translation": interpretation.get("local_translation"),
             "phonetic_english_translation": interpretation.get("phonetic_english_translation"),
         }
-        gemini_customer = resolve_catalog_entity(
-            raw_transcript, customer_catalog, "customer", translations
-        ) if intent in {"credit", "add_customer", "repayment", "remove_customer", "query_customer"} else None
-        if gemini_customer:
-            gemini_customer = customer_alias_to_canonical.get(gemini_customer.casefold(), gemini_customer)
         explicit_quantity = extract_explicit_quantity(raw_transcript)
         if explicit_quantity is not None and intent in {"sell", "restock", "credit", "add_product"}:
             quantity_or_amount = explicit_quantity
@@ -1095,6 +1087,71 @@ def parse_and_execute(raw_transcript, quantity_override=None, interpretation=Non
                 "action": "interpretation_invalid",
                 "message": "The command could not be safely interpreted. No changes were made.",
             }
+
+        product_actions = {
+            "sell", "restock", "add_product", "remove_product", "query_stock",
+        }
+        customer_actions = {
+            "credit", "add_customer", "repayment", "remove_customer", "query_customer",
+        }
+        target_item = None
+        target_customer = None
+
+        if intent in product_actions:
+            clean_item_fold = (
+                clean_translated_entity.casefold()
+                if isinstance(clean_translated_entity, str)
+                else ""
+            )
+            target_item = item_alias_to_canonical.get(clean_item_fold)
+            requested_item = clean_translated_entity or raw_transcript
+            if (
+                not target_item
+                and requested_item
+                and (
+                    intent not in {"add_product", "restock"}
+                    or get_gemini_api_key()
+                )
+            ):
+                gemini_item = resolve_catalog_entity(
+                    requested_item,
+                    item_catalog,
+                    "product",
+                    {**translations, "raw_transcript": raw_transcript},
+                )
+                if gemini_item:
+                    target_item = item_alias_to_canonical.get(
+                        gemini_item.casefold(),
+                        gemini_item,
+                    )
+            if target_item:
+                clean_translated_entity = target_item
+
+        if intent in customer_actions:
+            clean_customer_fold = (
+                clean_translated_entity.casefold()
+                if isinstance(clean_translated_entity, str)
+                else ""
+            )
+            target_customer = customer_alias_to_canonical.get(clean_customer_fold)
+            if (
+                not target_customer
+                and (clean_translated_entity or raw_transcript)
+                and (intent != "add_customer" or get_gemini_api_key())
+            ):
+                gemini_customer = resolve_catalog_entity(
+                    clean_translated_entity or raw_transcript,
+                    customer_catalog,
+                    "customer",
+                    {**translations, "raw_transcript": raw_transcript},
+                )
+                if gemini_customer:
+                    target_customer = customer_alias_to_canonical.get(
+                        gemini_customer.casefold(),
+                        gemini_customer,
+                    )
+            if target_customer:
+                clean_translated_entity = target_customer
 
         if intent == "query_hisaab":
             from backend.app.services.query_service import QueryService
@@ -1125,7 +1182,7 @@ def parse_and_execute(raw_transcript, quantity_override=None, interpretation=Non
         if intent == "query_stock":
             from backend.app.services.query_service import QueryService
             qs = QueryService(target_db)
-            target = clean_translated_entity or interpretation.get("entity", "")
+            target = target_item or clean_translated_entity or interpretation.get("entity", "")
             res = qs.get_inventory_stock(target)
             conn.close()
             return {
@@ -1138,7 +1195,7 @@ def parse_and_execute(raw_transcript, quantity_override=None, interpretation=Non
         if intent == "query_customer":
             from backend.app.services.query_service import QueryService
             qs = QueryService(target_db)
-            target = clean_translated_entity or interpretation.get("entity", "")
+            target = target_customer or clean_translated_entity or interpretation.get("entity", "")
             res = qs.get_customer_balance(target)
             conn.close()
             return {
@@ -1156,7 +1213,9 @@ def parse_and_execute(raw_transcript, quantity_override=None, interpretation=Non
                 "Product" if is_product else "Customer"
             ):
                 clean_translated_entity = alias_res["ResolvedName"]
-            matched_name = match_entity_with_score(clean_translated_entity, catalog, threshold=70)
+            matched_name = (
+                target_item if is_product else target_customer
+            ) or match_entity_with_score(clean_translated_entity, catalog, threshold=70)
             if not matched_name:
                 conn.close()
                 return {
@@ -1247,7 +1306,7 @@ def parse_and_execute(raw_transcript, quantity_override=None, interpretation=Non
 
         if intent == "repayment":
             from backend.app.services.transaction_service import TransactionService
-            cust_name = clean_translated_entity or interpretation.get("entity", "")
+            cust_name = target_customer or clean_translated_entity or interpretation.get("entity", "")
             amount = quantity_or_amount or 0
             if amount <= 0:
                 conn.close()
@@ -1286,9 +1345,8 @@ def parse_and_execute(raw_transcript, quantity_override=None, interpretation=Non
                 elif prod_fold in {it.casefold() for it in db_items}:
                     matched_item = next(it for it in db_items if it.casefold() == prod_fold)
 
-                # Step 2: Gemini entity matching
+                # Step 2: Gemini resolves each requested item once against the live catalog.
                 if not matched_item:
-                    from backend.app.gemini_understanding import resolve_catalog_entity
                     gemini_res = resolve_catalog_entity(
                         prod_name,
                         item_catalog,
@@ -1302,35 +1360,6 @@ def parse_and_execute(raw_transcript, quantity_override=None, interpretation=Non
                     )
                     if gemini_res:
                         matched_item = item_alias_to_canonical.get(gemini_res.casefold(), gemini_res)
-
-                if not matched_item:
-                    gemini_res = resolve_catalog_entity(
-                        raw_transcript,
-                        item_catalog,
-                        "product",
-                        {
-                            "item_transcript": prod_name,
-                            "local_translation": interpretation.get("local_translation"),
-                            "phonetic_english_translation": interpretation.get("phonetic_english_translation"),
-                        },
-                    )
-                    if gemini_res:
-                        matched_item = item_alias_to_canonical.get(gemini_res.casefold(), gemini_res)
-
-                if not matched_item:
-                    prod_name_resolved = resolve_voice_product(
-                        prod_name,
-                        raw_transcript,
-                        item_catalog,
-                        item_alias_to_canonical,
-                        {"item_transcript": prod_name},
-                    )
-                    if prod_name_resolved:
-                        matched_item = item_alias_to_canonical.get(prod_name_resolved.casefold(), prod_name_resolved)
-
-                # Step 3: Fuzzy fallback
-                if not matched_item:
-                    matched_item = match_entity_with_score(prod_name, db_items, threshold=60)
 
                 if not matched_item:
                     errors.append(f"'{prod_name}' not found")
@@ -1409,7 +1438,6 @@ def parse_and_execute(raw_transcript, quantity_override=None, interpretation=Non
             elif alias_res["EntityType"] == "Customer" and intent in {"credit", "add_customer"}:
                 clean_translated_entity = resolved_target
 
-        target_item = None
         if intent in {"sell", "restock", "add_product"}:
             clean_entity_fold = clean_translated_entity.casefold() if clean_translated_entity else ""
             # 1. Direct match with exact or canonical inventory alias
@@ -1418,31 +1446,7 @@ def parse_and_execute(raw_transcript, quantity_override=None, interpretation=Non
             elif clean_entity_fold and clean_entity_fold in {it.casefold() for it in db_items}:
                 target_item = next(it for it in db_items if it.casefold() == clean_entity_fold)
 
-            # 2. Gemini entity matching
-            if not target_item:
-                gemini_item = resolve_catalog_entity(
-                    clean_translated_entity or raw_transcript,
-                    item_catalog,
-                    "product",
-                    {**translations, "raw_transcript": raw_transcript},
-                )
-                if gemini_item:
-                    target_item = item_alias_to_canonical.get(
-                        gemini_item.casefold(),
-                        gemini_item,
-                    )
-
-            # 3. Fuzzy fallback
-            if not target_item:
-                for candidate in entity_candidates:
-                    if candidate:
-                        matched = match_entity_with_score(candidate, db_items, threshold=60)
-                        if matched:
-                            target_item = matched
-                            break
-
-        target_customer = None
-        if intent in {"credit", "add_customer"}:
+        if intent == "credit" and not target_customer:
             clean_cust_fold = clean_translated_entity.casefold() if clean_translated_entity else ""
             if clean_cust_fold and clean_cust_fold in customer_alias_to_canonical:
                 target_customer = customer_alias_to_canonical[clean_cust_fold]
@@ -1450,29 +1454,7 @@ def parse_and_execute(raw_transcript, quantity_override=None, interpretation=Non
                 target_customer = next(c for c in db_customers if c.casefold() == clean_cust_fold)
 
             if not target_customer:
-                target_customer = gemini_customer
-
-            if not target_customer:
-                gemini_cust = resolve_catalog_entity(
-                    raw_transcript,
-                    customer_catalog,
-                    "customer",
-                    {
-                        "entity": clean_translated_entity,
-                        "local_translation": interpretation.get("local_translation"),
-                        "phonetic_english_translation": interpretation.get("phonetic_english_translation"),
-                    },
-                )
-                if gemini_cust:
-                    target_customer = customer_alias_to_canonical.get(gemini_cust.casefold(), gemini_cust)
-
-            if not target_customer:
-                for candidate in entity_candidates:
-                    if candidate:
-                        matched = match_entity_with_score(candidate, db_customers, threshold=60)
-                        if matched:
-                            target_customer = matched
-                            break
+                target_customer = clean_translated_entity
 
         if target_item:
             clean_translated_entity = target_item

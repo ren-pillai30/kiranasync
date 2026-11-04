@@ -48,10 +48,6 @@ def resolve_catalog_entity(transcript, catalog, entity_type, translations=None):
             if candidate and str(candidate).strip().casefold() in catalog_map:
                 return catalog_map[str(candidate).strip().casefold()]
 
-    api_key = get_gemini_api_key()
-    if not api_key:
-        return None
-
     entity_candidates = []
     if isinstance(translations, dict):
         entity_candidates = [
@@ -71,6 +67,12 @@ def resolve_catalog_entity(transcript, catalog, entity_type, translations=None):
         if isinstance(translations, dict)
         else transcript
     )
+    api_key = get_gemini_api_key()
+    if not api_key:
+        raise GeminiUnderstandingError(
+            "Gemini is not configured. Set GEMINI_API_KEY or GOOGLE_API_KEY "
+            "to match spoken names against the catalog."
+        )
 
     model = get_gemini_model()
     endpoint = (
@@ -81,11 +83,13 @@ def resolve_catalog_entity(transcript, catalog, entity_type, translations=None):
         "You are an expert Indian retail entity matcher. "
         "Match the spoken/written entity to exactly ONE item from the catalog. "
         "Treat the requested entity as the primary matching text. Use full-utterance "
-        "translations only as additional context, not as the entity itself. "
+        "translations to correct a phonetic/transcription variant when helpful, but "
+        "ignore command words, quantities, payment terms, and other non-name text. "
         "CRITICAL MATCHING RULES:\n"
-        "- Match names across languages and writing systems, including phonetic transliterations and synonyms.\n"
-        "- Match a product to a catalog entry when the request omits package size, but do not ignore an explicitly requested size that conflicts with the catalog.\n"
-        "- Return null in resolved_name ONLY if the item does not exist at all in the catalog. Never invent a product or customer.\n"
+        "- Match names across languages and writing systems, including phonetic transliterations and common synonyms.\n"
+        "- Return the exact catalog string, including its original spelling, for a confident match; never translate or rewrite a catalog entry.\n"
+        "- For products, an omitted package size may match only when the catalog identifies one unambiguous product; an explicitly requested conflicting size must not match.\n"
+        "- Return null when no confident unique match exists, including when multiple catalog entries are plausible. Never invent a product or customer.\n"
         f"Entity type: {entity_type}\n"
         f"Requested entity: {json.dumps(match_text, ensure_ascii=False)}\n"
         f"Original utterance: {json.dumps(original_utterance, ensure_ascii=False)}\n"
@@ -162,16 +166,10 @@ def resolve_catalog_entity(transcript, catalog, entity_type, translations=None):
         cleaned = resolved.strip()
         if not cleaned or cleaned.lower() in ("null", "none"):
             return None
-        # 1. Exact match
         if cleaned in catalog:
             return cleaned
-        # 2. Case-insensitive match
         if cleaned.casefold() in catalog_map:
             return catalog_map[cleaned.casefold()]
-        # 3. Substring match
-        for item in catalog:
-            if isinstance(item, str) and (cleaned.casefold() in item.casefold() or item.casefold() in cleaned.casefold()):
-                return item
     return None
 
 

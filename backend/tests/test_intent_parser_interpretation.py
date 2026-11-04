@@ -12,7 +12,9 @@ from ddgs.exceptions import DDGSException
 class IntentParserInterpretationTests(unittest.TestCase):
     def setUp(self):
         self.gemini_key_patch = patch.dict(
-            os.environ, {"GEMINI_API_KEY": ""}, clear=False
+            os.environ,
+            {"GEMINI_API_KEY": "", "GOOGLE_API_KEY": ""},
+            clear=False,
         )
         self.gemini_key_patch.start()
         self.addCleanup(self.gemini_key_patch.stop)
@@ -131,6 +133,90 @@ class IntentParserInterpretationTests(unittest.TestCase):
             resolve_entity.call_args.args[3]["raw_transcript"],
             "पचास मैगी बेच दो",
         )
+
+    @patch("backend.app.services.query_service.QueryService")
+    @patch(
+        "backend.app.gemini_understanding.resolve_catalog_entity",
+        return_value="Maggi 70g",
+    )
+    def test_voice_stock_query_uses_gemini_resolved_catalog_name(
+        self,
+        resolve_entity,
+        query_service,
+    ):
+        query_service.return_value.get_inventory_stock.return_value = {
+            "found": True,
+            "message": "Maggi 70g: 100 in stock.",
+        }
+
+        result = intent_parser.parse_and_execute(
+            "मैगी का स्टॉक कितना है",
+            interpretation={"action": "query_stock", "entity": "मैगी"},
+        )
+
+        self.assertEqual(result["status"], "success")
+        query_service.return_value.get_inventory_stock.assert_called_once_with("Maggi 70g")
+        resolve_entity.assert_called_once()
+
+    @patch("backend.app.services.query_service.QueryService")
+    @patch(
+        "backend.app.gemini_understanding.resolve_catalog_entity",
+        return_value="Ramesh",
+    )
+    def test_voice_customer_balance_query_uses_gemini_resolved_customer(
+        self,
+        resolve_entity,
+        query_service,
+    ):
+        query_service.return_value.get_customer_balance.return_value = {
+            "found": True,
+            "message": "Ramesh has an outstanding balance of ₹20.",
+        }
+
+        result = intent_parser.parse_and_execute(
+            "रामेश का उधार कितना है",
+            interpretation={"action": "query_customer", "entity": "रामेश"},
+        )
+
+        self.assertEqual(result["status"], "success")
+        query_service.return_value.get_customer_balance.assert_called_once_with("Ramesh")
+        resolve_entity.assert_called_once()
+
+    @patch(
+        "backend.app.gemini_understanding.resolve_catalog_entity",
+        return_value="Ramesh",
+    )
+    def test_voice_credit_uses_gemini_resolved_existing_customer(self, resolve_entity):
+        result = intent_parser.parse_and_execute(
+            "Ramiz ke khate mein 100 jodo",
+            interpretation={
+                "action": "credit",
+                "entity": "Ramiz",
+                "quantity": 100,
+            },
+        )
+
+        self.assertEqual(result["status"], "pending_confirmation")
+        self.assertEqual(result["draft"]["CustomerName"], "Ramesh")
+        resolve_entity.assert_called_once()
+
+    @patch(
+        "backend.app.gemini_understanding.resolve_catalog_entity",
+        return_value="Ramesh",
+    )
+    def test_voice_repayment_uses_gemini_resolved_customer(self, resolve_entity):
+        result = intent_parser.parse_and_execute(
+            "रामेश ने 5 रुपये जमा किए",
+            interpretation={
+                "action": "repayment",
+                "entity": "रामेश",
+                "quantity": 5,
+            },
+        )
+
+        self.assertEqual(result["status"], "success")
+        self.assertEqual(result["data"]["CustomerName"], "Ramesh")
+        resolve_entity.assert_called_once()
 
     def test_inventory_match_is_attempted_once_for_an_unresolved_voice_product(self):
         with patch(
@@ -277,7 +363,11 @@ class IntentParserInterpretationTests(unittest.TestCase):
             ).fetchone()
         self.assertEqual(customer, (0, 1))
 
-    def test_voice_credit_for_unknown_customer_creates_customer_with_balance(self):
+    @patch(
+        "backend.app.gemini_understanding.resolve_catalog_entity",
+        return_value=None,
+    )
+    def test_voice_credit_for_unknown_customer_creates_customer_with_balance(self, resolve_entity):
         result = intent_parser.parse_and_execute(
             "श्याम के खाते में 1564 डाल दो",
             interpretation={
@@ -294,6 +384,7 @@ class IntentParserInterpretationTests(unittest.TestCase):
                 "SELECT OutstandingBalance FROM CustomerCredit WHERE CustomerName = 'श्याम'"
             ).fetchone()
         self.assertIsNone(customer)
+        resolve_entity.assert_called_once()
 
     def test_voice_remove_customer_waits_for_confirmation(self):
         result = intent_parser.parse_and_execute(

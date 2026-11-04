@@ -90,11 +90,18 @@ class TestCallSimulatorServices(unittest.TestCase):
             "backend.app.gemini_understanding.resolve_catalog_entity",
             return_value="Maggi 70g",
         ) as resolve_entity:
-            matched = self.db_service.match_inventory_item("मैगी")
+            matched = self.db_service.match_inventory_item(
+                "मैगी",
+                raw_transcript="मैगी का एक पैकेट देना",
+            )
 
         self.assertIsNotNone(matched)
         self.assertEqual(matched["ItemName"], "Maggi 70g")
         resolve_entity.assert_called_once()
+        self.assertEqual(
+            resolve_entity.call_args.args[3]["raw_transcript"],
+            "मैगी का एक पैकेट देना",
+        )
 
     def test_execute_order_cash(self):
         result = self.db_service.execute_order(
@@ -152,6 +159,23 @@ class TestCallSimulatorServices(unittest.TestCase):
         self.assertEqual(result["status"], "success")
         self.assertEqual(result["items"][0]["item_name"], "Maggi noodles (MRP ₹14)")
 
+    def test_short_name_does_not_pick_arbitrary_package_variant(self):
+        conn = sqlite3.connect(self.temp_db_path)
+        conn.execute(
+            "INSERT INTO Inventory (ItemName, StockQuantity, Price) VALUES (?, ?, ?)",
+            ("Maggi noodles (MRP ₹20)", 20, 20.0),
+        )
+        conn.commit()
+        conn.close()
+
+        with patch(
+            "backend.app.gemini_understanding.resolve_catalog_entity",
+            return_value=None,
+        ):
+            matched = self.db_service.match_inventory_item("Maggi")
+
+        self.assertIsNone(matched)
+
     def test_execute_order_uses_gemini_for_cross_script_product_alias(self):
         conn = sqlite3.connect(self.temp_db_path)
         conn.execute("ALTER TABLE Inventory ADD COLUMN ItemNameHindi TEXT")
@@ -165,14 +189,46 @@ class TestCallSimulatorServices(unittest.TestCase):
         with patch(
             "backend.app.gemini_understanding.resolve_catalog_entity",
             return_value="मैगी",
-        ):
+        ) as resolve_entity:
             result = self.db_service.execute_order(
                 items=[{"name": "Maggi best brand", "quantity": 1}],
                 payment_mode="cash",
+                raw_call_text="The customer asked for Maggi best brand",
             )
 
         self.assertEqual(result["status"], "success")
         self.assertEqual(result["items"][0]["item_name"], "Maggi 70g")
+        self.assertEqual(
+            resolve_entity.call_args.args[3]["raw_transcript"],
+            "The customer asked for Maggi best brand",
+        )
+
+    def test_match_customer_includes_hindi_alias_and_returns_canonical_customer(self):
+        conn = sqlite3.connect(self.temp_db_path)
+        conn.execute("ALTER TABLE CustomerCredit ADD COLUMN CustomerNameHindi TEXT")
+        conn.execute(
+            "INSERT INTO CustomerCredit (CustomerName, OutstandingBalance, CustomerNameHindi) "
+            "VALUES ('Aryan', 100, 'आर्यन')"
+        )
+        conn.commit()
+        conn.close()
+
+        with patch(
+            "backend.app.gemini_understanding.resolve_catalog_entity",
+            return_value="आर्यन",
+        ) as resolve_entity:
+            matched = self.db_service.match_customer(
+                "Aaryan",
+                raw_transcript="आर्यन ने उधार लिया",
+            )
+
+        self.assertIsNotNone(matched)
+        self.assertEqual(matched["CustomerName"], "Aryan")
+        self.assertIn("आर्यन", resolve_entity.call_args.args[1])
+        self.assertEqual(
+            resolve_entity.call_args.args[3]["raw_transcript"],
+            "आर्यन ने उधार लिया",
+        )
 
     def test_execute_order_insufficient_stock(self):
         result = self.db_service.execute_order(
@@ -215,6 +271,41 @@ class TestCallSimulatorServices(unittest.TestCase):
         txn = conn.execute("SELECT TotalAmount FROM Transactions WHERE TransactionType = 'Credit'").fetchone()
         self.assertIsNotNone(txn)
         self.assertEqual(txn[0], 200.0)
+        conn.close()
+
+    def test_credit_log_matches_transliterated_hindi_customer_without_duplicate(self):
+        conn = sqlite3.connect(self.temp_db_path)
+        conn.execute("ALTER TABLE CustomerCredit ADD COLUMN CustomerNameHindi TEXT")
+        conn.execute(
+            "INSERT INTO CustomerCredit "
+            "(CustomerName, OutstandingBalance, CustomerNameHindi) VALUES (?, ?, ?)",
+            ("Aryan", 100.0, "आर्यन"),
+        )
+        conn.commit()
+        conn.close()
+
+        with patch(
+            "backend.app.gemini_understanding.resolve_catalog_entity",
+            return_value="आर्यन",
+        ) as resolve_entity:
+            result = self.db_service.execute_credit_log(
+                customer_name="Aaryan",
+                amount=20.0,
+                raw_call_text="आर्यन का 20 रुपये उधार लिखो",
+            )
+
+        self.assertEqual(result["status"], "success")
+        self.assertEqual(result["customer_name"], "Aryan")
+        self.assertEqual(
+            resolve_entity.call_args.args[3]["raw_transcript"],
+            "आर्यन का 20 रुपये उधार लिखो",
+        )
+        conn = sqlite3.connect(self.temp_db_path)
+        rows = conn.execute(
+            "SELECT CustomerName, OutstandingBalance FROM CustomerCredit "
+            "WHERE CustomerName LIKE 'Aryan%'"
+        ).fetchall()
+        self.assertEqual(rows, [("Aryan", 120.0)])
         conn.close()
 
     def test_execute_repayment(self):
