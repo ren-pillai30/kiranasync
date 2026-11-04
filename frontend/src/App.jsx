@@ -156,6 +156,7 @@ export default function App() {
   // Store mutations, edits, and draft confirmations
   const actions = useStoreActions({
     t,
+    inventory,
     onRefreshAll: refreshAll,
     onInventoryUpdated: (updatedItem) => {
       setInventory((current) => {
@@ -271,6 +272,22 @@ export default function App() {
       setTimeout(() => setIsActive(false), 4000);
     },
   });
+
+  const pendingProductDraft = actions.pendingDraft;
+  const searchingProduct = actions.isSearchingProduct;
+  const searchEditedProductName = actions.searchEditedProductName;
+  useEffect(() => {
+    if (
+      pendingProductDraft?.SearchStatus === 'idle' &&
+      !searchingProduct
+    ) {
+      void searchEditedProductName();
+    }
+  }, [
+    pendingProductDraft,
+    searchingProduct,
+    searchEditedProductName,
+  ]);
 
   useEffect(() => {
     let isMounted = true;
@@ -485,9 +502,11 @@ export default function App() {
 
         <TransactionConfirmModal
           pendingTransaction={actions.pendingTransaction}
+          setPendingTransaction={actions.setPendingTransaction}
           inventory={inventory}
           credit={credit}
           nameDisplayMode={nameDisplayMode}
+          t={t}
           confirmationError={actions.confirmationError}
           onConfirm={actions.confirmTransaction}
           onCancel={() => {

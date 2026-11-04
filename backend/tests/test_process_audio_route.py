@@ -184,6 +184,89 @@ class ProcessAudioRouteTests(unittest.TestCase):
         self.assertEqual(result["data"]["OutstandingBalance"], 250)
         resolve_entity.assert_not_called()
 
+    def test_postgres_voice_add_product_existing_item_returns_stock_confirmation(self):
+        inventory = [{
+            "ItemID": 3,
+            "ItemName": "Maggi (MRP ₹14)",
+            "ItemNameHindi": "मैगी",
+            "StockQuantity": 20,
+            "Price": 14,
+        }]
+
+        result = main.build_postgres_voice_product_result(
+            {"action": "add_product", "entity": "मैगी", "quantity": "4"},
+            "मैगी के 4 पैकेट जोड़ो",
+            inventory,
+        )
+
+        self.assertEqual(result["status"], "pending_confirmation")
+        self.assertEqual(result["draft"]["Intent"], "restock")
+        self.assertEqual(result["draft"]["ItemID"], 3)
+        self.assertEqual(result["draft"]["CurrentStock"], 20)
+        self.assertEqual(result["draft"]["Quantity"], 4)
+        self.assertEqual(result["draft"]["StockMode"], "add")
+
+    def test_postgres_voice_add_product_new_item_returns_price_search_draft(self):
+        result = main.build_postgres_voice_product_result(
+            {"action": "add_product", "entity": "New Tea", "quantity": "3"},
+            "add 3 packets of new tea",
+            [],
+        )
+
+        self.assertEqual(result["status"], "pending_confirmation")
+        self.assertEqual(result["draft"]["ItemName"], "New Tea")
+        self.assertEqual(result["draft"]["StockQuantity"], 3)
+        self.assertEqual(result["draft"]["SearchStatus"], "idle")
+        self.assertEqual(result["draft"]["PriceOptions"], [])
+
+    def test_postgres_stock_confirmation_supports_add_and_replace(self):
+        item = SimpleNamespace(
+            item_id=3,
+            item_name="Maggi",
+            stock_quantity=20,
+            price=14,
+        )
+        with (
+            main.app.app_context(),
+            patch("backend.app.main.is_postgres_database", return_value=True),
+            patch("backend.app.main.current_store_id", return_value=7),
+            patch("backend.app.models.StoreInventory.query") as inventory_query,
+            patch("backend.app.main.db.session.query") as session_query,
+            patch("backend.app.main.db.session.add") as session_add,
+            patch("backend.app.main.db.session.commit"),
+        ):
+            inventory_query.filter_by.return_value.with_for_update.return_value.first.return_value = item
+            session_query.return_value.filter_by.return_value.scalar.return_value = 4
+            client = main.app.test_client()
+
+            add_response = client.post(
+                "/api/inventory/confirm-command",
+                json={
+                    "ItemID": 3,
+                    "Intent": "restock",
+                    "Quantity": 5,
+                    "StockMode": "add",
+                },
+            )
+            replace_response = client.post(
+                "/api/inventory/confirm-command",
+                json={
+                    "ItemID": 3,
+                    "Intent": "restock",
+                    "Quantity": 3,
+                    "StockMode": "replace",
+                },
+            )
+
+        self.assertEqual(add_response.status_code, 200)
+        self.assertEqual(replace_response.status_code, 200)
+        self.assertEqual(item.stock_quantity, 3)
+        transactions = [call.args[0] for call in session_add.call_args_list]
+        self.assertEqual(
+            [(transaction.transaction_type, transaction.quantity) for transaction in transactions],
+            [("Restock", 5), ("Stock Adjustment", -22)],
+        )
+
     def test_postgres_voice_repayment_updates_customer_and_ledger(self):
         from backend.app.database import db
         from backend.app.models import StoreCredit, StoreTransaction

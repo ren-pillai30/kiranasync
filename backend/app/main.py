@@ -2,6 +2,7 @@ import os
 import sys
 import math
 import difflib
+import re
 
 if __package__ in (None, ""):
     project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
@@ -583,11 +584,18 @@ def confirm_inventory_command():
         except (TypeError, ValueError):
             return jsonify({'status': 'error', 'error': 'Choose a product and valid quantity.'}), 400
         intent = data.get('Intent')
-        if intent not in {'sell', 'restock'} or item_id <= 0 or quantity <= 0:
+        stock_mode = data.get('StockMode', 'add')
+        if (
+            intent not in {'sell', 'restock'}
+            or stock_mode not in {'add', 'replace'}
+            or (intent == 'sell' and stock_mode != 'add')
+            or item_id <= 0
+            or quantity <= 0
+        ):
             return jsonify({'status': 'error', 'error': 'Choose a product and valid quantity.'}), 400
         item = StoreInventory.query.filter_by(
             store_id=current_store_id(), item_id=item_id, is_active=True
-        ).first()
+        ).with_for_update().first()
         if not item:
             return jsonify({'status': 'error', 'error': 'That inventory item no longer exists.'}), 404
         if intent == 'sell':
@@ -598,12 +606,24 @@ def confirm_inventory_command():
             total_amount = float(item.price) * quantity
             action = 'inventory_updated'
             message = f'Sold {quantity} {item.item_name}. Stock left: {item.stock_quantity}.'
+            transaction_quantity = quantity
         else:
-            item.stock_quantity += quantity
-            transaction_type = 'Restock'
-            total_amount = -float(item.price) * quantity
+            previous_stock = item.stock_quantity
+            item.stock_quantity = (
+                previous_stock + quantity
+                if stock_mode == 'add'
+                else quantity
+            )
+            stock_change = item.stock_quantity - previous_stock
+            transaction_type = 'Restock' if stock_mode == 'add' else 'Stock Adjustment'
+            total_amount = -float(item.price) * stock_change
+            transaction_quantity = quantity if stock_mode == 'add' else stock_change
             action = 'inventory_restocked'
-            message = f'Restocked {quantity} {item.item_name}. Total stock: {item.stock_quantity}.'
+            message = (
+                f'Restocked {quantity} {item.item_name}. Total stock: {item.stock_quantity}.'
+                if stock_mode == 'add'
+                else f'Replaced stock for {item.item_name} with {item.stock_quantity}.'
+            )
         max_txn_id = db.session.query(db.func.max(StoreTransaction.txn_id)).filter_by(store_id=current_store_id()).scalar() or 0
         db.session.add(StoreTransaction(
             store_id=current_store_id(),
@@ -612,7 +632,7 @@ def confirm_inventory_command():
             total_amount=total_amount,
             transaction_type=transaction_type,
             entity_name=item.item_name,
-            quantity=quantity,
+            quantity=transaction_quantity,
         ))
         db.session.commit()
         return jsonify({
@@ -637,7 +657,14 @@ def confirm_inventory_command():
     except (TypeError, ValueError):
         return jsonify({'status': 'error', 'error': 'Choose a product and valid quantity.'}), 400
     intent = data.get('Intent')
-    if intent not in {'sell', 'restock'} or item_id <= 0 or quantity <= 0:
+    stock_mode = data.get('StockMode', 'add')
+    if (
+        intent not in {'sell', 'restock'}
+        or stock_mode not in {'add', 'replace'}
+        or (intent == 'sell' and stock_mode != 'add')
+        or item_id <= 0
+        or quantity <= 0
+    ):
         return jsonify({'status': 'error', 'error': 'Choose a product and valid quantity.'}), 400
 
     conn = sqlite3.connect(DB_PATH)
@@ -665,11 +692,20 @@ def confirm_inventory_command():
             action = 'inventory_updated'
             message = f'Sold {quantity} {item_name}. Stock left: {updated_stock}.'
         else:
-            updated_stock = int(stock_quantity) + quantity
-            transaction_type = 'Restock'
-            total_amount = -float(price) * quantity
+            updated_stock = (
+                int(stock_quantity) + quantity
+                if stock_mode == 'add'
+                else quantity
+            )
+            stock_change = updated_stock - int(stock_quantity)
+            transaction_type = 'Restock' if stock_mode == 'add' else 'Stock Adjustment'
+            total_amount = -float(price) * stock_change
             action = 'inventory_restocked'
-            message = f'Restocked {quantity} {item_name}. Total stock: {updated_stock}.'
+            message = (
+                f'Restocked {quantity} {item_name}. Total stock: {updated_stock}.'
+                if stock_mode == 'add'
+                else f'Replaced stock for {item_name} with {updated_stock}.'
+            )
 
         cursor.execute(
             'UPDATE Inventory SET StockQuantity = ? WHERE ItemID = ?',
@@ -681,7 +717,7 @@ def confirm_inventory_command():
             total_amount,
             transaction_type,
             item_name,
-            quantity,
+            quantity if intent == 'sell' or stock_mode == 'add' else stock_change,
         )
         conn.commit()
         return jsonify({
@@ -984,6 +1020,113 @@ def build_postgres_voice_sale_result(interpretation, raw_transcript, inventory):
         "status": "failed",
         "action": "item_not_found",
         "message": f"Could not match '{entity}' to an inventory item. No stock was changed.",
+    }
+
+
+def build_postgres_voice_product_result(interpretation, raw_transcript, inventory):
+    action = interpretation.get("action")
+    if action not in {"add_product", "restock"}:
+        return None
+
+    entity = str(interpretation.get("entity") or "").strip()
+    if not entity:
+        return {
+            "status": "failed",
+            "action": "entity_unrecognized",
+            "message": "Could not identify the product. No stock was changed.",
+        }
+
+    quantity = extract_explicit_quantity(raw_transcript)
+    if quantity is None:
+        try:
+            quantity = int(interpretation.get("quantity"))
+        except (TypeError, ValueError):
+            quantity = None
+    if quantity is None or quantity <= 0:
+        return {
+            "status": "failed",
+            "action": "quantity_unrecognized",
+            "message": "Could not recognize a positive whole-number quantity.",
+        }
+
+    from backend.app.intent_parser import match_entity_with_score
+
+    alias_to_items = {}
+    for item in inventory:
+        for alias in (item["ItemName"], item.get("ItemNameHindi")):
+            if not alias or not alias.strip():
+                continue
+            clean_alias = alias.strip()
+            alias_to_items.setdefault(clean_alias.casefold(), {})[
+                item["ItemID"]
+            ] = item
+            base_alias = re.sub(
+                r"\s*\(MRP\s*₹?\s*[\d,.]+\)\s*$",
+                "",
+                clean_alias,
+                flags=re.IGNORECASE,
+            ).strip()
+            if base_alias and base_alias.casefold() != clean_alias.casefold():
+                alias_to_items.setdefault(base_alias.casefold(), {})[
+                    item["ItemID"]
+                ] = item
+
+    matching_items = alias_to_items.get(entity.casefold(), {})
+    if not matching_items and alias_to_items:
+        matched_alias = match_entity_with_score(
+            entity,
+            list(alias_to_items),
+            threshold=90,
+        )
+        if matched_alias:
+            matching_items = alias_to_items[matched_alias.casefold()]
+
+    candidates = list(matching_items.values())
+    if len(candidates) > 1:
+        return {
+            "status": "pending_selection",
+            "action": "select_inventory_item",
+            "message": "More than one existing product matches. Choose the correct product before changing stock.",
+            "draft": {
+                "Intent": "restock",
+                "Quantity": quantity,
+                "RawCommand": raw_transcript,
+                "EntityName": entity,
+                "Candidates": candidates,
+                "AllowNewProduct": False,
+            },
+        }
+
+    if candidates:
+        item = candidates[0]
+        return {
+            "status": "pending_confirmation",
+            "action": "confirm_restock",
+            "message": f"{item['ItemName']} already exists. Confirm how to update its stock.",
+            "draft": {
+                "Intent": "restock",
+                "ItemID": item["ItemID"],
+                "ItemName": item["ItemName"],
+                "Quantity": quantity,
+                "CurrentStock": int(item["StockQuantity"]),
+                "StockMode": "add",
+                "RawCommand": raw_transcript,
+            },
+        }
+
+    return {
+        "status": "pending_confirmation",
+        "action": "confirm_restock",
+        "message": f"Review the details and price for new product {entity}.",
+        "draft": {
+            "ItemName": entity,
+            "StockQuantity": quantity,
+            "Price": None,
+            "PriceFound": False,
+            "PriceOptions": [],
+            "SearchStatus": "idle",
+            "RawCommand": raw_transcript,
+        },
     }
 
 
@@ -1356,6 +1499,15 @@ def process_audio():
         try:
             if postgres_inventory is not None and interpretation.get("action") == "sell":
                 db_result = build_postgres_voice_sale_result(
+                    interpretation,
+                    raw_transcript,
+                    postgres_inventory,
+                )
+            elif postgres_inventory is not None and interpretation.get("action") in {
+                "add_product",
+                "restock",
+            }:
+                db_result = build_postgres_voice_product_result(
                     interpretation,
                     raw_transcript,
                     postgres_inventory,

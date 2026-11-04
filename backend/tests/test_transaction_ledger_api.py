@@ -218,6 +218,59 @@ class TransactionLedgerApiTests(unittest.TestCase):
         self.assertEqual(stocks, [(50,), (18,)])
         self.assertEqual(ledger_entry, ("Navratna Oil (MRP ₹500)", 2, 1000))
 
+    def test_confirm_restock_can_add_to_existing_stock_or_replace_it(self):
+        connection = sqlite3.connect(self.database_path)
+        try:
+            connection.execute(
+                "INSERT INTO Inventory (ItemName, StockQuantity, Price) VALUES (?, ?, ?)",
+                ("Sugar 1kg", 5, 10),
+            )
+            item_id = connection.execute(
+                "SELECT ItemID FROM Inventory WHERE ItemName = 'Sugar 1kg'"
+            ).fetchone()[0]
+            connection.commit()
+        finally:
+            connection.close()
+
+        add_response = self.client.post(
+            "/api/inventory/confirm-command",
+            json={
+                "ItemID": item_id,
+                "Intent": "restock",
+                "Quantity": 3,
+                "StockMode": "add",
+            },
+        )
+        self.assertEqual(add_response.status_code, 200)
+
+        replace_response = self.client.post(
+            "/api/inventory/confirm-command",
+            json={
+                "ItemID": item_id,
+                "Intent": "restock",
+                "Quantity": 4,
+                "StockMode": "replace",
+            },
+        )
+        self.assertEqual(replace_response.status_code, 200)
+
+        connection = sqlite3.connect(self.database_path)
+        try:
+            stock = connection.execute(
+                "SELECT StockQuantity FROM Inventory WHERE ItemID = ?",
+                (item_id,),
+            ).fetchone()[0]
+            transaction_types = connection.execute(
+                "SELECT TransactionType FROM Transactions WHERE EntityName IS NOT NULL ORDER BY TxnID"
+            ).fetchall()
+        finally:
+            connection.close()
+        self.assertEqual(stock, 4)
+        self.assertEqual(
+            transaction_types,
+            [("Restock",), ("Stock Adjustment",)],
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

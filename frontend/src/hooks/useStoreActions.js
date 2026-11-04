@@ -7,6 +7,7 @@ import { api } from '../services/api';
  */
 export function useStoreActions({
   t,
+  inventory = [],
   onRefreshAll,
   onInventoryUpdated,
   playVoiceReceipt,
@@ -39,18 +40,66 @@ export function useStoreActions({
   const handleAddInventory = async (e) => {
     e.preventDefault();
     setManualFormError('');
-    try {
-      const result = await api.addInventory(invForm);
-      if (result.item) {
-        onInventoryUpdated?.(result.item);
-      }
-      setInvForm({ ItemName: '', ItemNameHindi: '', StockQuantity: '', Price: '' });
-      setShowAddInv(false);
-      onRefreshAll();
-    } catch (error) {
-      console.error('Product add failed:', error);
-      setManualFormError(error.message || t.connError);
+    const normalizeProductName = (name) =>
+      String(name || '')
+        .replace(/\s*\(MRP\s*₹?\s*[\d,.]+\)\s*$/i, '')
+        .normalize('NFKC')
+        .trim()
+        .toLocaleLowerCase();
+    const requestedName = normalizeProductName(invForm.ItemName);
+    const matches = inventory.filter((item) =>
+      [item.ItemName, item.ItemNameHindi].some(
+        (name) => requestedName && normalizeProductName(name) === requestedName
+      )
+    );
+    const requestedPrice = Number(invForm.Price);
+    const priceMatch = matches.find(
+      (item) => Number(item.Price) === requestedPrice
+    );
+    const existing = priceMatch || (matches.length === 1 ? matches[0] : null);
+    if (matches.length > 1 && !priceMatch) {
+      setPendingItemChoice({
+        Intent: 'restock',
+        Quantity: Number(invForm.StockQuantity),
+        EntityName: invForm.ItemName,
+        Candidates: matches,
+        AllowNewProduct: false,
+        Source: 'manual_add',
+        RequestedPrice: requestedPrice,
+        RawCommand: `Manual add ${invForm.ItemName}`,
+      });
+      setSelectedItemId(null);
+      setConfirmationError('');
+      return;
     }
+    if (existing) {
+      setPendingTransaction({
+        Intent: 'restock',
+        ItemID: existing.ItemID,
+        ItemName: existing.ItemName,
+        Quantity: Number(invForm.StockQuantity),
+        CurrentStock: Number(existing.StockQuantity),
+        ExistingPrice: Number(existing.Price),
+        RequestedPrice: Number(invForm.Price),
+        StockMode: 'add',
+        Source: 'manual_add',
+        RawCommand: `Manual add ${invForm.ItemName}`,
+      });
+      setConfirmationError('');
+      return;
+    }
+    setPendingDraft({
+      ItemName: invForm.ItemName.trim(),
+      ItemNameHindi: invForm.ItemNameHindi.trim(),
+      StockQuantity: Number(invForm.StockQuantity),
+      Price: null,
+      PriceOptions: [],
+      SearchStatus: 'idle',
+      RawCommand: `Manual add ${invForm.ItemName.trim()}`,
+      Source: 'manual_add',
+      ManualPrice: requestedPrice,
+    });
+    setManualMrp('');
   };
 
   const handleAddCustomer = async (e) => {
@@ -128,6 +177,10 @@ export function useStoreActions({
       });
       setPendingDraft(null);
       setManualMrp('');
+      if (pendingDraft.Source === 'manual_add') {
+        setInvForm({ ItemName: '', ItemNameHindi: '', StockQuantity: '', Price: '' });
+        setShowAddInv(false);
+      }
       if (result.database_action?.message) {
         setDbAction(result.database_action);
         if (playVoiceReceipt) playVoiceReceipt(result.database_action.message);
@@ -186,6 +239,27 @@ export function useStoreActions({
   const submitItemChoice = async () => {
     if (!pendingItemChoice || selectedItemId === null) return;
     setConfirmationError('');
+    if (pendingItemChoice.Intent === 'restock') {
+      const selectedItem = pendingItemChoice.Candidates.find(
+        (item) => item.ItemID === selectedItemId
+      );
+      if (!selectedItem) return;
+      setPendingTransaction({
+        Intent: 'restock',
+        ItemID: selectedItem.ItemID,
+        ItemName: selectedItem.ItemName,
+        Quantity: pendingItemChoice.Quantity,
+        CurrentStock: selectedItem.StockQuantity,
+        StockMode: 'add',
+        Source: pendingItemChoice.Source,
+        RequestedPrice: pendingItemChoice.RequestedPrice,
+        ExistingPrice: selectedItem.Price,
+        RawCommand: pendingItemChoice.RawCommand,
+      });
+      setPendingItemChoice(null);
+      setSelectedItemId(null);
+      return;
+    }
     try {
       const result = await api.confirmInventoryCommand({
         ItemID: selectedItemId,
@@ -216,6 +290,10 @@ export function useStoreActions({
       setDbAction(result.database_action);
       if (playVoiceReceipt) playVoiceReceipt(result.database_action.message);
       if (result.item) onInventoryUpdated?.(result.item);
+      if (pendingTransaction.Source === 'manual_add') {
+        setInvForm({ ItemName: '', ItemNameHindi: '', StockQuantity: '', Price: '' });
+        setShowAddInv(false);
+      }
       onRefreshAll();
     } catch (error) {
       console.error('Transaction confirmation failed:', error);
@@ -226,6 +304,7 @@ export function useStoreActions({
   const searchEditedProductName = async () => {
     if (!pendingDraft?.ItemName?.trim()) return;
     const requestedName = pendingDraft.ItemName.trim();
+    const manualPrice = Number(pendingDraft.ManualPrice);
     setIsSearchingProduct(true);
     setConfirmationError('');
     setPendingDraft((current) =>
@@ -252,11 +331,27 @@ export function useStoreActions({
               ...result,
               StockQuantity: current.StockQuantity,
               RawCommand: current.RawCommand,
-              PriceOptions: (result.PriceOptions || []).map((option, index) => ({
-                ...option,
-                Quantity: current.StockQuantity,
-                Selected: index === 0,
-              })),
+              PriceOptions: [
+                ...(result.PriceOptions || []).map((option, index) => ({
+                  ...option,
+                  Quantity: current.StockQuantity,
+                  Selected: index === 0,
+                })),
+                ...(Number.isFinite(manualPrice) &&
+                manualPrice > 0 &&
+                !(result.PriceOptions || []).some(
+                  (option) => Number(option.Price) === manualPrice
+                )
+                  ? [{
+                      Price: manualPrice,
+                      PriceIsMRP: false,
+                      IsManual: true,
+                      Sources: [],
+                      Quantity: current.StockQuantity,
+                      Selected: !(result.PriceOptions || []).length,
+                    }]
+                  : []),
+              ],
             }
           : current
       );
@@ -267,7 +362,24 @@ export function useStoreActions({
       console.error('Product search error:', error);
       setConfirmationError(error.message || t.connError);
       setPendingDraft((current) =>
-        current ? { ...current, SearchStatus: 'error', SearchResults: [] } : current
+        current
+          ? {
+              ...current,
+              SearchStatus: 'error',
+              SearchResults: [],
+              PriceOptions:
+                Number.isFinite(manualPrice) && manualPrice > 0
+                  ? [{
+                      Price: manualPrice,
+                      PriceIsMRP: false,
+                      IsManual: true,
+                      Sources: [],
+                      Quantity: current.StockQuantity,
+                      Selected: true,
+                    }]
+                  : current.PriceOptions,
+            }
+          : current
       );
     } finally {
       setIsSearchingProduct(false);

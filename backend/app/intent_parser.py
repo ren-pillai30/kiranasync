@@ -255,11 +255,9 @@ def search_product_online(clean_item_name):
     )
     product_name = re.sub(r"\s+", " ", product_name).strip()
     corrected_name = (product_name or clean_item_name.strip()).title()
-    from backend.app.gemini_understanding import build_product_mrp_search_query
-    ai_search_name = build_product_mrp_search_query(product_name)
-    search_product_name = ai_search_name or corrected_name
+    search_product_name = corrected_name
+    normalized_search_name = normalize_entity_name(product_name)
     requested_meas = extract_measurement(product_name)
-    base_product_name = strip_measurement(product_name).strip()
 
     if not DDGS:
         return {
@@ -281,26 +279,14 @@ def search_product_online(clean_item_name):
         r"\band\b", "&", search_product_name, flags=re.IGNORECASE
     )
     query_names = [search_product_name, normalized_query_name]
-    if base_product_name and base_product_name.lower() != search_product_name.lower():
-        query_names.append(base_product_name.title())
-    ignored_name_tokens = {
-        "a", "an", "and", "for", "in", "of", "the", "with",
-        "g", "gm", "gram", "grams", "kg", "kgs", "l", "ltr", "ml",
-        "pack", "packet", "piece", "pieces", "product", "products",
-        "biscuit", "biscuits", "snack", "snacks", "brand",
-    }
-    brand_tokens = [
-        token
-        for token in re.findall(r"[a-z]+|\d+(?:\.\d+)?", search_product_name.lower())
-        if token not in ignored_name_tokens and len(token) > 1
-    ]
-    if brand_tokens:
-        normalized_brand = " ".join(brand_tokens)
-        query_names.append(normalized_brand)
+    if normalized_search_name and normalized_search_name.casefold() not in {
+        name.casefold() for name in query_names
+    }:
+        query_names.append(normalized_search_name)
     queries = list(dict.fromkeys(
-        name if re.search(r"\bmrp\b", name, flags=re.IGNORECASE) else f"{name} MRP India"
+        f'"{name}" MRP India'
         for name in query_names
-    ))[:3]
+    ))[:2]
     primary_search_query = queries[0] if queries else ""
     try:
         with DDGS() as ddgs:
@@ -320,7 +306,7 @@ def search_product_online(clean_item_name):
                     if url:
                         seen_urls.add(url)
                     results.append(result)
-                if len(results) >= 10:
+                if len(results) >= 8:
                     break
     except Exception as exc:
         print(f"Product MRP search failed: {exc}")
@@ -356,13 +342,17 @@ def search_product_online(clean_item_name):
         r"(?:₹|rs\.?|inr)\s*(\d{1,5}(?:[,.]\d{1,2})?)",
         re.IGNORECASE,
     )
+    ignored_name_tokens = {
+        "a", "an", "and", "for", "in", "of", "the", "with",
+        "g", "gm", "gram", "grams", "kg", "kgs", "l", "ltr", "ml",
+        "pack", "packet", "piece", "pieces", "product", "products",
+        "biscuit", "biscuits", "snack", "snacks", "brand",
+    }
     requested_tokens = {
         token
-        for token in re.findall(r"[a-z]+|\d+(?:\.\d+)?", strip_measurement(corrected_name).lower())
+        for token in normalize_entity_name(strip_measurement(corrected_name)).split()
         if token not in ignored_name_tokens and (len(token) > 1 or token.isdigit())
     }
-    if not requested_tokens:
-        requested_tokens = set(re.findall(r"[a-z]+|\d+(?:\.\d+)?", strip_measurement(corrected_name).lower()))
 
     for result in results:
         title = (result.get("title") or "").strip()
@@ -371,8 +361,8 @@ def search_product_online(clean_item_name):
         snippet = " ".join(part for part in (title, body) if part)
         if not snippet:
             continue
-        result_tokens = set(re.findall(r"[a-z]+|\d+(?:\.\d+)?", title.lower()))
-        if not all(
+        result_tokens = set(normalize_entity_name(title).split())
+        if not requested_tokens or not all(
             any(
                 token == result_token
                 or (
@@ -1123,6 +1113,21 @@ def parse_and_execute(raw_transcript, quantity_override=None, interpretation=Non
         clean_translated_entity = interpretation.get("entity")
         orig_requested_entity = clean_translated_entity
         quantity_or_amount = interpretation.get("quantity")
+        if intent in {"add_product", "restock"}:
+            for item_name in db_items:
+                base_name = re.sub(
+                    r"\s+\(MRP\s*₹?\s*[\d,.]+\)\s*$",
+                    "",
+                    item_name,
+                    flags=re.IGNORECASE,
+                ).strip()
+                if (
+                    base_name
+                    and base_name.casefold() != item_name.casefold()
+                    and base_name.casefold() not in item_alias_to_canonical
+                ):
+                    item_catalog.append(base_name)
+                    item_alias_to_canonical[base_name.casefold()] = item_name
         from backend.app.gemini_understanding import (
             get_gemini_api_key,
             resolve_catalog_entity,
@@ -1564,22 +1569,6 @@ def parse_and_execute(raw_transcript, quantity_override=None, interpretation=Non
             else extract_quantity(english_meaning)
         )
 
-    if intent == "add_product" and target_item:
-        query_lower = clean_translated_entity.strip().lower()
-        query_tokens = set(re.findall(r'[a-zA-Z0-9]+', query_lower))
-        is_generic = (
-            query_lower in GENERIC_COMMODITY_TERMS
-            or any(token in GENERIC_COMMODITY_TERMS for token in query_tokens)
-            or len(query_tokens) <= 1
-        )
-        if not is_generic and target_item.lower().strip() == clean_translated_entity.lower().strip():
-            conn.close()
-            return {
-                "status": "failed",
-                "action": "product_already_exists",
-                "message": f"{target_item} is already active in inventory. Use a restock command to add stock.",
-            }
-
     if quantity_or_amount is None:
         conn.close()
         return {
@@ -1617,12 +1606,12 @@ def parse_and_execute(raw_transcript, quantity_override=None, interpretation=Non
                 "message": msg,
                 "speech_message": speech,
                 "draft": {
-                    "Intent": intent,
+                    "Intent": "sell" if intent == "sell" else "restock",
                     "Quantity": quantity_or_amount,
                     "RawCommand": raw_transcript,
                     "EntityName": final_unknown_entity,
                     "Candidates": variants,
-                    "AllowNewProduct": True,
+                    "AllowNewProduct": intent == "sell",
                     "RequestedMeasurement": meas_analysis.get("requested_measurement"),
                     "AvailableMeasurements": meas_analysis.get("other_measurements", []),
                     "MeasurementMismatch": meas_analysis.get("status") == "measurement_mismatch",
@@ -1688,6 +1677,7 @@ def parse_and_execute(raw_transcript, quantity_override=None, interpretation=Non
                     "ItemName": target_item,
                     "Quantity": quantity_or_amount,
                     "CurrentStock": int(row[1]) if row else 0,
+                    "StockMode": "add",
                     "RawCommand": raw_transcript,
                 },
             }

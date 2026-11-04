@@ -539,6 +539,56 @@ class IntentParserInterpretationTests(unittest.TestCase):
         self.assertEqual(result["status"], "pending_confirmation")
         self.assertEqual(result["draft"]["StockQuantity"], 3)
 
+    def test_voice_add_existing_product_offers_stock_update_confirmation(self):
+        result = intent_parser.parse_and_execute(
+            "add 3 packets of sugar",
+            interpretation={
+                "action": "add_product",
+                "entity": "Sugar 1kg",
+                "quantity": 3,
+            },
+        )
+
+        self.assertEqual(result["status"], "pending_confirmation")
+        self.assertEqual(result["action"], "confirm_restock")
+        self.assertEqual(result["draft"]["Intent"], "restock")
+        self.assertEqual(result["draft"]["ItemID"], 1)
+        self.assertEqual(result["draft"]["CurrentStock"], 5)
+        self.assertEqual(result["draft"]["StockMode"], "add")
+        with closing(sqlite3.connect(self.database_path)) as connection:
+            stock = connection.execute(
+                "SELECT StockQuantity FROM Inventory WHERE ItemName = 'Sugar 1kg'"
+            ).fetchone()[0]
+        self.assertEqual(stock, 5)
+
+    def test_voice_add_existing_mrp_variant_offers_product_selection(self):
+        with closing(sqlite3.connect(self.database_path)) as connection:
+            connection.executemany(
+                "INSERT INTO Inventory (ItemName, StockQuantity, Price) VALUES (?, ?, ?)",
+                [
+                    ("Navratna Oil (MRP ₹400)", 5, 400),
+                    ("Navratna Oil (MRP ₹500)", 8, 500),
+                ],
+            )
+            connection.commit()
+
+        result = intent_parser.parse_and_execute(
+            "add 3 navratna oil",
+            interpretation={
+                "action": "add_product",
+                "entity": "Navratna Oil",
+                "quantity": 3,
+            },
+        )
+
+        self.assertEqual(result["status"], "pending_selection")
+        self.assertEqual(result["draft"]["Intent"], "restock")
+        self.assertEqual(
+            {item["ItemName"] for item in result["draft"]["Candidates"]},
+            {"Navratna Oil (MRP ₹400)", "Navratna Oil (MRP ₹500)"},
+        )
+        self.assertFalse(result["draft"]["AllowNewProduct"])
+
     def test_sale_of_ambiguous_mrp_variants_waits_for_product_choice(self):
         connection = sqlite3.connect(self.database_path)
         try:
@@ -634,6 +684,8 @@ class IntentParserInterpretationTests(unittest.TestCase):
             result["SearchResults"][0]["URL"],
             "https://example.test/new-tea",
         )
+        self.assertEqual(ddgs.text.call_args.kwargs["max_results"], 5)
+        self.assertEqual(ddgs.text.call_args.args[0], '"New Tea" MRP India')
 
     @patch.object(intent_parser, "DDGS")
     def test_web_lookup_excludes_unrelated_sources_and_prices(self, ddgs_class):
@@ -704,7 +756,7 @@ class IntentParserInterpretationTests(unittest.TestCase):
             [source["URL"] for source in result["SearchResults"]],
             ["https://example.test/hide-seek"],
         )
-        self.assertEqual(ddgs.text.call_count, 3)
+        self.assertEqual(ddgs.text.call_count, 2)
 
     @patch.object(intent_parser, "DDGS")
     def test_web_lookup_continues_when_a_query_has_no_results(self, ddgs_class):
@@ -714,7 +766,7 @@ class IntentParserInterpretationTests(unittest.TestCase):
         result = intent_parser.search_product_online("Hide And Seek Biscuit")
 
         self.assertEqual(result["SearchStatus"], "no_relevant_results")
-        self.assertEqual(ddgs.text.call_count, 3)
+        self.assertEqual(ddgs.text.call_count, 2)
 
     def test_unknown_action_does_not_change_stock_or_balance(self):
         result = intent_parser.parse_and_execute(
