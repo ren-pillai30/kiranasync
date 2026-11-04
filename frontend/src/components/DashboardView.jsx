@@ -7,11 +7,9 @@ import TransactionLedger from './TransactionLedger';
 export default function DashboardView({
   t,
   lang,
-  setLang,
   onLanguageChange,
   onOpenBarcode,
   onOpenDayClosing,
-  onOpenEvalModal,
   onOpenArchives,
   onViewBill,
   hisaabData,
@@ -47,7 +45,6 @@ export default function DashboardView({
   onDirectArchive,
   transactions,
   nameDisplayMode,
-  setNameDisplayMode,
 }) {
   return (
     <motion.div
@@ -82,15 +79,6 @@ export default function DashboardView({
               </button>
             ))}
           </div>
-          <button
-            type="button"
-            onClick={onOpenEvalModal}
-            className="px-3.5 py-1.5 bg-[#FFFDF9] hover:bg-[#F4EFE6] text-stone-800 border border-[#D8CEBA] rounded-lg text-xs font-bold shadow-2xs transition-all flex items-center space-x-1 cursor-pointer"
-          >
-            <span className="text-[10px] font-black uppercase">Lab</span>
-            <span>Voice Lab</span>
-          </button>
-
           <button
             type="button"
             onClick={onOpenBarcode}

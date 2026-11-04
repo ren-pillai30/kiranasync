@@ -704,6 +704,11 @@ class CallDBService:
             if not resolved_order_items:
                 return {"status": "error", "message": "No valid order items to process."}
 
+            is_credit = (
+                str(payment_mode).lower() in ("udhaar", "credit")
+                and bool((customer_name or "").strip())
+            )
+
             # 2. Deduct inventory and record sale transactions
             for it in resolved_order_items:
                 cursor.execute(
@@ -715,13 +720,12 @@ class CallDBService:
                     cursor,
                     cmd_note,
                     it["item_total"],
-                    "Sale",
+                    "UdhaarSale" if is_credit else "Sale",
                     it["item_name"],
                     it["quantity"],
                 )
 
             # 3. Handle udhaar (credit) if payment is on credit
-            is_credit = str(payment_mode).lower() in ("udhaar", "credit")
             new_customer_balance = None
             cust_name_clean = (customer_name or "").strip()
 
@@ -835,6 +839,11 @@ class CallDBService:
                 return {"status": "error", "message": "No valid order items to process."}
 
             locked_items = {}
+            is_credit = (
+                str(payment_mode).lower() in ("udhaar", "credit")
+                and bool((customer_name or "").strip())
+            )
+
             for line in order_lines:
                 item = StoreInventory.query.filter_by(
                     store_id=store_id,
@@ -857,12 +866,11 @@ class CallDBService:
                 self._record_postgres_transaction(
                     raw_call_text or f"Call Order: {line['quantity']}x {line['item_name']}",
                     line["item_total"],
-                    "Sale",
+                    "UdhaarSale" if is_credit else "Sale",
                     line["item_name"],
                     line["quantity"],
                 )
 
-            is_credit = str(payment_mode).lower() in ("udhaar", "credit")
             customer_name_clean = (customer_name or "").strip()
             new_customer_balance = None
             actual_customer_name = customer_name_clean

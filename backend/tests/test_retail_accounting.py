@@ -127,5 +127,19 @@ class RetailAccountingTests(unittest.TestCase):
         self.assertEqual(hisaab["CashCollected"], 240.0) # 140 + 100
         self.assertEqual(hisaab["TotalOutstandingDebt"], 270.0) # 300 + 70 - 100
 
+    def test_hisaab_excludes_archived_customer_balances(self):
+        conn = sqlite3.connect(self.db_path)
+        conn.execute(
+            "INSERT INTO CustomerCredit (CustomerName, OutstandingBalance, IsActive) "
+            "VALUES ('Archived Customer', 900, 0)"
+        )
+        conn.commit()
+        conn.close()
+
+        self.assertEqual(
+            self.query_service.get_today_hisaab()["TotalOutstandingDebt"],
+            300.0,
+        )
+
 if __name__ == '__main__':
     unittest.main()

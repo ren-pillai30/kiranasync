@@ -168,7 +168,10 @@ class QueryService:
             restocks = summary.get("Restock", {"total": 0.0, "count": 0})
 
             # Total current outstanding debt across all customers
-            cursor.execute("SELECT coalesce(sum(OutstandingBalance), 0.0) FROM CustomerCredit")
+            cursor.execute(
+                "SELECT coalesce(sum(OutstandingBalance), 0.0) "
+                "FROM CustomerCredit WHERE IsActive = 1"
+            )
             total_debt = float(cursor.fetchone()[0])
 
             total_revenue = cash_sales["total"] + udhaar_sales["total"]

@@ -3,6 +3,7 @@ import sys
 import math
 import difflib
 import re
+from datetime import datetime, time, timedelta, timezone
 
 if __package__ in (None, ""):
     project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
@@ -475,6 +476,65 @@ def get_entity_archives():
 
 @app.route('/api/analytics/hisaab', methods=['GET'])
 def get_hisaab_summary():
+    if is_postgres_database():
+        from backend.app.models import StoreCredit, StoreTransaction
+
+        store_id = current_store_id()
+        today = datetime.now(timezone.utc).date()
+        day_start = datetime.combine(today, time.min, tzinfo=timezone.utc)
+        day_end = day_start + timedelta(days=1)
+        transaction_summary = (
+            db.session.query(
+                StoreTransaction.transaction_type,
+                db.func.coalesce(db.func.sum(StoreTransaction.total_amount), 0.0),
+                db.func.count(StoreTransaction.id),
+            )
+            .filter(
+                StoreTransaction.store_id == store_id,
+                StoreTransaction.timestamp >= day_start,
+                StoreTransaction.timestamp < day_end,
+            )
+            .group_by(StoreTransaction.transaction_type)
+            .all()
+        )
+        summary = {
+            row[0]: {"total": float(row[1] or 0), "count": int(row[2] or 0)}
+            for row in transaction_summary
+        }
+        cash_sales = summary.get("Sale", {"total": 0.0, "count": 0})
+        udhaar_sales = summary.get("UdhaarSale", {"total": 0.0, "count": 0})
+        repayments = summary.get("Repayment", {"total": 0.0, "count": 0})
+        restocks = summary.get("Restock", {"total": 0.0, "count": 0})
+        total_debt = (
+            db.session.query(
+                db.func.coalesce(db.func.sum(StoreCredit.outstanding_balance), 0.0)
+            )
+            .filter_by(store_id=store_id, is_active=True)
+            .scalar()
+        )
+        total_debt = float(total_debt or 0)
+        total_revenue = cash_sales["total"] + udhaar_sales["total"]
+        cash_collected = cash_sales["total"] + repayments["total"]
+        return jsonify({
+            "status": "success",
+            "CashSalesTotal": cash_sales["total"],
+            "CashSalesCount": cash_sales["count"],
+            "UdhaarSalesTotal": udhaar_sales["total"],
+            "UdhaarSalesCount": udhaar_sales["count"],
+            "RepaymentsTotal": repayments["total"],
+            "RepaymentsCount": repayments["count"],
+            "RestockCostTotal": abs(restocks["total"]),
+            "TotalRevenue": total_revenue,
+            "CashCollected": cash_collected,
+            "TotalOutstandingDebt": total_debt,
+            "Message": (
+                f"Today's Hisaab: Total Sales ₹{total_revenue:g} "
+                f"(Cash: ₹{cash_sales['total']:g}, Udhaar: ₹{udhaar_sales['total']:g}). "
+                f"Cash collected: ₹{cash_collected:g}. "
+                f"Total customer debt: ₹{total_debt:g}."
+            ),
+        })
+
     from backend.app.intent_parser import DB_PATH
     from backend.app.services.query_service import QueryService
     service = QueryService(DB_PATH)
@@ -523,41 +583,6 @@ def delete_alias_route(alias_id):
     from backend.app.services.alias_service import AliasService
     service = AliasService(DB_PATH)
     return jsonify(service.delete_alias(alias_id))
-
-@app.route('/api/evaluation/benchmark', methods=['GET'])
-def get_evaluation_benchmark():
-    import json
-    eval_dir = os.path.join(os.path.dirname(__file__), 'evaluation')
-    results_path = os.path.join(eval_dir, 'benchmark_results.json')
-    split = request.args.get('split') # e.g. 'held_out_test' or None for all
-
-    if not os.path.exists(results_path):
-        from backend.app.evaluation.benchmark_cli import run_all_benchmarks
-        run_all_benchmarks(eval_dir)
-
-    try:
-        with open(results_path, 'r', encoding='utf-8') as f:
-            data = json.load(f)
-
-        if split == 'held_out_test' and "ProductionPipeline" in data and "HeldOutTest" in data["ProductionPipeline"]:
-            split_data = data["ProductionPipeline"]["HeldOutTest"]
-            return jsonify({
-                'status': 'success',
-                **split_data,
-                'Metadata': data.get('Metadata', {}),
-                'PipelineType': 'ProductionPipeline'
-            })
-        elif split == 'evaluation_set' and "ProductionPipeline" in data and "EvaluationSet" in data["ProductionPipeline"]:
-            split_data = data["ProductionPipeline"]["EvaluationSet"]
-            return jsonify({
-                'status': 'success',
-                **split_data,
-                'Metadata': data.get('Metadata', {}),
-                'PipelineType': 'ProductionPipeline'
-            })
-        return jsonify({'status': 'success', **data})
-    except Exception as e:
-        return jsonify({'status': 'error', 'error': str(e)}), 500
 
 @app.route('/api/product-lookup', methods=['POST'])
 def lookup_product():

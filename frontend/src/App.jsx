@@ -16,7 +16,6 @@ import ProductConfirmModal from './components/modals/ProductConfirmModal';
 import ItemChoiceModal from './components/modals/ItemChoiceModal';
 import EntityRemovalModal from './components/modals/EntityRemovalModal';
 import ArchivesModal from './components/modals/ArchivesModal';
-import BenchmarkModal from './components/modals/BenchmarkModal';
 import BillModal from './components/modals/BillModal';
 import DayClosingModal from './components/modals/DayClosingModal';
 import BarcodeScannerModal from './components/modals/BarcodeScannerModal';
@@ -49,8 +48,6 @@ export default function App() {
   const [credit, setCredit] = useState([]);
   const [transactions, setTransactions] = useState([]);
   const [hisaabData, setHisaabData] = useState(null);
-  const [benchmarkData, setBenchmarkData] = useState(null);
-  const [showEvalModal, setShowEvalModal] = useState(false);
   const [showCallSimulator, setShowCallSimulator] = useState(false);
   const [showBillModal, setShowBillModal] = useState(false);
   const [showFeedbackModal, setShowFeedbackModal] = useState(false);
@@ -121,6 +118,11 @@ export default function App() {
       console.error('Transaction ledger fetch error:', error);
     }
   }, []);
+
+  const handleOpenDayClosing = useCallback(() => {
+    setShowDayClosingModal(true);
+    void fetchDashboardData();
+  }, [fetchDashboardData]);
 
   const fetchArchives = useCallback(async () => {
     try {
@@ -410,7 +412,7 @@ export default function App() {
         onOpenSimulator={() => setShowCallSimulator(true)}
         onOpenBill={() => handleOpenBill()}
         onOpenFeedback={() => setShowFeedbackModal(true)}
-        onOpenDayClosing={() => setShowDayClosingModal(true)}
+        onOpenDayClosing={handleOpenDayClosing}
         onOpenBarcode={() => {
           setShowBarcodeModal(true);
           setBarcodeNotice(typeof window !== 'undefined' && 'BarcodeDetector' in window ? '' : 'Barcode scanning is not supported in this browser; manual entry still works.');
@@ -460,12 +462,6 @@ export default function App() {
           onRefreshAll={refreshAll}
           barcodeNotice={barcodeNotice}
           setBarcodeNotice={setBarcodeNotice}
-        />
-
-        <BenchmarkModal
-          showEvalModal={showEvalModal}
-          onClose={() => setShowEvalModal(false)}
-          benchmarkData={benchmarkData}
         />
 
         <ProductConfirmModal
@@ -564,7 +560,6 @@ export default function App() {
             <DashboardView
               t={t}
               lang={lang}
-              setLang={setLang}
               onLanguageChange={handleLanguageChange}
               selectedLangCode={selectedLangCode}
               setSelectedLangCode={setSelectedLangCode}
@@ -573,24 +568,16 @@ export default function App() {
               onOpenSimulator={() => setShowCallSimulator(true)}
               onOpenBill={() => handleOpenBill()}
               onOpenFeedback={() => setShowFeedbackModal(true)}
-              onOpenDayClosing={() => setShowDayClosingModal(true)}
+              onOpenDayClosing={handleOpenDayClosing}
               onOpenBarcode={() => {
                 setShowBarcodeModal(true);
                 setBarcodeNotice(typeof window !== 'undefined' && 'BarcodeDetector' in window ? '' : 'Barcode scanning is not supported in this browser; manual entry still works.');
               }}
               onViewBill={(data) => handleOpenBill(data)}
-              onOpenEvalModal={async () => {
-                try {
-                  const data = await api.getBenchmark();
-                  setBenchmarkData(data);
-                  setShowEvalModal(true);
-                } catch {
-                  alert('Evaluation service unavailable.');
-                }
-              }}
               onOpenArchives={() => {
                 setShowArchives(true);
                 fetchArchives();
+                fetchLedgerData();
               }}
               hisaabData={hisaabData}
               inventory={inventory}
@@ -624,7 +611,6 @@ export default function App() {
               onDirectArchive={actions.archiveEntity}
               transactions={transactions}
               nameDisplayMode={nameDisplayMode}
-              setNameDisplayMode={setNameDisplayMode}
               editInvNameHindi={actions.editInvNameHindi}
               setEditInvNameHindi={actions.setEditInvNameHindi}
               editCustNameHindi={actions.editCustNameHindi}
@@ -638,6 +624,7 @@ export default function App() {
             onClose={() => setShowArchives(false)}
             archives={archives}
             archivesError={archivesError}
+            transactions={transactions}
             lang={lang}
           />
         </AnimatePresence>

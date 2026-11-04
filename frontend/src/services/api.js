@@ -55,7 +55,6 @@ export const api = {
   getLedger: () => request('/api/ledger'),
   getArchives: () => request('/api/archives'),
   getHisaab: () => request('/api/analytics/hisaab'),
-  getBenchmark: () => request('/api/evaluation/benchmark'),
 
   // Inventory Mutations
   addInventory: (data) =>

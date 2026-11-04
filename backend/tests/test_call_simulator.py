@@ -255,6 +255,10 @@ class TestCallSimulatorServices(unittest.TestCase):
         conn = sqlite3.connect(self.temp_db_path)
         cust = conn.execute("SELECT OutstandingBalance FROM CustomerCredit WHERE CustomerName = 'Ramesh'").fetchone()
         self.assertEqual(cust[0], 178.0)
+        transaction_types = conn.execute(
+            "SELECT TransactionType FROM Transactions ORDER BY rowid"
+        ).fetchall()
+        self.assertEqual(transaction_types, [("UdhaarSale",), ("Credit",)])
         conn.close()
 
     def test_execute_credit_log(self):

@@ -230,7 +230,6 @@ Removing a product requires confirmation, sets active stock to zero, writes a `W
 | `GET /api/aliases` | Lists all approved spoken aliases. |
 | `POST /api/aliases` | Adds a verified spoken nickname mapped to an existing product or customer. |
 | `DELETE /api/aliases/:id` | Deletes an approved alias mapping. |
-| `GET /api/evaluation/benchmark` | Returns the empirical benchmark scorecard and stage latency breakdown. |
 | `POST /api/process-audio` | Transcribes and interprets recorded audio; creates a pending draft. |
 | `POST /api/voice/synthesize` | Returns WAV audio for server-verified text using Gnani Timbre TTS. |
 | `POST /api/product-lookup` | Looks up product/MRP sources and similar-name candidates online. |
