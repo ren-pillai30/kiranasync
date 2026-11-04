@@ -4,6 +4,7 @@ import sqlite3
 import tempfile
 import unittest
 from unittest.mock import ANY, patch
+from types import SimpleNamespace
 
 from backend.app import main
 from backend.app import intent_parser
@@ -42,6 +43,66 @@ class ProcessAudioRouteTests(unittest.TestCase):
         main.app.config["TESTING"] = self.previous_testing
         if os.path.exists(self.database_path):
             os.remove(self.database_path)
+
+    def test_postgres_voice_sale_uses_store_inventory_for_confirmation(self):
+        from backend.app.models import StoreCredit, StoreInventory
+
+        with (
+            main.app.app_context(),
+            patch.dict(
+                os.environ,
+                {"GNANI_API_KEY": "test-key", "GEMINI_API_KEY": "test-key"},
+            ),
+            patch("backend.app.main.is_postgres_database", return_value=True),
+            patch("backend.app.main.current_store_id", return_value=7),
+            patch("backend.app.main.transcribe_audio", return_value="५० मैगी बेच दो"),
+            patch("backend.app.main.understand_command") as understand_command,
+            patch("backend.app.main.parse_and_execute") as parse_and_execute,
+            patch("backend.app.models.StoreInventory.query") as inventory_query,
+            patch("backend.app.models.StoreCredit.query") as customer_query,
+            patch(
+                "backend.app.gemini_understanding.resolve_catalog_entity",
+                return_value=None,
+            ),
+        ):
+            understand_command.return_value = {
+                "action": "sell",
+                "entity": "Maggi",
+                "quantity": "50",
+            }
+            inventory_query.filter_by.return_value.order_by.return_value.all.return_value = [
+                SimpleNamespace(
+                    item_id=3,
+                    item_name="मैगी (MRP ₹14)",
+                    item_name_hindi=None,
+                    stock_quantity=100,
+                    price=14,
+                )
+            ]
+            customer_query.filter_by.return_value.order_by.return_value.all.return_value = []
+
+            response = main.app.test_client().post(
+                "/api/process-audio",
+                data={
+                    "audio": (io.BytesIO(b"audio"), "command.wav"),
+                    "lang": "hi-IN",
+                },
+                content_type="multipart/form-data",
+            )
+
+        self.assertEqual(response.status_code, 200)
+        database_action = response.get_json()["database_action"]
+        self.assertEqual(database_action["status"], "pending_selection")
+        self.assertEqual(database_action["draft"]["Quantity"], 50)
+        self.assertEqual(
+            [item["ItemName"] for item in database_action["draft"]["Candidates"]],
+            ["मैगी (MRP ₹14)"],
+        )
+        self.assertEqual(
+            understand_command.call_args.kwargs["inventory"],
+            ["मैगी (MRP ₹14)"],
+        )
+        parse_and_execute.assert_not_called()
 
     @patch.dict(
         os.environ,

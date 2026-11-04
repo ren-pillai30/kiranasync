@@ -1,6 +1,7 @@
 import os
 import sys
 import math
+import difflib
 
 if __package__ in (None, ""):
     project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
@@ -829,6 +830,163 @@ def cancel_command_route(command_id):
     status_code = 200 if result.get("status") == "success" else 400
     return jsonify(result), status_code
 
+
+def build_postgres_voice_sale_result(interpretation, raw_transcript, inventory):
+    if interpretation.get("action") != "sell":
+        return None
+
+    entity = str(interpretation.get("entity") or "").strip()
+    if not entity:
+        return {
+            "status": "failed",
+            "action": "entity_unrecognized",
+            "message": "Could not identify the product. No stock was changed.",
+        }
+
+    quantity = extract_explicit_quantity(raw_transcript)
+    if quantity is None:
+        try:
+            quantity = int(interpretation.get("quantity"))
+        except (TypeError, ValueError):
+            quantity = None
+    if quantity is None or quantity <= 0:
+        return {
+            "status": "failed",
+            "action": "quantity_unrecognized",
+            "message": "Could not recognize the quantity. Please repeat the amount clearly.",
+        }
+
+    from backend.app.gemini_understanding import resolve_catalog_entity
+    from backend.app.intent_parser import normalize_entity_name
+
+    alias_to_items = {}
+    catalog = []
+    for item in inventory:
+        for alias in (item["ItemName"], item.get("ItemNameHindi")):
+            if not alias or not alias.strip():
+                continue
+            clean_alias = alias.strip()
+            catalog.append(clean_alias)
+            alias_to_items.setdefault(clean_alias.casefold(), {})[item["ItemID"]] = item
+
+    if not catalog:
+        return {
+            "status": "failed",
+            "action": "item_not_found",
+            "message": f"Could not match '{entity}' to an inventory item. No stock was changed.",
+        }
+
+    matching_items = alias_to_items.get(entity.casefold(), {})
+    if not matching_items:
+        resolved_alias = resolve_catalog_entity(
+            entity,
+            catalog,
+            "product",
+            {
+                "entity": entity,
+                "raw_transcript": raw_transcript,
+                "local_translation": interpretation.get("local_translation"),
+                "phonetic_english_translation": interpretation.get(
+                    "phonetic_english_translation"
+                ),
+            },
+        )
+        if resolved_alias:
+            matching_items = alias_to_items.get(resolved_alias.casefold(), {})
+
+    if len(matching_items) == 1:
+        item = next(iter(matching_items.values()))
+        if int(item["StockQuantity"]) < quantity:
+            return {
+                "status": "failed",
+                "action": "out_of_stock",
+                "message": (
+                    f"Not enough {item['ItemName']} in stock. "
+                    f"Only {item['StockQuantity']} left."
+                ),
+            }
+        return {
+            "status": "pending_confirmation",
+            "action": "confirm_sale",
+            "message": f"Confirm selling {quantity} {item['ItemName']}.",
+            "draft": {
+                "Intent": "sell",
+                "ItemID": item["ItemID"],
+                "ItemName": item["ItemName"],
+                "Quantity": quantity,
+                "CurrentStock": int(item["StockQuantity"]),
+                "RawCommand": raw_transcript,
+            },
+        }
+
+    candidates = list(matching_items.values())
+    if not candidates:
+        query = normalize_entity_name(entity)
+        query_tokens = set(query.split())
+        ranked_items = []
+        if query_tokens:
+            for item in inventory:
+                aliases = [item["ItemName"], item.get("ItemNameHindi") or ""]
+                best_score = 0.0
+                for alias in aliases:
+                    normalized_alias = normalize_entity_name(alias)
+                    alias_tokens = set(normalized_alias.split())
+                    if not alias_tokens:
+                        continue
+                    if query_tokens.issubset(alias_tokens):
+                        score = 1.0
+                    else:
+                        overlap = len(query_tokens & alias_tokens) / len(query_tokens)
+                        text_score = difflib.SequenceMatcher(
+                            None, query, normalized_alias
+                        ).ratio()
+                        token_score = max(
+                            (
+                                difflib.SequenceMatcher(None, token, alias_token).ratio()
+                                for token in query_tokens
+                                for alias_token in alias_tokens
+                                if len(token) >= 4 and len(alias_token) >= 4
+                            ),
+                            default=0.0,
+                        )
+                        score = max(overlap * 0.85, text_score, token_score)
+                    best_score = max(best_score, score)
+                if best_score >= 0.5:
+                    ranked_items.append((best_score, item))
+
+        if ranked_items:
+            ranked_items.sort(key=lambda result: result[0], reverse=True)
+            best_score = ranked_items[0][0]
+            candidates = [
+                item for score, item in ranked_items
+                if best_score - score <= 0.05
+            ][:3]
+
+    if candidates:
+        return {
+            "status": "pending_selection",
+            "action": "select_inventory_item",
+            "message": (
+                f"Could not identify '{entity}' exactly. "
+                "Please confirm the closest inventory match before the sale."
+            ),
+            "draft": {
+                "Intent": "sell",
+                "Quantity": quantity,
+                "RawCommand": raw_transcript,
+                "EntityName": entity,
+                "NearestMatch": True,
+                "Candidates": candidates,
+            },
+        }
+
+    return {
+        "status": "failed",
+        "action": "item_not_found",
+        "message": f"Could not match '{entity}' to an inventory item. No stock was changed.",
+    }
+
+
 @app.route('/api/process-audio', methods=['POST'])
 def process_audio():
     import tempfile
@@ -896,34 +1054,70 @@ def process_audio():
             hindi_transcript = transcribe_audio(temp_audio_path, language_code="hi-IN")
 
         from backend.app.intent_parser import DB_PATH
-        from backend.app.services.query_service import QueryService
-        try:
-            store_kpis = QueryService(DB_PATH).get_store_kpis()
-        except Exception:
-            store_kpis = {}
+        postgres_inventory = None
+        if is_postgres_database():
+            from backend.app.models import StoreCredit, StoreInventory
 
-        try:
-            import sqlite3
-            conn_cat = sqlite3.connect(DB_PATH)
-            c_cat = conn_cat.cursor()
-            c_cat.execute("SELECT ItemName, ItemNameHindi FROM Inventory WHERE IsActive = 1")
-            inv_catalog = []
-            for eng, hin in c_cat.fetchall():
-                if eng:
-                    inv_catalog.append(eng)
-                if hin and hin.strip():
-                    inv_catalog.append(hin.strip())
-            c_cat.execute("SELECT CustomerName, CustomerNameHindi FROM CustomerCredit WHERE IsActive = 1")
-            cust_catalog = []
-            for eng, hin in c_cat.fetchall():
-                if eng:
-                    cust_catalog.append(eng)
-                if hin and hin.strip():
-                    cust_catalog.append(hin.strip())
-            conn_cat.close()
-        except Exception:
-            inv_catalog = get_db_records("Inventory", "ItemName")
-            cust_catalog = get_db_records("CustomerCredit", "CustomerName")
+            store_id = current_store_id()
+            postgres_inventory = [{
+                "ItemID": item.item_id,
+                "ItemName": item.item_name,
+                "ItemNameHindi": item.item_name_hindi,
+                "StockQuantity": item.stock_quantity,
+                "Price": item.price,
+            } for item in StoreInventory.query.filter_by(
+                store_id=store_id,
+                is_active=True,
+            ).order_by(StoreInventory.item_id).all()]
+            postgres_customers = StoreCredit.query.filter_by(
+                store_id=store_id,
+                is_active=True,
+            ).order_by(StoreCredit.customer_id).all()
+            inv_catalog = [
+                alias
+                for item in postgres_inventory
+                for alias in (item["ItemName"], item["ItemNameHindi"])
+                if alias and alias.strip()
+            ]
+            cust_catalog = [
+                alias
+                for customer in postgres_customers
+                for alias in (
+                    customer.customer_name,
+                    customer.customer_name_hindi,
+                )
+                if alias and alias.strip()
+            ]
+            store_kpis = {}
+        else:
+            from backend.app.services.query_service import QueryService
+            try:
+                store_kpis = QueryService(DB_PATH).get_store_kpis()
+            except Exception:
+                store_kpis = {}
+
+            try:
+                import sqlite3
+                conn_cat = sqlite3.connect(DB_PATH)
+                c_cat = conn_cat.cursor()
+                c_cat.execute("SELECT ItemName, ItemNameHindi FROM Inventory WHERE IsActive = 1")
+                inv_catalog = []
+                for eng, hin in c_cat.fetchall():
+                    if eng:
+                        inv_catalog.append(eng)
+                    if hin and hin.strip():
+                        inv_catalog.append(hin.strip())
+                c_cat.execute("SELECT CustomerName, CustomerNameHindi FROM CustomerCredit WHERE IsActive = 1")
+                cust_catalog = []
+                for eng, hin in c_cat.fetchall():
+                    if eng:
+                        cust_catalog.append(eng)
+                    if hin and hin.strip():
+                        cust_catalog.append(hin.strip())
+                conn_cat.close()
+            except Exception:
+                inv_catalog = get_db_records("Inventory", "ItemName")
+                cust_catalog = get_db_records("CustomerCredit", "CustomerName")
 
         try:
             interpretation = understand_command(
@@ -943,7 +1137,14 @@ def process_audio():
 
         # Execute only after the model's fields have been validated by the parser.
         try:
-            db_result = parse_and_execute(raw_transcript, interpretation=interpretation)
+            if postgres_inventory is not None and interpretation.get("action") == "sell":
+                db_result = build_postgres_voice_sale_result(
+                    interpretation,
+                    raw_transcript,
+                    postgres_inventory,
+                )
+            else:
+                db_result = parse_and_execute(raw_transcript, interpretation=interpretation)
         except GeminiUnderstandingError as exc:
             app.logger.warning("Gemini catalog matching failed: %s", exc)
             return jsonify({
