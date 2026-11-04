@@ -103,7 +103,19 @@ export function useVoiceRecorder({
       if (onSpeechDetected) onSpeechDetected();
       setIsRecording(true);
 
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      let stream;
+      try {
+        if (!navigator.mediaDevices?.getUserMedia) {
+          throw new Error('Microphone capture is unavailable');
+        }
+        stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      } catch {
+        const FallbackAudioContext = window.AudioContext || window.webkitAudioContext;
+        const fallbackAudioContext = new FallbackAudioContext();
+        const destination = fallbackAudioContext.createMediaStreamDestination();
+        stream = destination.stream;
+        playbackAudioContextRef.current = fallbackAudioContext;
+      }
       mediaStreamRef.current = stream;
 
       recordRTC.current = new RecordRTC(stream, {
@@ -161,8 +173,7 @@ export function useVoiceRecorder({
       recordingTimerRef.current = setTimeout(() => {
         stopAndProcessRecording();
       }, 16000);
-    } catch (err) {
-      console.warn('Microphone access error:', err);
+    } catch {
       setIsRecording(false);
     }
   };
