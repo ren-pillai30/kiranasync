@@ -8,7 +8,6 @@ export function useVoiceRecorder({
   onProcessing,
   onSuccess,
   onError,
-  onMicError,
 }) {
   const [isRecording, setIsRecording] = useState(false);
   const [audioLevel, setAudioLevel] = useState(0);
@@ -101,6 +100,15 @@ export function useVoiceRecorder({
     }
 
     try {
+      if (!navigator.permissions?.query || !navigator.mediaDevices?.getUserMedia) {
+        return;
+      }
+
+      const permission = await navigator.permissions.query({ name: 'microphone' });
+      if (permission.state !== 'granted') {
+        return;
+      }
+
       if (onSpeechDetected) onSpeechDetected();
       setIsRecording(true);
 
@@ -165,7 +173,6 @@ export function useVoiceRecorder({
     } catch (err) {
       console.warn('Microphone access error:', err);
       setIsRecording(false);
-      if (onMicError) onMicError();
     }
   };
 
@@ -177,4 +184,3 @@ export function useVoiceRecorder({
     playbackAudioContextRef,
   };
 }
-

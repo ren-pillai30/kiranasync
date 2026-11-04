@@ -240,11 +240,6 @@ export default function App() {
       setTranscript(`Notice: ${errMsg}`);
       setTimeout(() => setIsActive(false), 4000);
     },
-    onMicError: () => {
-      setIsActive(true);
-      setTranscript(t.micError);
-      setTimeout(() => setIsActive(false), 3500);
-    },
   });
 
   useEffect(() => {
