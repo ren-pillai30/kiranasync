@@ -25,6 +25,7 @@ import sqlite3
 import re
 import json
 import difflib
+import unicodedata
 from number_parser import parse
 from backend.app.measurement_utils import (
     extract_measurement,
@@ -533,6 +534,56 @@ def translate_to_english(transcript):
         )
     return cleaned_transcript.lower()
 
+DEVANAGARI_VOWELS = {
+    "अ": "a", "आ": "aa", "इ": "i", "ई": "ee", "उ": "u", "ऊ": "oo",
+    "ए": "e", "ऐ": "ai", "ओ": "o", "औ": "au",
+}
+DEVANAGARI_CONSONANTS = {
+    "क": "k", "ख": "kh", "ग": "g", "घ": "gh", "ङ": "ng",
+    "च": "ch", "छ": "chh", "ज": "j", "झ": "jh", "ञ": "ny",
+    "ट": "t", "ठ": "th", "ड": "d", "ढ": "dh", "ण": "n",
+    "त": "t", "थ": "th", "द": "d", "ध": "dh", "न": "n",
+    "प": "p", "फ": "ph", "ब": "b", "भ": "bh", "म": "m",
+    "य": "y", "र": "r", "ल": "l", "व": "v", "श": "sh",
+    "ष": "sh", "स": "s", "ह": "h", "क्ष": "ksh", "ज्ञ": "gy",
+}
+DEVANAGARI_VOWEL_SIGNS = {
+    "\u093e": "a", "\u093f": "i", "\u0940": "ee", "\u0941": "u",
+    "\u0942": "oo", "\u0947": "e", "\u0948": "ai", "\u094b": "o",
+    "\u094c": "au",
+}
+
+
+def normalize_entity_name(value):
+    """Normalize spelling for entity matching, including Devanagari names."""
+    text = unicodedata.normalize("NFKC", str(value)).strip().casefold()
+    if any("\u0900" <= char <= "\u097f" for char in text):
+        output = []
+        index = 0
+        while index < len(text):
+            char = text[index]
+            if char in DEVANAGARI_VOWELS:
+                output.append(DEVANAGARI_VOWELS[char])
+            elif char in DEVANAGARI_CONSONANTS:
+                output.append(DEVANAGARI_CONSONANTS[char])
+                next_char = text[index + 1] if index + 1 < len(text) else ""
+                if next_char and next_char not in DEVANAGARI_VOWEL_SIGNS and next_char != "\u094d":
+                    output.append("a")
+                if index + 1 < len(text) and text[index + 1] == "\u094d":
+                    output.pop()
+            elif char in DEVANAGARI_VOWEL_SIGNS:
+                if output and output[-1] == "a":
+                    output.pop()
+                output.append(DEVANAGARI_VOWEL_SIGNS[char])
+            elif char == "\u094d":
+                pass
+            elif char.isalnum():
+                output.append(char)
+            index += 1
+        text = "".join(output)
+    return ' '.join(re.findall(r'[a-z0-9]+', text))
+
+
 def match_entity_with_score(query_text, db_records, threshold=70):
     """Finds the best fuzzy match in the database using token subset ratios."""
     if not query_text or str(query_text).strip() == "":
@@ -541,7 +592,16 @@ def match_entity_with_score(query_text, db_records, threshold=70):
     def normalized_tokens(value):
         return set(re.findall(r'\w+', str(value).lower()))
 
-    normalized_query = ' '.join(normalized_tokens(query_text))
+    normalized_query = normalize_entity_name(query_text)
+    script_normalized_match = next(
+        (
+            record for record in db_records
+            if normalize_entity_name(record) == normalized_query
+        ),
+        None,
+    )
+    if script_normalized_match:
+        return script_normalized_match
     exact_match = next(
         (
             record for record in db_records
@@ -570,7 +630,7 @@ def match_entity_with_score(query_text, db_records, threshold=70):
         if best_record and best_score >= threshold:
             return best_record
 
-    query_tokens = normalized_tokens(query_text)
+    query_tokens = set(normalized_query.split())
     if not query_tokens:
         return None
 

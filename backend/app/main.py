@@ -436,6 +436,48 @@ def confirm_transaction():
     intent = data.get('Intent')
     raw_command = str(data.get('RawCommand') or '').strip()
 
+    if is_postgres_database():
+        from backend.app.models import StoreCredit
+        from backend.app.intent_parser import match_entity_with_score
+
+        customer_name = str(data.get('CustomerName') or '').strip()
+        try:
+            amount = float(data.get('Amount'))
+        except (TypeError, ValueError):
+            amount = 0
+        if not customer_name or amount <= 0:
+            return jsonify({'status': 'error', 'error': 'A customer and positive amount are required.'}), 400
+
+        store_id = current_store_id()
+        existing = StoreCredit.query.filter_by(store_id=store_id).order_by(StoreCredit.customer_id).all()
+        customers = [row.customer_name for row in existing]
+        resolved_name = match_entity_with_score(customer_name, customers, threshold=88) or customer_name
+        customer = next((row for row in existing if row.customer_name == resolved_name), None)
+        if customer:
+            new_balance = float(customer.outstanding_balance or 0) + amount
+            customer.outstanding_balance = new_balance
+            customer.is_active = True
+            message = f"Added Rs {amount:g} to {resolved_name}. New Balance: Rs {new_balance:g}."
+        else:
+            max_id = db.session.query(db.func.max(StoreCredit.customer_id)).filter_by(store_id=store_id).scalar()
+            customer = StoreCredit(
+                customer_id=(max_id or 0) + 1,
+                store_id=store_id,
+                customer_name=resolved_name,
+                phone_number='',
+                outstanding_balance=amount,
+                is_active=True,
+            )
+            db.session.add(customer)
+            new_balance = amount
+            message = f"Created {resolved_name}'s account with Rs {amount:g} balance."
+        db.session.commit()
+        return jsonify({
+            'status': 'success',
+            'database_action': {'status': 'success', 'action': 'udhaar_added', 'message': message},
+            'resolved_customer_name': resolved_name,
+        })
+
     conn = sqlite3.connect(DB_PATH)
     try:
         ensure_transactions_schema(conn)
@@ -450,6 +492,11 @@ def confirm_transaction():
             if not customer_name or amount <= 0:
                 return jsonify({'status': 'error', 'error': 'A customer and positive amount are required.'}), 400
 
+            from backend.app.intent_parser import match_entity_with_score
+            cursor.execute("SELECT CustomerName FROM CustomerCredit WHERE IsActive = 1")
+            existing_names = [row[0] for row in cursor.fetchall()]
+            resolved_name = match_entity_with_score(customer_name, existing_names, threshold=88) or customer_name
+            customer_name = resolved_name
             cursor.execute(
                 "SELECT CustomerID, OutstandingBalance FROM CustomerCredit WHERE lower(CustomerName) = lower(?)",
                 (customer_name,),
