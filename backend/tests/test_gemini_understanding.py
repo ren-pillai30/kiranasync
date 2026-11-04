@@ -311,8 +311,8 @@ class GeminiUnderstandingTests(unittest.TestCase):
         ):
             understand_command("sugar bhej do", None, ["Sugar 1kg"], [])
 
-        self.assertEqual(post.call_count, 3)
-        self.assertEqual(sleep.call_count, 2)
+        self.assertEqual(post.call_count, 2)
+        self.assertEqual(sleep.call_count, 1)
 
     @patch.dict(os.environ, {}, clear=True)
     @patch("backend.app.gemini_understanding.requests.post")

@@ -108,7 +108,7 @@ def resolve_catalog_entity(transcript, catalog, entity_type, translations=None):
             endpoint,
             headers={"x-goog-api-key": api_key},
             json=payload,
-            timeout=25,
+            timeout=10,
         )
         response.raise_for_status()
         text = response.json()["candidates"][0]["content"]["parts"][0]["text"]
@@ -264,7 +264,7 @@ def translate_for_speech(text, language_code, entity_names=None):
 
 
 _TRANSIENT_STATUS_CODES = {408, 429, 500, 502, 503, 504}
-_MAX_ATTEMPTS = 3
+_MAX_ATTEMPTS = 2
 
 SUPPORTED_ACTIONS = {
     "sell",
@@ -289,7 +289,7 @@ def understand_command(transcript, hindi_transcript=None, inventory=None, custom
     api_key = get_gemini_api_key()
     if not api_key:
         raise GeminiUnderstandingError(
-            "Gemini is not configured. Set GEMINI_API_KEY in the root .env file."
+            "Gemini is not configured. Set GEMINI_API_KEY or GOOGLE_API_KEY in the server environment."
         )
 
     model = get_gemini_model()
@@ -386,7 +386,7 @@ def understand_command(transcript, hindi_transcript=None, inventory=None, custom
                 endpoint,
                 headers={"x-goog-api-key": api_key},
                 json=payload,
-                timeout=25,
+                timeout=10,
             )
         except (requests.Timeout, requests.ConnectionError) as exc:
             if attempt == _MAX_ATTEMPTS - 1:

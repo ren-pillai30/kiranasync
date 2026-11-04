@@ -1,6 +1,31 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import RecordRTC, { StereoAudioRecorder } from 'recordrtc';
 
+async function readCallResponse(response, fallbackMessage) {
+  const contentType = response.headers.get('content-type') || '';
+  const responseText = await response.text();
+  let data;
+
+  try {
+    data = JSON.parse(responseText);
+  } catch {
+    const isHtml = contentType.includes('text/html') || /^\s*<!doctype html|^\s*<html/i.test(responseText);
+    if (isHtml) {
+      throw new Error(
+        `Call API returned an HTML page (HTTP ${response.status}). Check the Vercel function logs and API route configuration.`
+      );
+    }
+    throw new Error(
+      responseText.slice(0, 200) || `Call API returned an invalid response (HTTP ${response.status}).`
+    );
+  }
+
+  if (!response.ok) {
+    throw new Error(data.error || data.detail || fallbackMessage);
+  }
+  return data;
+}
+
 export function useCallSession({ onRefreshStore, initialCallerName = 'Ramesh', initialLangCode = 'hi-IN' } = {}) {
   const [callActive, setCallActive] = useState(false);
   const [callStatus, setCallStatus] = useState('idle'); // idle | connecting | connected | speaking | listening | ended
@@ -208,6 +233,7 @@ export function useCallSession({ onRefreshStore, initialCallerName = 'Ramesh', i
         setCallStatus('connected');
         if (data.audio_error) setSystemNotice(data.audio_error);
       }
+      if (data.error) setSystemNotice(data.error);
 
       if (data.db_result && data.db_result.status === 'success') {
         if (onRefreshStore) onRefreshStore();
@@ -248,8 +274,7 @@ export function useCallSession({ onRefreshStore, initialCallerName = 'Ramesh', i
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ caller_name: callerName, language_code: languageCode }),
       });
-      const data = await response.json();
-      if (!response.ok) throw new Error(data.error || 'Could not start the call.');
+      const data = await readCallResponse(response, 'Could not start the call.');
       setSystemNotice(null);
       setCallActive(true);
       setCallStatus('connected');
@@ -362,8 +387,7 @@ export function useCallSession({ onRefreshStore, initialCallerName = 'Ramesh', i
         }),
       })
         .then(async (response) => {
-          const data = await response.json();
-          if (!response.ok) throw new Error(data.error || data.detail || 'Call request failed.');
+          const data = await readCallResponse(response, 'Call request failed.');
           handleWebSocketMessage({
             type: 'call_response',
             reply_text: data.reply_text,
@@ -423,8 +447,7 @@ export function useCallSession({ onRefreshStore, initialCallerName = 'Ramesh', i
         credentials: 'include',
         body: formData,
       });
-      const data = await response.json();
-      if (!response.ok) throw new Error(data.error || 'Could not process call audio.');
+      const data = await readCallResponse(response, 'Could not process call audio.');
       handleWebSocketMessage({
         type: 'call_response',
         customer_text: data.transcript_text,

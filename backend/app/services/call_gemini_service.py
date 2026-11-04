@@ -1,5 +1,6 @@
 import os
 import json
+import logging
 import warnings
 from typing import Dict, List, Optional, Any
 
@@ -11,6 +12,8 @@ try:
 except ImportError:
     genai = None
     types = None
+
+logger = logging.getLogger(__name__)
 
 
 class CallGeminiService:
@@ -30,11 +33,20 @@ class CallGeminiService:
         self.api_key = resolved_key if resolved_key and resolved_key != "no" else None
         self.model = model or os.getenv("GEMINI_CALL_MODEL") or os.getenv("GEMINI_MODEL") or self.DEFAULT_MODEL
         self.client = None
-        if genai and self.api_key:
+        self.initialization_error = None
+        if genai is None:
+            self.initialization_error = "The google-genai package is not installed."
+        elif not self.api_key:
+            self.initialization_error = "GEMINI_API_KEY or GOOGLE_API_KEY is not configured."
+        else:
             try:
-                self.client = genai.Client(api_key=self.api_key)
-            except Exception as e:
-                print(f"Warning: Failed to initialize genai.Client: {e}")
+                self.client = genai.Client(
+                    api_key=self.api_key,
+                    http_options=types.HttpOptions(timeout=20_000),
+                )
+            except Exception:
+                logger.exception("Failed to initialize the Gemini client")
+                self.initialization_error = "The Gemini client could not be initialized."
 
     def _build_system_instruction(
         self,
@@ -162,7 +174,7 @@ You MUST respond strictly in valid JSON matching this exact structure:
                 "action_type": "service_error",
                 "action_data": {},
                 "detected_language_code": language_preference,
-                "error": "Gemini intent parsing is unavailable. Check the Gemini API key and quota.",
+                "error": self.initialization_error or "Gemini intent parsing is unavailable.",
             }
 
         try:
@@ -196,8 +208,8 @@ You MUST respond strictly in valid JSON matching this exact structure:
                 "action_data": action_data,
                 "detected_language_code": detected_lang,
             }
-        except Exception as e:
-            print(f"CallGeminiService reasoning exception: {e}")
+        except Exception:
+            logger.exception("Gemini failed to process a Call Simulator turn")
             return {
                 "reply_text": "",
                 "action_type": "service_error",

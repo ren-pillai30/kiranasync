@@ -76,7 +76,7 @@ export default function CallSimulator({ isOpen, onClose, onRefreshStore, onOpenB
                 <h3 className="text-lg font-black text-[#FFFDF7] flex items-center space-x-2">
                   <span>Virtual Call Simulator</span>
                   <span className="text-[10px] px-2 py-0.5 rounded-full bg-[#FEF3C7] text-[#92400E] border border-[#FDE68A] font-mono font-bold">
-                    Gemini 2.5 Flash + Gnani AI
+                    Gemini + Gnani AI
                   </span>
                 </h3>
                 <p className="text-xs text-red-100">

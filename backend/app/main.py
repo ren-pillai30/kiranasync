@@ -855,6 +855,7 @@ def process_audio():
         
         # Get transcription via SDK (hi-IN handles Hindi and code-switched Hinglish natively)
         raw_transcript = transcribe_audio(temp_audio_path, language_code=preferred_lang)
+        transcript_language = preferred_lang
 
         # If empty and preferred_lang was en-IN, try hi-IN (or vice-versa)
         if raw_transcript is not None and not raw_transcript.strip():
@@ -862,6 +863,7 @@ def process_audio():
             fallback_transcript = transcribe_audio(temp_audio_path, language_code=fallback_lang)
             if fallback_transcript and fallback_transcript.strip():
                 raw_transcript = fallback_transcript
+                transcript_language = fallback_lang
 
         if not raw_transcript or not raw_transcript.strip():
             return jsonify({
@@ -883,7 +885,10 @@ def process_audio():
             return jsonify({'status': 'error', 'error': 'No speech detected. Please speak clearly into your microphone and click Send.'}), 400
 
         hindi_transcript = None
-        if extract_explicit_quantity(raw_transcript) is None:
+        if (
+            transcript_language != "hi-IN"
+            and extract_explicit_quantity(raw_transcript) is None
+        ):
             hindi_transcript = transcribe_audio(temp_audio_path, language_code="hi-IN")
 
         from backend.app.intent_parser import DB_PATH
