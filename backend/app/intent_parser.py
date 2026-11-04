@@ -1151,7 +1151,6 @@ def parse_and_execute(raw_transcript, quantity_override=None, interpretation=Non
                     item_catalog.append(base_name)
                     item_alias_to_canonical[base_name.casefold()] = item_name
         from backend.app.gemini_understanding import (
-            GeminiUnderstandingError,
             get_gemini_api_key,
             resolve_catalog_entity,
         )
@@ -1201,17 +1200,12 @@ def parse_and_execute(raw_transcript, quantity_override=None, interpretation=Non
                     or get_gemini_api_key()
                 )
             ):
-                try:
-                    gemini_item = resolve_catalog_entity(
-                        requested_item,
-                        item_catalog,
-                        "product",
-                        {**translations, "raw_transcript": raw_transcript},
-                    )
-                except GeminiUnderstandingError:
-                    if intent != "sell":
-                        raise
-                    gemini_item = None
+                gemini_item = resolve_catalog_entity(
+                    requested_item,
+                    item_catalog,
+                    "product",
+                    {**translations, "raw_transcript": raw_transcript},
+                )
                 if gemini_item:
                     target_item = item_alias_to_canonical.get(
                         gemini_item.casefold(),

@@ -892,10 +892,7 @@ def build_postgres_voice_sale_result(interpretation, raw_transcript, inventory):
             "message": "Could not recognize the quantity. Please repeat the amount clearly.",
         }
 
-    from backend.app.gemini_understanding import (
-        GeminiUnderstandingError,
-        resolve_catalog_entity,
-    )
+    from backend.app.gemini_understanding import resolve_catalog_entity
     from backend.app.intent_parser import normalize_entity_name
 
     alias_to_items = {}
@@ -917,26 +914,19 @@ def build_postgres_voice_sale_result(interpretation, raw_transcript, inventory):
 
     matching_items = alias_to_items.get(entity.casefold(), {})
     if not matching_items:
-        try:
-            resolved_alias = resolve_catalog_entity(
-                entity,
-                catalog,
-                "product",
-                {
-                    "entity": entity,
-                    "raw_transcript": raw_transcript,
-                    "local_translation": interpretation.get("local_translation"),
-                    "phonetic_english_translation": interpretation.get(
-                        "phonetic_english_translation"
-                    ),
-                },
-            )
-        except GeminiUnderstandingError:
-            app.logger.info(
-                "Gemini catalog matching unavailable during PostgreSQL voice sale; "
-                "continuing with inventory confirmation candidates."
-            )
-            resolved_alias = None
+        resolved_alias = resolve_catalog_entity(
+            entity,
+            catalog,
+            "product",
+            {
+                "entity": entity,
+                "raw_transcript": raw_transcript,
+                "local_translation": interpretation.get("local_translation"),
+                "phonetic_english_translation": interpretation.get(
+                    "phonetic_english_translation"
+                ),
+            },
+        )
         if resolved_alias:
             matching_items = alias_to_items.get(resolved_alias.casefold(), {})
 

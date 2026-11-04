@@ -65,9 +65,7 @@ class ProcessAudioRouteTests(unittest.TestCase):
             patch("backend.app.models.StoreCredit.query") as customer_query,
             patch(
                 "backend.app.gemini_understanding.resolve_catalog_entity",
-                side_effect=GeminiUnderstandingError(
-                    "Gemini catalog matching is temporarily unavailable."
-                ),
+                return_value=None,
             ),
         ):
             understand_command.return_value = {
