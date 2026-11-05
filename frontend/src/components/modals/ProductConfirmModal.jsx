@@ -80,7 +80,11 @@ export default function ProductConfirmModal({
                 >
                   {isSearchingProduct ? t.searching : t.searchAgain}
                 </button>
-                <p className="text-[11px] text-[#78716C] mt-1 font-medium">{t.editNameToSearch}</p>
+                <p className="text-[11px] text-[#78716C] mt-1 font-medium">
+                  {pendingDraft.Source === 'manual_add'
+                    ? t.manualWebSearchStatus
+                    : t.editNameToSearch}
+                </p>
               </div>
               <div className="flex space-x-4">
                 <p className="text-[11px] text-[#78716C] font-bold uppercase tracking-wider">{t.mrpOptions}</p>

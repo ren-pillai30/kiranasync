@@ -52,9 +52,9 @@ export function useStoreActions({
         (name) => requestedName && normalizeProductName(name) === requestedName
       )
     );
-    const requestedPrice = Number(invForm.Price);
+    const requestedPrice = invForm.Price.trim() ? Number(invForm.Price) : null;
     const priceMatch = matches.find(
-      (item) => Number(item.Price) === requestedPrice
+      (item) => requestedPrice !== null && Number(item.Price) === requestedPrice
     );
     const existing = priceMatch || (matches.length === 1 ? matches[0] : null);
     if (matches.length > 1 && !priceMatch) {

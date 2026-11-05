@@ -85,14 +85,16 @@ export default function InventoryPanel({
               onChange={(e) => setInvForm({ ...invForm, StockQuantity: e.target.value })}
             />
             <input
-              required
               type="number"
-              placeholder={t.pricePlace}
+              placeholder={t.manualPriceOptional}
               className="bg-[#FFFDF9] text-stone-900 placeholder:text-stone-400 p-2.5 rounded-lg border border-[#D8CEBA] focus:outline-none focus:ring-2 focus:ring-[#991B1B]/20 focus:border-[#991B1B] text-sm font-medium w-1/2 transition-all"
               value={invForm.Price}
               onChange={(e) => setInvForm({ ...invForm, Price: e.target.value })}
             />
           </div>
+          <p className="text-[11px] text-stone-500">
+            {t.manualWebSearchHelp}
+          </p>
           {manualFormError && (
             <p role="alert" className="text-xs text-red-600 font-semibold bg-red-50 p-2 rounded border border-red-200">
               {manualFormError}
