@@ -1168,11 +1168,6 @@ def parse_and_execute(raw_transcript, quantity_override=None, interpretation=Non
             if intent == "credit"
             else None
         )
-        allow_credit_catalog_resolution = (
-            not spoken_credit_customer
-            or str(interpreted_entity or "").casefold()
-            == spoken_credit_customer.casefold()
-        )
         if spoken_credit_customer:
             clean_translated_entity = spoken_credit_customer
         orig_requested_entity = clean_translated_entity
@@ -1266,7 +1261,8 @@ def parse_and_execute(raw_transcript, quantity_override=None, interpretation=Non
             if (
                 not target_customer
                 and (clean_translated_entity or raw_transcript)
-                and allow_credit_catalog_resolution
+                and not spoken_credit_customer
+                and intent != "credit"
                 and (intent != "add_customer" or get_gemini_api_key())
             ):
                 gemini_customer = resolve_catalog_entity(

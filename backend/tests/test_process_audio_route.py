@@ -3,7 +3,7 @@ import os
 import sqlite3
 import tempfile
 import unittest
-from unittest.mock import ANY, patch
+from unittest.mock import ANY, MagicMock, patch
 from types import SimpleNamespace
 
 from backend.app import main
@@ -184,7 +184,7 @@ class ProcessAudioRouteTests(unittest.TestCase):
         self.assertEqual(result["data"]["OutstandingBalance"], 250)
         resolve_entity.assert_not_called()
 
-    def test_postgres_voice_credit_keeps_spoken_new_customer_name(self):
+    def test_postgres_voice_credit_keeps_explicit_spoken_name_even_when_model_matches_it_to_catalog(self):
         customer = SimpleNamespace(
             customer_id=9,
             customer_name="Avaneesh",
@@ -198,7 +198,7 @@ class ProcessAudioRouteTests(unittest.TestCase):
             result = main.build_postgres_voice_customer_result(
                 {
                     "action": "credit",
-                    "entity": "Avaneesh",
+                    "entity": "Aryan",
                     "quantity": "1000",
                     "phonetic_english_translation": "Aryan",
                 },
@@ -210,6 +210,82 @@ class ProcessAudioRouteTests(unittest.TestCase):
         self.assertEqual(result["draft"]["CustomerName"], "Aryan")
         self.assertEqual(result["draft"]["Amount"], 1000)
         resolve_entity.assert_not_called()
+
+    def test_postgres_voice_credit_does_not_rematch_new_name_against_customer_catalog(self):
+        customer = SimpleNamespace(
+            customer_id=9,
+            customer_name="Avaneesh",
+            customer_name_hindi=None,
+            outstanding_balance=25,
+        )
+        with patch(
+            "backend.app.gemini_understanding.resolve_catalog_entity",
+            return_value="Avaneesh",
+        ) as resolve_entity:
+            result = main.build_postgres_voice_customer_result(
+                {
+                    "action": "credit",
+                    "entity": "Aryan",
+                    "quantity": "1000",
+                },
+                "put 1000 on Aryan's account",
+                [customer],
+            )
+
+        self.assertEqual(result["status"], "pending_confirmation")
+        self.assertEqual(result["draft"]["CustomerName"], "Aryan")
+        resolve_entity.assert_not_called()
+
+    def test_postgres_credit_confirmation_creates_a_name_containing_existing_customer_name(self):
+        from backend.app.models import StoreCredit, StoreTransaction
+
+        existing_customer = SimpleNamespace(
+            customer_id=4,
+            customer_name="Ramesh",
+            outstanding_balance=20,
+            is_active=True,
+        )
+        customer_query = MagicMock()
+        customer_query.filter_by.return_value.order_by.return_value.all.return_value = [
+            existing_customer
+        ]
+        session_query = MagicMock()
+        session_query.return_value.filter_by.return_value.scalar.side_effect = [4, 8]
+        with (
+            main.app.app_context(),
+            main.app.test_client() as client,
+            patch.dict(main.app.config, {"TESTING": True, "LOGIN_DISABLED": True}),
+            patch("backend.app.main.is_postgres_database", return_value=True),
+            patch("backend.app.main.current_store_id", return_value=7),
+            patch.object(StoreCredit, "query", customer_query),
+            patch("backend.app.main.db.session.query", session_query),
+            patch("backend.app.main.db.session.add") as session_add,
+            patch("backend.app.main.db.session.commit"),
+        ):
+            response = client.post(
+                "/api/transactions/confirm",
+                json={
+                    "Intent": "credit",
+                    "CustomerName": "Ramesh Kumar",
+                    "Amount": 1000,
+                    "RawCommand": "Ramesh Kumar ke khaate mein 1000 rupay daal do",
+                },
+            )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            response.get_json()["resolved_customer_name"],
+            "Ramesh Kumar",
+        )
+        added = [call.args[0] for call in session_add.call_args_list]
+        new_customer = next(item for item in added if isinstance(item, StoreCredit))
+        credit_transaction = next(
+            item for item in added if isinstance(item, StoreTransaction)
+        )
+        self.assertEqual(new_customer.customer_name, "Ramesh Kumar")
+        self.assertEqual(new_customer.outstanding_balance, 1000)
+        self.assertEqual(existing_customer.outstanding_balance, 20)
+        self.assertEqual(credit_transaction.entity_name, "Ramesh Kumar")
 
     def test_postgres_voice_add_product_existing_item_returns_stock_confirmation(self):
         inventory = [{

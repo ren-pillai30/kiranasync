@@ -832,8 +832,6 @@ def confirm_transaction():
 
     if is_postgres_database():
         from backend.app.models import StoreCredit, StoreTransaction
-        from backend.app.intent_parser import match_entity_with_score
-
         customer_name = str(data.get('CustomerName') or '').strip()
         try:
             amount = float(data.get('Amount'))
@@ -844,14 +842,27 @@ def confirm_transaction():
 
         store_id = current_store_id()
         existing = StoreCredit.query.filter_by(store_id=store_id).order_by(StoreCredit.customer_id).all()
-        customers = [row.customer_name for row in existing]
-        resolved_name = match_entity_with_score(customer_name, customers, threshold=88) or customer_name
-        customer = next((row for row in existing if row.customer_name == resolved_name), None)
+        resolved_name = customer_name
+        customer = next(
+            (row for row in existing if row.customer_name.casefold() == resolved_name.casefold()),
+            None,
+        )
         if customer:
-            new_balance = float(customer.outstanding_balance or 0) + amount
+            is_active_customer = bool(customer.is_active)
+            new_balance = (
+                float(customer.outstanding_balance or 0) + amount
+                if is_active_customer
+                else amount
+            )
             customer.outstanding_balance = new_balance
             customer.is_active = True
-            message = f"Added Rs {amount:g} to {resolved_name}. New Balance: Rs {new_balance:g}."
+            message = (
+                f"Added Rs {amount:g} to {customer.customer_name}. "
+                f"New Balance: Rs {new_balance:g}."
+                if is_active_customer
+                else f"Created {customer.customer_name}'s account with Rs {amount:g} balance."
+            )
+            resolved_name = customer.customer_name
         else:
             max_id = db.session.query(db.func.max(StoreCredit.customer_id)).filter_by(store_id=store_id).scalar()
             customer = StoreCredit(
@@ -896,23 +907,33 @@ def confirm_transaction():
             if not customer_name or amount <= 0:
                 return jsonify({'status': 'error', 'error': 'A customer and positive amount are required.'}), 400
 
-            from backend.app.intent_parser import match_entity_with_score
             cursor.execute("SELECT CustomerName FROM CustomerCredit WHERE IsActive = 1")
             existing_names = [row[0] for row in cursor.fetchall()]
-            resolved_name = match_entity_with_score(customer_name, existing_names, threshold=88) or customer_name
-            customer_name = resolved_name
+            existing_name = next(
+                (name for name in existing_names if name.casefold() == customer_name.casefold()),
+                None,
+            )
+            customer_name = existing_name or customer_name
             cursor.execute(
-                "SELECT CustomerID, OutstandingBalance FROM CustomerCredit WHERE lower(CustomerName) = lower(?)",
+                "SELECT CustomerID, OutstandingBalance, IsActive FROM CustomerCredit "
+                "WHERE lower(CustomerName) = lower(?)",
                 (customer_name,),
             )
             customer = cursor.fetchone()
-            if customer:
+            if customer and customer[2]:
                 new_balance = float(customer[1] or 0) + amount
                 cursor.execute(
                     'UPDATE CustomerCredit SET OutstandingBalance = ?, IsActive = 1 WHERE CustomerID = ?',
                     (new_balance, customer[0]),
                 )
                 message = f"Added Rs {amount:g} to {customer_name}. New Balance: Rs {new_balance:g}."
+            elif customer:
+                new_balance = amount
+                cursor.execute(
+                    'UPDATE CustomerCredit SET OutstandingBalance = ?, IsActive = 1 WHERE CustomerID = ?',
+                    (new_balance, customer[0]),
+                )
+                message = f"Created {customer_name}'s account with Rs {new_balance:g} balance."
             else:
                 cursor.execute(
                     'INSERT INTO CustomerCredit (CustomerName, OutstandingBalance, IsActive) VALUES (?, ?, 1)',
@@ -1275,11 +1296,12 @@ def build_postgres_voice_customer_result(interpretation, raw_transcript, custome
         if len(records) == 1
     }
     matched_customer = unique_aliases.get(entity.casefold())
-    allow_catalog_resolution = (
-        not spoken_credit_customer
-        or interpreted_entity.casefold() == spoken_credit_customer.casefold()
-    )
-    if not matched_customer and unique_aliases and allow_catalog_resolution:
+    if (
+        not matched_customer
+        and unique_aliases
+        and action != "credit"
+        and not spoken_credit_customer
+    ):
         resolved_alias = resolve_catalog_entity(
             entity,
             list(unique_aliases),
