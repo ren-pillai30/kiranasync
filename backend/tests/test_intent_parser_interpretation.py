@@ -18,6 +18,11 @@ class IntentParserInterpretationTests(unittest.TestCase):
         )
         self.gemini_key_patch.start()
         self.addCleanup(self.gemini_key_patch.stop)
+        self.product_search_timeout_patch = patch.object(
+            intent_parser, "PRODUCT_SEARCH_TIMEOUT_SECONDS", 0
+        )
+        self.product_search_timeout_patch.start()
+        self.addCleanup(self.product_search_timeout_patch.stop)
         self.temp_dir = tempfile.TemporaryDirectory()
         self.database_path = os.path.join(self.temp_dir.name, "test.db")
         connection = sqlite3.connect(self.database_path)
@@ -906,6 +911,60 @@ class IntentParserInterpretationTests(unittest.TestCase):
 
         self.assertEqual(result["SearchStatus"], "no_relevant_results")
         self.assertEqual(ddgs.text.call_count, 2)
+
+    @patch.object(intent_parser, "DDGS")
+    def test_web_lookup_retries_until_matching_product_is_found(self, ddgs_class):
+        ddgs = ddgs_class.return_value.__enter__.return_value
+        ddgs.text.side_effect = [
+            [],
+            [],
+            [{
+                "title": "New Tea 100g MRP ₹25",
+                "body": "Pack of 100g",
+                "href": "https://example.test/new-tea",
+            }],
+        ]
+
+        clock = [0]
+        with (
+            patch.object(intent_parser, "PRODUCT_SEARCH_TIMEOUT_SECONDS", 30),
+            patch.object(intent_parser.time, "monotonic", side_effect=lambda: clock[0]),
+            patch.object(
+                intent_parser.time,
+                "sleep",
+                side_effect=lambda seconds: clock.__setitem__(0, clock[0] + seconds),
+            ) as sleep,
+        ):
+            result = intent_parser.search_product_online("new tea")
+
+        self.assertEqual(result["SearchStatus"], "found_mrp")
+        self.assertEqual(result["Price"], 25)
+        self.assertEqual(ddgs.text.call_count, 3)
+        self.assertEqual(
+            [call.args for call in sleep.call_args_list],
+            [(2,), (2,)],
+        )
+
+    @patch.object(intent_parser, "DDGS")
+    def test_web_lookup_retries_for_the_full_30_second_window(self, ddgs_class):
+        ddgs = ddgs_class.return_value.__enter__.return_value
+        ddgs.text.return_value = []
+        clock = [0]
+
+        with (
+            patch.object(intent_parser, "PRODUCT_SEARCH_TIMEOUT_SECONDS", 30),
+            patch.object(intent_parser.time, "monotonic", side_effect=lambda: clock[0]),
+            patch.object(
+                intent_parser.time,
+                "sleep",
+                side_effect=lambda seconds: clock.__setitem__(0, clock[0] + seconds),
+            ),
+        ):
+            result = intent_parser.search_product_online("new tea")
+
+        self.assertEqual(clock[0], 30)
+        self.assertGreater(ddgs.text.call_count, 1)
+        self.assertEqual(result["SearchStatus"], "no_relevant_results")
 
     def test_unknown_action_does_not_change_stock_or_balance(self):
         result = intent_parser.parse_and_execute(

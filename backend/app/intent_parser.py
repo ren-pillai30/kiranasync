@@ -25,6 +25,7 @@ import sqlite3
 import re
 import json
 import difflib
+import time
 import unicodedata
 from number_parser import parse
 from backend.app.measurement_utils import (
@@ -42,6 +43,9 @@ try:
 except ImportError:
     DDGS = None
     DDGSException = None
+
+PRODUCT_SEARCH_TIMEOUT_SECONDS = 30
+PRODUCT_SEARCH_RETRY_INTERVAL_SECONDS = 2
 
 try:
     from thefuzz import fuzz, process
@@ -302,26 +306,77 @@ def search_product_online(clean_item_name):
         for name in query_names
     ))[:2]
     primary_search_query = queries[0] if queries else ""
+
+    ignored_name_tokens = {
+        "a", "an", "and", "for", "in", "of", "the", "with",
+        "g", "gm", "gram", "grams", "kg", "kgs", "l", "ltr", "ml",
+        "pack", "packet", "piece", "pieces", "product", "products",
+        "biscuit", "biscuits", "snack", "snacks", "brand",
+    }
+    search_name_for_matching = re.sub(
+        r"\s+(?:mrp(?:\s+india)?|india\s+mrp)$",
+        "",
+        search_product_name,
+        flags=re.IGNORECASE,
+    )
+    requested_tokens = {
+        token
+        for token in normalize_entity_name(
+            strip_measurement(search_name_for_matching)
+        ).split()
+        if token not in ignored_name_tokens and (len(token) > 1 or token.isdigit())
+    }
+
+    def matches_product_name(result):
+        title = (result.get("title") or "").strip()
+        if not title or not requested_tokens:
+            return False
+        result_tokens = set(normalize_entity_name(title).split())
+        return all(
+            any(
+                token == result_token
+                or (
+                    min(len(token), len(result_token)) >= 3
+                    and difflib.SequenceMatcher(
+                        None, token, result_token
+                    ).ratio() >= 0.78
+                )
+                for result_token in result_tokens
+            )
+            for token in requested_tokens
+        )
+
     try:
         with DDGS() as ddgs:
             results = []
             seen_urls = set()
-            for query in queries:
-                try:
-                    query_results = ddgs.text(query, max_results=5)
-                except DDGSException as exc:
-                    if str(exc).strip().lower() == "no results found.":
-                        continue
-                    raise
-                for result in query_results:
-                    url = result.get("href") or ""
-                    if url and url in seen_urls:
-                        continue
-                    if url:
-                        seen_urls.add(url)
-                    results.append(result)
-                if len(results) >= 8:
+            deadline = time.monotonic() + PRODUCT_SEARCH_TIMEOUT_SECONDS
+            first_search = True
+            while first_search or time.monotonic() < deadline:
+                first_search = False
+                matching_product_found = False
+                for query in queries:
+                    try:
+                        query_results = ddgs.text(query, max_results=5)
+                    except DDGSException as exc:
+                        if str(exc).strip().lower() == "no results found.":
+                            continue
+                        raise
+                    for result in query_results:
+                        if matches_product_name(result):
+                            matching_product_found = True
+                        url = result.get("href") or ""
+                        if url and url in seen_urls:
+                            continue
+                        if url:
+                            seen_urls.add(url)
+                        results.append(result)
+                if matching_product_found:
                     break
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    break
+                time.sleep(min(PRODUCT_SEARCH_RETRY_INTERVAL_SECONDS, remaining))
     except Exception as exc:
         print(f"Product MRP search failed: {exc}")
         return {
@@ -356,26 +411,6 @@ def search_product_online(clean_item_name):
         r"(?:₹|rs\.?|inr)\s*(\d{1,5}(?:[,.]\d{1,2})?)",
         re.IGNORECASE,
     )
-    ignored_name_tokens = {
-        "a", "an", "and", "for", "in", "of", "the", "with",
-        "g", "gm", "gram", "grams", "kg", "kgs", "l", "ltr", "ml",
-        "pack", "packet", "piece", "pieces", "product", "products",
-        "biscuit", "biscuits", "snack", "snacks", "brand",
-    }
-    search_name_for_matching = re.sub(
-        r"\s+(?:mrp(?:\s+india)?|india\s+mrp)$",
-        "",
-        search_product_name,
-        flags=re.IGNORECASE,
-    )
-    requested_tokens = {
-        token
-        for token in normalize_entity_name(
-            strip_measurement(search_name_for_matching)
-        ).split()
-        if token not in ignored_name_tokens and (len(token) > 1 or token.isdigit())
-    }
-
     for result in results:
         title = (result.get("title") or "").strip()
         body = (result.get("body") or "").strip()
@@ -383,18 +418,7 @@ def search_product_online(clean_item_name):
         snippet = " ".join(part for part in (title, body) if part)
         if not snippet:
             continue
-        result_tokens = set(normalize_entity_name(title).split())
-        if not requested_tokens or not all(
-            any(
-                token == result_token
-                or (
-                    min(len(token), len(result_token)) >= 3
-                    and difflib.SequenceMatcher(None, token, result_token).ratio() >= 0.78
-                )
-                for result_token in result_tokens
-            )
-            for token in requested_tokens
-        ):
+        if not matches_product_name(result):
             continue
 
         snippet_measurements = extract_all_measurements(snippet)
