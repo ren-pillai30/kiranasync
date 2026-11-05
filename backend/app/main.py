@@ -2151,7 +2151,7 @@ def handle_store_feedback():
     if category not in categories:
         return jsonify({"status": "error", "error": "Choose a valid feedback category."}), 400
 
-    api_key = os.getenv("FEEDBACK_RESEND_API_KEY", "").strip()
+    api_key = os.getenv("FEEDBACK_BREVO_API_KEY", "").strip()
     sender = os.getenv("FEEDBACK_FROM_EMAIL", "").strip()
     recipient = os.getenv("FEEDBACK_TO_EMAIL", "").strip()
     if not api_key or not sender or not recipient:
@@ -2188,17 +2188,20 @@ def handle_store_feedback():
     )
     try:
         response = requests.post(
-            "https://api.resend.com/emails",
+            "https://api.brevo.com/v3/smtp/email",
             headers={
-                "Authorization": f"Bearer {api_key}",
+                "api-key": api_key,
                 "Content-Type": "application/json",
             },
             json={
-                "from": sender,
-                "to": [recipient],
+                "sender": {
+                    "name": "KiranaSync Feedback",
+                    "email": sender,
+                },
+                "to": [{"email": recipient}],
                 "subject": f"KiranaSync feedback: {category} ({rating}/5)",
-                "text": email_text,
-                "html": email_html,
+                "textContent": email_text,
+                "htmlContent": email_html,
             },
             timeout=10,
         )

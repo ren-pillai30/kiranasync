@@ -36,7 +36,7 @@ class FeedbackRouteTests(unittest.TestCase):
         )
         provider_response = SimpleNamespace(ok=True, status_code=200)
         config = {
-            "FEEDBACK_RESEND_API_KEY": "test-key",
+            "FEEDBACK_BREVO_API_KEY": "test-key",
             "FEEDBACK_FROM_EMAIL": "feedback@example.com",
             "FEEDBACK_TO_EMAIL": "developers@example.com",
         }
@@ -63,13 +63,18 @@ class FeedbackRouteTests(unittest.TestCase):
         self.assertEqual(response.get_json()["status"], "success")
         send_email.assert_called_once()
         args, kwargs = send_email.call_args
-        self.assertEqual(args[0], "https://api.resend.com/emails")
+        self.assertEqual(args[0], "https://api.brevo.com/v3/smtp/email")
         self.assertEqual(kwargs["timeout"], 10)
-        self.assertEqual(kwargs["json"]["to"], ["developers@example.com"])
-        self.assertIn("owner@example.com", kwargs["json"]["text"])
-        self.assertIn("Corner Shop", kwargs["json"]["text"])
-        self.assertIn("Please add weekly reports.", kwargs["json"]["text"])
-        self.assertNotIn("Untrusted submitted name", kwargs["json"]["text"])
+        self.assertEqual(kwargs["headers"]["api-key"], "test-key")
+        self.assertEqual(kwargs["json"]["to"], [{"email": "developers@example.com"}])
+        self.assertIn("owner@example.com", kwargs["json"]["textContent"])
+        self.assertIn("Corner Shop", kwargs["json"]["textContent"])
+        self.assertIn("Please add weekly reports.", kwargs["json"]["textContent"])
+        self.assertNotIn("Untrusted submitted name", kwargs["json"]["textContent"])
+        self.assertEqual(
+            kwargs["json"]["sender"]["email"],
+            "feedback@example.com",
+        )
 
     def test_feedback_history_endpoint_is_not_available(self):
         response = self.client.get("/api/feedback")
@@ -84,7 +89,7 @@ class FeedbackRouteTests(unittest.TestCase):
         )
         provider_response = SimpleNamespace(ok=False, status_code=401)
         config = {
-            "FEEDBACK_RESEND_API_KEY": "test-key",
+            "FEEDBACK_BREVO_API_KEY": "test-key",
             "FEEDBACK_FROM_EMAIL": "feedback@example.com",
             "FEEDBACK_TO_EMAIL": "developers@example.com",
         }
