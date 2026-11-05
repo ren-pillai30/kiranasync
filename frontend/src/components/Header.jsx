@@ -10,6 +10,7 @@ export default function Header({
   onOpenSimulator,
   onOpenBill,
   onOpenFeedback,
+  onOpenStoreSettings,
   onOpenDayClosing,
   onOpenBarcode,
   handleMinimize,
@@ -123,6 +124,15 @@ export default function Header({
         >
           <span className="text-[10px] font-black uppercase">Help</span>
           <span>Feedback</span>
+        </button>
+
+        <button
+          type="button"
+          onClick={onOpenStoreSettings}
+          className="text-xs px-3.5 py-1.5 rounded-lg border border-[#E2D9C8] text-stone-800 bg-[#FFFDF7] hover:bg-[#F4EFE6] font-semibold flex items-center space-x-1.5 shadow-xs transition-all cursor-pointer"
+          title="Update store details and opening register cash"
+        >
+          <span>Store Settings</span>
         </button>
       </div>
 

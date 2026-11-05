@@ -244,6 +244,7 @@ with app.app_context():
         "stores.phone": "VARCHAR(30)",
         "stores.address": "VARCHAR(255)",
         "stores.city": "VARCHAR(100)",
+        "stores.register_opening_balance": "FLOAT NOT NULL DEFAULT 0",
         "stores.setup_complete": "BOOLEAN NOT NULL DEFAULT FALSE",
         "store_inventory.item_name_hindi": "VARCHAR(255)",
         "store_credit.customer_name_hindi": "VARCHAR(255)",
@@ -514,7 +515,14 @@ def get_hisaab_summary():
         )
         total_debt = float(total_debt or 0)
         total_revenue = cash_sales["total"] + udhaar_sales["total"]
-        cash_collected = cash_sales["total"] + repayments["total"]
+        opening_register_balance = (
+            float(current_user.store.register_opening_balance or 0)
+            if current_user.is_authenticated
+            else 0.0
+        )
+        cash_collected = (
+            opening_register_balance + cash_sales["total"] + repayments["total"]
+        )
         return jsonify({
             "status": "success",
             "CashSalesTotal": cash_sales["total"],
@@ -530,7 +538,7 @@ def get_hisaab_summary():
             "Message": (
                 f"Today's Hisaab: Total Sales ₹{total_revenue:g} "
                 f"(Cash: ₹{cash_sales['total']:g}, Udhaar: ₹{udhaar_sales['total']:g}). "
-                f"Cash collected: ₹{cash_collected:g}. "
+                f"Cash in register: ₹{cash_collected:g}. "
                 f"Total customer debt: ₹{total_debt:g}."
             ),
         })
@@ -538,7 +546,20 @@ def get_hisaab_summary():
     from backend.app.intent_parser import DB_PATH
     from backend.app.services.query_service import QueryService
     service = QueryService(DB_PATH)
-    return jsonify(service.get_today_hisaab())
+    hisaab = service.get_today_hisaab()
+    if current_user.is_authenticated:
+        opening_register_balance = float(
+            current_user.store.register_opening_balance or 0
+        )
+        hisaab["CashCollected"] += opening_register_balance
+        hisaab["Message"] = (
+            f"Today's Hisaab: Total Sales ₹{hisaab['TotalRevenue']:g} "
+            f"(Cash: ₹{hisaab['CashSalesTotal']:g}, "
+            f"Udhaar: ₹{hisaab['UdhaarSalesTotal']:g}). "
+            f"Cash in register: ₹{hisaab['CashCollected']:g}. "
+            f"Total customer debt: ₹{hisaab['TotalOutstandingDebt']:g}."
+        )
+    return jsonify(hisaab)
 
 @app.route('/api/analytics/low-stock', methods=['GET'])
 def get_low_stock():

@@ -13,6 +13,7 @@ class Store(db.Model):
     phone = db.Column(db.String(30), nullable=True)
     address = db.Column(db.String(255), nullable=True)
     city = db.Column(db.String(100), nullable=True)
+    register_opening_balance = db.Column(db.Float, nullable=False, default=0)
     setup_complete = db.Column(db.Boolean, nullable=False, default=False)
     created_at = db.Column(db.DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
     is_active = db.Column(db.Boolean, nullable=False, default=True)

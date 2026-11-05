@@ -51,6 +51,7 @@ export default function App() {
   const [showCallSimulator, setShowCallSimulator] = useState(false);
   const [showBillModal, setShowBillModal] = useState(false);
   const [showFeedbackModal, setShowFeedbackModal] = useState(false);
+  const [showStoreSettings, setShowStoreSettings] = useState(false);
   const [showDayClosingModal, setShowDayClosingModal] = useState(false);
   const [showBarcodeModal, setShowBarcodeModal] = useState(false);
   const [barcodeNotice, setBarcodeNotice] = useState('');
@@ -391,12 +392,29 @@ export default function App() {
     }} />;
   }
 
+  const handleStoreSetupComplete = (store) => {
+    setStoreSession((current) => ({
+      ...current,
+      store_name: store.store_name,
+      store_phone: store.phone,
+      store_address: store.address,
+      store_city: store.city,
+      register_opening_balance: store.register_opening_balance,
+      store_setup_complete: true,
+    }));
+    setStoreSetupComplete(true);
+    setShowStoreSettings(false);
+    void fetchDashboardData();
+  };
+
   return (
     <div className="flex flex-col w-screen h-screen relative bg-transparent overflow-hidden">
-      {!storeSetupComplete && (
+      {(!storeSetupComplete || showStoreSettings) && (
         <StoreSetupModal
           initialStore={storeSession}
-          onComplete={() => setStoreSetupComplete(true)}
+          isRequired={!storeSetupComplete}
+          onClose={() => setShowStoreSettings(false)}
+          onComplete={handleStoreSetupComplete}
         />
       )}
       <Header
@@ -412,6 +430,7 @@ export default function App() {
         onOpenSimulator={() => setShowCallSimulator(true)}
         onOpenBill={() => handleOpenBill()}
         onOpenFeedback={() => setShowFeedbackModal(true)}
+        onOpenStoreSettings={() => setShowStoreSettings(true)}
         onOpenDayClosing={handleOpenDayClosing}
         onOpenBarcode={() => {
           setShowBarcodeModal(true);

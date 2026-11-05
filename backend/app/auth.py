@@ -1,3 +1,4 @@
+import math
 import os
 
 from flask import jsonify, request
@@ -40,6 +41,7 @@ def register_auth_routes(app):
                 "store_phone": current_user.store.phone,
                 "store_address": current_user.store.address,
                 "store_city": current_user.store.city,
+                "register_opening_balance": current_user.store.register_opening_balance,
             },
         })
 
@@ -69,6 +71,7 @@ def register_auth_routes(app):
                 "store_phone": user.store.phone,
                 "store_address": user.store.address,
                 "store_city": user.store.city,
+                "register_opening_balance": user.store.register_opening_balance,
             },
         })
 
@@ -114,6 +117,18 @@ def register_auth_routes(app):
         phone = str(data.get("phone") or "").strip()
         address = str(data.get("address") or "").strip()
         city = str(data.get("city") or "").strip()
+        try:
+            register_opening_balance = float(data.get("register_opening_balance"))
+        except (TypeError, ValueError):
+            return jsonify({
+                "status": "error",
+                "error": "Enter a valid opening register amount.",
+            }), 400
+        if not math.isfinite(register_opening_balance) or register_opening_balance < 0:
+            return jsonify({
+                "status": "error",
+                "error": "Opening register amount must be zero or more.",
+            }), 400
         if not store_name or not phone or not address or not city:
             return jsonify({
                 "status": "error",
@@ -123,6 +138,7 @@ def register_auth_routes(app):
         current_user.store.phone = phone
         current_user.store.address = address
         current_user.store.city = city
+        current_user.store.register_opening_balance = register_opening_balance
         current_user.store.setup_complete = True
         db.session.commit()
         return jsonify({
@@ -132,6 +148,7 @@ def register_auth_routes(app):
                 "phone": phone,
                 "address": address,
                 "city": city,
+                "register_opening_balance": register_opening_balance,
                 "setup_complete": True,
             },
         })

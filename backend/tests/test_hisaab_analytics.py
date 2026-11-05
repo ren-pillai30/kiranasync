@@ -1,5 +1,6 @@
 import unittest
 from unittest.mock import MagicMock, patch
+from types import SimpleNamespace
 
 from backend.app import main
 from backend.app.models import StoreTransaction
@@ -25,6 +26,13 @@ class HisaabAnalyticsTests(unittest.TestCase):
             patch("backend.app.main.is_postgres_database", return_value=True),
             patch("backend.app.main.current_store_id", return_value=7),
             patch(
+                "backend.app.main.current_user",
+                SimpleNamespace(
+                    is_authenticated=True,
+                    store=SimpleNamespace(register_opening_balance=50),
+                ),
+            ),
+            patch(
                 "backend.app.main.db.session.query",
                 side_effect=[transaction_query, debt_query],
             ) as query,
@@ -44,11 +52,11 @@ class HisaabAnalyticsTests(unittest.TestCase):
                 "RepaymentsCount": 1,
                 "RestockCostTotal": 12,
                 "TotalRevenue": 120,
-                "CashCollected": 100,
+                "CashCollected": 150,
                 "TotalOutstandingDebt": 120,
                 "Message": (
                     "Today's Hisaab: Total Sales ₹120 (Cash: ₹80, Udhaar: ₹40). "
-                    "Cash collected: ₹100. Total customer debt: ₹120."
+                    "Cash in register: ₹150. Total customer debt: ₹120."
                 ),
             },
         )
@@ -61,6 +69,40 @@ class HisaabAnalyticsTests(unittest.TestCase):
         )
         debt_query.filter_by.assert_called_once_with(store_id=7, is_active=True)
         self.assertEqual(query.call_count, 2)
+
+    def test_sqlite_hisaab_adds_store_opening_register_balance(self):
+        stored_hisaab = {
+            "status": "success",
+            "CashSalesTotal": 80,
+            "UdhaarSalesTotal": 40,
+            "RepaymentsTotal": 20,
+            "TotalRevenue": 120,
+            "CashCollected": 100,
+            "TotalOutstandingDebt": 120,
+            "Message": "",
+        }
+        with (
+            main.app.app_context(),
+            main.app.test_client() as client,
+            patch.dict(main.app.config, {"TESTING": True}),
+            patch("backend.app.main.is_postgres_database", return_value=False),
+            patch(
+                "backend.app.main.current_user",
+                SimpleNamespace(
+                    is_authenticated=True,
+                    store=SimpleNamespace(register_opening_balance=50),
+                ),
+            ),
+            patch(
+                "backend.app.services.query_service.QueryService.get_today_hisaab",
+                return_value=stored_hisaab.copy(),
+            ),
+        ):
+            response = client.get("/api/analytics/hisaab")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.get_json()["CashCollected"], 150)
+        self.assertIn("Cash in register: ₹150", response.get_json()["Message"])
 
 
 if __name__ == "__main__":
