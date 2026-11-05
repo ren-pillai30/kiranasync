@@ -27,13 +27,21 @@ import StoreResetModal from './components/modals/StoreResetModal';
 
 const RESET_ALLOWED_EMAIL = 'aryan.pillai2024@vitstudent.ac.in';
 
+const getInitialLanguage = () => {
+  if (typeof window === 'undefined') return 'hi';
+  return window.localStorage.getItem('kiranasync-name-display') === 'en'
+    ? 'en'
+    : 'hi';
+};
+
 export default function App() {
   const [authChecked, setAuthChecked] = useState(false);
   const [authenticated, setAuthenticated] = useState(false);
   const [storeSetupComplete, setStoreSetupComplete] = useState(true);
   const [storeSession, setStoreSession] = useState(null);
-  const [lang, setLang] = useState('en');
-  const [selectedLangCode, setSelectedLangCode] = useState('hi-IN');
+  const [lang, setLang] = useState(getInitialLanguage);
+  const selectedLangCode = lang === 'hi' ? 'hi-IN' : 'en-IN';
+  const nameDisplayMode = lang;
   const t = text[lang];
 
   const [isActive, setIsActive] = useState(false);
@@ -61,22 +69,16 @@ export default function App() {
   const [barcodeNotice, setBarcodeNotice] = useState('');
   const [billData, setBillData] = useState({ billItems: [], customerName: 'Walk-in Customer', paymentMode: 'cash', customerBalance: 0 });
   const [isMuted, setIsMuted] = useState(false);
-  const [nameDisplayMode, setNameDisplayMode] = useState(() => (
-    typeof window !== 'undefined' ? window.localStorage.getItem('kiranasync-name-display') || 'en' : 'en'
-  ));
-
   const handleLanguageChange = useCallback((nextLang) => {
     const normalized = nextLang === 'hi' ? 'hi' : 'en';
     setLang(normalized);
-    setNameDisplayMode(normalized);
-    setSelectedLangCode(normalized === 'hi' ? 'hi-IN' : 'en-IN');
   }, []);
 
   useEffect(() => {
     if (typeof window !== 'undefined') {
-      window.localStorage.setItem('kiranasync-name-display', nameDisplayMode);
+      window.localStorage.setItem('kiranasync-name-display', lang);
     }
-  }, [nameDisplayMode]);
+  }, [lang]);
 
   const checkAuth = useCallback(async () => {
     try {
@@ -450,10 +452,9 @@ export default function App() {
       )}
       <Header
         selectedLangCode={selectedLangCode}
-        setSelectedLangCode={(languageCode) => {
-          setSelectedLangCode(languageCode);
-          handleLanguageChange(languageCode.startsWith('hi') ? 'hi' : 'en');
-        }}
+        setSelectedLangCode={(languageCode) => handleLanguageChange(
+          languageCode.startsWith('hi') ? 'hi' : 'en'
+        )}
         isMuted={isMuted}
         setIsMuted={setIsMuted}
         isRecording={voiceRecorder.isRecording}
@@ -606,8 +607,6 @@ export default function App() {
               t={t}
               lang={lang}
               onLanguageChange={handleLanguageChange}
-              selectedLangCode={selectedLangCode}
-              setSelectedLangCode={setSelectedLangCode}
               isRecording={voiceRecorder.isRecording}
               startRecording={voiceRecorder.startRecording}
               onOpenSimulator={() => setShowCallSimulator(true)}
