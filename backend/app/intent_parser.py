@@ -1084,6 +1084,35 @@ def isolate_clean_entity(text_string):
     clean_words = [w for w in words if w not in stop_words and not re.match(r'\d+', w)]
     return " ".join(clean_words).title()
 
+
+def extract_credit_customer_name(transcript):
+    """Extract a customer name from explicit account-credit phrasing."""
+    text = str(transcript or "").strip()
+    patterns = (
+        r"^\s*(?P<name>[\w.'-]+(?:\s+[\w.'-]+){0,2})\s+"
+        r"(?:ke|ka|ki|के|का|की)\s+"
+        r"(?:khaate|khate|khaata|khata|खाते|खाता)\s+"
+        r"(?:mein|me|में|मे)(?:\s|$)",
+        r"^\s*(?P<name>[\w.'-]+(?:\s+[\w.'-]+){0,2})\s+"
+        r"(?:ke|ka|ki|के|का|की)\s+"
+        r"(?:account|खाते|खाता)\s+(?:mein|me|में|मे)(?:\s|$)",
+        r"\b(?:to|into)\s+(?P<name>[\w.'-]+(?:\s+[\w.'-]+){0,2}?)"
+        r"(?:'s)?\s+account\b",
+    )
+    for pattern in patterns:
+        match = re.search(pattern, text, flags=re.IGNORECASE)
+        if match:
+            name = match.group("name").strip(" .,'\"")
+            if name:
+                if name.isascii():
+                    name = " ".join(
+                        part[:1].upper() + part[1:]
+                        for part in name.split()
+                    )
+                return name
+    return None
+
+
 def parse_and_execute(raw_transcript, quantity_override=None, interpretation=None, db_path=None):
     target_db = db_path or DB_PATH
     if interpretation is None:
@@ -1132,7 +1161,20 @@ def parse_and_execute(raw_transcript, quantity_override=None, interpretation=Non
                 "message": "The command could not be safely interpreted. No changes were made.",
             }
         intent = interpretation.get("action")
-        clean_translated_entity = interpretation.get("entity")
+        interpreted_entity = interpretation.get("entity")
+        clean_translated_entity = interpreted_entity
+        spoken_credit_customer = (
+            extract_credit_customer_name(raw_transcript)
+            if intent == "credit"
+            else None
+        )
+        allow_credit_catalog_resolution = (
+            not spoken_credit_customer
+            or str(interpreted_entity or "").casefold()
+            == spoken_credit_customer.casefold()
+        )
+        if spoken_credit_customer:
+            clean_translated_entity = spoken_credit_customer
         orig_requested_entity = clean_translated_entity
         quantity_or_amount = interpretation.get("quantity")
         if intent in {"add_product", "restock"}:
@@ -1224,6 +1266,7 @@ def parse_and_execute(raw_transcript, quantity_override=None, interpretation=Non
             if (
                 not target_customer
                 and (clean_translated_entity or raw_transcript)
+                and allow_credit_catalog_resolution
                 and (intent != "add_customer" or get_gemini_api_key())
             ):
                 gemini_customer = resolve_catalog_entity(

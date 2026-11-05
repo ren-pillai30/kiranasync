@@ -1240,7 +1240,16 @@ def build_postgres_voice_customer_result(interpretation, raw_transcript, custome
     if action not in {"credit", "query_customer", "repayment", "add_customer", "remove_customer"}:
         return None
 
-    entity = str(interpretation.get("entity") or "").strip()
+    interpreted_entity = str(interpretation.get("entity") or "").strip()
+    entity = interpreted_entity
+    from backend.app.intent_parser import extract_credit_customer_name
+    spoken_credit_customer = (
+        extract_credit_customer_name(raw_transcript)
+        if action == "credit"
+        else None
+    )
+    if spoken_credit_customer:
+        entity = spoken_credit_customer
     if not entity:
         return {
             "status": "failed",
@@ -1266,7 +1275,11 @@ def build_postgres_voice_customer_result(interpretation, raw_transcript, custome
         if len(records) == 1
     }
     matched_customer = unique_aliases.get(entity.casefold())
-    if not matched_customer and unique_aliases:
+    allow_catalog_resolution = (
+        not spoken_credit_customer
+        or interpreted_entity.casefold() == spoken_credit_customer.casefold()
+    )
+    if not matched_customer and unique_aliases and allow_catalog_resolution:
         resolved_alias = resolve_catalog_entity(
             entity,
             list(unique_aliases),

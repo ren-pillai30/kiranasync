@@ -469,6 +469,55 @@ class IntentParserInterpretationTests(unittest.TestCase):
         self.assertIsNone(customer)
         resolve_entity.assert_called_once()
 
+    @patch(
+        "backend.app.gemini_understanding.resolve_catalog_entity",
+        return_value="Avaneesh",
+    )
+    def test_voice_credit_uses_spoken_new_customer_not_model_catalog_guess(self, resolve_entity):
+        with closing(sqlite3.connect(self.database_path)) as connection:
+            connection.execute(
+                "INSERT INTO CustomerCredit (CustomerName, OutstandingBalance) "
+                "VALUES ('Avaneesh', 25)"
+            )
+            connection.commit()
+
+        result = intent_parser.parse_and_execute(
+            "aryan ke khaate mein 1000 rupay daal do",
+            interpretation={
+                "action": "credit",
+                "entity": "Avaneesh",
+                "quantity": 1000,
+                "phonetic_english_translation": "Aryan",
+            },
+        )
+
+        self.assertEqual(result["status"], "pending_confirmation")
+        self.assertEqual(result["draft"]["CustomerName"], "Aryan")
+        resolve_entity.assert_not_called()
+
+        from backend.app import main
+        with (
+            patch.object(intent_parser, "DB_PATH", self.database_path),
+            patch.dict(main.app.config, {"LOGIN_DISABLED": True}),
+        ):
+            response = main.app.test_client().post(
+                "/api/transactions/confirm",
+                json={
+                    "Intent": "credit",
+                    "CustomerName": result["draft"]["CustomerName"],
+                    "Amount": result["draft"]["Amount"],
+                    "RawCommand": result["draft"]["RawCommand"],
+                },
+            )
+
+        self.assertEqual(response.status_code, 200)
+        with closing(sqlite3.connect(self.database_path)) as connection:
+            customers = dict(connection.execute(
+                "SELECT CustomerName, OutstandingBalance FROM CustomerCredit"
+            ).fetchall())
+        self.assertEqual(customers["Avaneesh"], 25)
+        self.assertEqual(customers["Aryan"], 1000)
+
     def test_voice_remove_customer_waits_for_confirmation(self):
         result = intent_parser.parse_and_execute(
             "remove Ramesh from the udhaar list",
@@ -483,7 +532,7 @@ class IntentParserInterpretationTests(unittest.TestCase):
         self.assertEqual(result["draft"]["EntityType"], "Customer")
         self.assertEqual(result["draft"]["QuantityOrBalance"], 20)
 
-    def test_voice_remove_customer_archives_without_confirmation_below_one_rupee(self):
+    def test_voice_remove_customer_removes_and_audits_balance_below_one_rupee(self):
         with closing(sqlite3.connect(self.database_path)) as connection:
             connection.execute(
                 "UPDATE CustomerCredit SET OutstandingBalance = 0.75 WHERE CustomerName = 'Ramesh'"
@@ -500,12 +549,16 @@ class IntentParserInterpretationTests(unittest.TestCase):
         )
 
         self.assertEqual(result["status"], "success")
-        self.assertEqual(result["action"], "customer_archived")
+        self.assertEqual(result["action"], "customer_deleted")
         with closing(sqlite3.connect(self.database_path)) as connection:
-            balance, active = connection.execute(
-                "SELECT OutstandingBalance, IsActive FROM CustomerCredit WHERE CustomerName = 'Ramesh'"
+            customer = connection.execute(
+                "SELECT 1 FROM CustomerCredit WHERE CustomerName = 'Ramesh'"
             ).fetchone()
-        self.assertEqual((balance, active), (0.75, 0))
+            balance = connection.execute(
+                "SELECT Balance FROM EntityArchive WHERE EntityName = 'Ramesh'"
+            ).fetchone()[0]
+        self.assertIsNone(customer)
+        self.assertEqual(balance, 0.75)
 
     def test_voice_remove_customer_deletes_exact_zero_balance_row(self):
         with closing(sqlite3.connect(self.database_path)) as connection:

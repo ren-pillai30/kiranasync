@@ -184,6 +184,33 @@ class ProcessAudioRouteTests(unittest.TestCase):
         self.assertEqual(result["data"]["OutstandingBalance"], 250)
         resolve_entity.assert_not_called()
 
+    def test_postgres_voice_credit_keeps_spoken_new_customer_name(self):
+        customer = SimpleNamespace(
+            customer_id=9,
+            customer_name="Avaneesh",
+            customer_name_hindi=None,
+            outstanding_balance=25,
+        )
+        with patch(
+            "backend.app.gemini_understanding.resolve_catalog_entity",
+            return_value="Avaneesh",
+        ) as resolve_entity:
+            result = main.build_postgres_voice_customer_result(
+                {
+                    "action": "credit",
+                    "entity": "Avaneesh",
+                    "quantity": "1000",
+                    "phonetic_english_translation": "Aryan",
+                },
+                "aryan ke khaate mein 1000 rupay daal do",
+                [customer],
+            )
+
+        self.assertEqual(result["status"], "pending_confirmation")
+        self.assertEqual(result["draft"]["CustomerName"], "Aryan")
+        self.assertEqual(result["draft"]["Amount"], 1000)
+        resolve_entity.assert_not_called()
+
     def test_postgres_voice_add_product_existing_item_returns_stock_confirmation(self):
         inventory = [{
             "ItemID": 3,
