@@ -1,10 +1,14 @@
+import hashlib
+import hmac
 import math
 import os
 import sqlite3
 
 from flask import jsonify, request, session
 from flask_login import LoginManager, current_user, login_user, logout_user
+from itsdangerous import BadSignature, SignatureExpired, URLSafeTimedSerializer
 from sqlalchemy.exc import OperationalError, SQLAlchemyError
+import requests
 
 from backend.app.database import db, is_postgres_database
 from backend.app.models import (
@@ -20,6 +24,24 @@ from backend.app.intent_parser import initialize_store_database
 
 login_manager = LoginManager()
 login_manager.login_view = None
+PASSWORD_RESET_TOKEN_MAX_AGE = 30 * 60
+
+
+def _password_reset_serializer():
+    from flask import current_app
+
+    return URLSafeTimedSerializer(
+        current_app.config["SECRET_KEY"],
+        salt="kiranasync-password-reset",
+    )
+
+
+def _password_reset_verifier(user):
+    from flask import current_app
+
+    secret = str(current_app.config["SECRET_KEY"]).encode("utf-8")
+    message = f"{user.id}:{user.password_hash}".encode("utf-8")
+    return hmac.new(secret, message, hashlib.sha256).hexdigest()
 
 
 @login_manager.user_loader
@@ -87,6 +109,135 @@ def register_auth_routes(app):
     def auth_logout():
         logout_user()
         return jsonify({"status": "success"})
+
+    @app.route("/api/auth/password-reset/request", methods=["POST"])
+    def request_password_reset():
+        data = request.get_json(silent=True) or {}
+        email = str(data.get("email") or "").strip().lower()
+        generic_response = {
+            "status": "success",
+            "message": (
+                "If an account exists and email recovery is configured, "
+                "a password reset link will be sent shortly."
+            ),
+        }
+        if not email or len(email) > 255:
+            return jsonify(generic_response)
+
+        user = db.session.execute(
+            db.select(User).where(db.func.lower(User.email) == email)
+        ).scalar_one_or_none()
+        if not user or not user.is_active:
+            return jsonify(generic_response)
+
+        api_key = os.getenv("FEEDBACK_BREVO_API_KEY", "").strip()
+        sender = os.getenv("FEEDBACK_FROM_EMAIL", "").strip()
+        base_url = os.getenv("APP_BASE_URL", "").strip().rstrip("/")
+        if not api_key or not sender or not base_url:
+            app.logger.error("Password reset email delivery is not configured.")
+            return jsonify(generic_response)
+
+        token = _password_reset_serializer().dumps({
+            "user_id": user.id,
+            "verifier": _password_reset_verifier(user),
+        })
+        reset_url = f"{base_url}/#reset_token={token}"
+        email_payload = {
+            "sender": {"name": "KiranaSync", "email": sender},
+            "to": [{"email": user.email}],
+            "subject": "Reset your KiranaSync password",
+            "textContent": (
+                "We received a request to reset your KiranaSync password. "
+                f"Use this link within 30 minutes: {reset_url}\n\n"
+                "If you did not request this, you can ignore this email."
+            ),
+            "htmlContent": (
+                "<p>We received a request to reset your KiranaSync password.</p>"
+                f'<p><a href="{reset_url}">Reset your password</a></p>'
+                "<p>This link expires in 30 minutes. If you did not request this, "
+                "you can ignore this email.</p>"
+            ),
+        }
+        try:
+            response = requests.post(
+                "https://api.brevo.com/v3/smtp/email",
+                headers={"api-key": api_key, "Content-Type": "application/json"},
+                json=email_payload,
+                timeout=10,
+            )
+        except requests.RequestException:
+            app.logger.exception("Password reset email delivery request failed.")
+            return jsonify(generic_response)
+        if not response.ok:
+            app.logger.error(
+                "Password reset email provider returned HTTP %s.",
+                response.status_code,
+            )
+        return jsonify(generic_response)
+
+    @app.route("/api/auth/password-reset/confirm", methods=["POST"])
+    def confirm_password_reset():
+        data = request.get_json(silent=True) or {}
+        token = data.get("token")
+        password = data.get("password")
+        if (
+            not isinstance(token, str)
+            or not token
+            or len(token) > 4096
+            or not isinstance(password, str)
+            or len(password) < 10
+            or len(password.encode("utf-8")) > 72
+        ):
+            return jsonify({
+                "status": "error",
+                "error": "Use a valid reset link and a password between 10 and 72 UTF-8 bytes.",
+            }), 400
+        try:
+            payload = _password_reset_serializer().loads(
+                token,
+                max_age=PASSWORD_RESET_TOKEN_MAX_AGE,
+            )
+        except (BadSignature, SignatureExpired):
+            return jsonify({
+                "status": "error",
+                "error": "This password reset link is invalid or has expired. Request a new one.",
+            }), 400
+
+        user_id = payload.get("user_id") if isinstance(payload, dict) else None
+        try:
+            user_id = int(user_id)
+        except (TypeError, ValueError):
+            user_id = None
+        user = db.session.get(User, user_id) if user_id else None
+        if (
+            not user
+            or not user.is_active
+            or not hmac.compare_digest(
+                str(payload.get("verifier") or ""),
+                _password_reset_verifier(user),
+            )
+        ):
+            return jsonify({
+                "status": "error",
+                "error": "This password reset link is invalid or has expired. Request a new one.",
+            }), 400
+
+        user.set_password(password)
+        try:
+            db.session.commit()
+        except SQLAlchemyError:
+            db.session.rollback()
+            app.logger.exception("Password reset could not be saved for user %s.", user.id)
+            return jsonify({
+                "status": "error",
+                "error": "The password could not be updated. Please try again.",
+            }), 500
+        if current_user.is_authenticated and current_user.id == user.id:
+            logout_user()
+        return jsonify({
+            "status": "success",
+            "message": "Password updated. You can now sign in with your new password.",
+        })
 
     @app.route("/api/auth/register", methods=["POST"])
     def auth_register():
