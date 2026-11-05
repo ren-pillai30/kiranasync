@@ -8,8 +8,6 @@ export default function DashboardView({
   t,
   lang,
   onLanguageChange,
-  onOpenBarcode,
-  onOpenDayClosing,
   onOpenArchives,
   onViewBill,
   hisaabData,
@@ -81,39 +79,12 @@ export default function DashboardView({
           </div>
           <button
             type="button"
-            onClick={onOpenBarcode}
-            className="px-3.5 py-1.5 bg-[#FFFDF9] hover:bg-[#F4EFE6] text-stone-800 border border-[#D8CEBA] rounded-lg text-xs font-bold shadow-2xs transition-all flex items-center space-x-1.5 cursor-pointer"
-            title="Scan or lookup product barcode"
-          >
-            <span className="text-[10px] font-black uppercase">Scan</span>
-            <span>Barcode</span>
-          </button>
-
-          <button
-            type="button"
-            onClick={onOpenDayClosing}
-            className="px-3.5 py-1.5 bg-[#991B1B] hover:bg-[#B91C1C] text-white border border-[#991B1B] rounded-lg text-xs font-bold shadow-2xs transition-all flex items-center space-x-1.5 cursor-pointer"
-            title="Evening cash drawer tally and dukan bandi"
-          >
-            <span className="text-[10px] font-black uppercase">Close</span>
-            <span>{lang === 'hi' ? 'दुकान बंदी' : 'Day Closing'}</span>
-          </button>
-
-          <button
-            type="button"
             onClick={onOpenArchives}
             className="px-3.5 py-1.5 bg-[#FFFDF9] hover:bg-[#F4EFE6] text-stone-800 border border-[#D8CEBA] rounded-lg text-xs font-bold shadow-2xs transition-all cursor-pointer"
           >
             {lang === 'hi' ? 'आर्काइव' : 'Archives'}
           </button>
 
-          <button
-            type="button"
-            onClick={() => onLanguageChange(lang === 'en' ? 'hi' : 'en')}
-            className="px-3.5 py-1.5 bg-[#FFFDF9] hover:bg-[#F4EFE6] text-stone-800 rounded-lg text-xs font-bold border border-[#D8CEBA] transition-colors shadow-2xs cursor-pointer"
-          >
-            {t.toggleLang}
-          </button>
         </div>
       </div>
 
