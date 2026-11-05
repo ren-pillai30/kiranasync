@@ -4,7 +4,7 @@ import { api } from '../services/api';
 /**
  * Custom hook to handle voice audio synthesis and playback.
  */
-export function useVoiceReceipt({ playbackAudioContextRef, isMuted, lang, inventory = [], credit = [] }) {
+export function useVoiceReceipt({ playbackAudioContextRef, isMuted, languageCode, inventory = [], credit = [] }) {
   const [voiceError, setVoiceError] = useState('');
   const activeAudioRef = useRef(null);
   const activeAudioSourceRef = useRef(null);
@@ -33,7 +33,7 @@ export function useVoiceReceipt({ playbackAudioContextRef, isMuted, lang, invent
 
         const response = await api.synthesizeVoice(
           textToSpeak,
-          lang === 'hi' ? 'hi-IN' : 'en-IN',
+          languageCode,
           [
             ...inventory.map((item) => ({
               English: item.ItemName,
@@ -94,7 +94,7 @@ export function useVoiceReceipt({ playbackAudioContextRef, isMuted, lang, invent
         setVoiceError(`Could not play the spoken answer: ${err.message}`);
       }
     },
-    [isMuted, lang, inventory, credit, playbackAudioContextRef, stopActiveAudio]
+    [isMuted, languageCode, inventory, credit, playbackAudioContextRef, stopActiveAudio]
   );
 
   return {

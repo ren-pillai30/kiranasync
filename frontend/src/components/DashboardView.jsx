@@ -64,7 +64,7 @@ export default function DashboardView({
           </span>
         </div>
         <div className="flex items-center gap-2.5 flex-wrap">
-          <div className="flex rounded-lg border border-[#D8CEBA] bg-[#FFFDF9] p-0.5" aria-label="Entity name language">
+          <div className="flex rounded-lg border border-[#D8CEBA] bg-[#FFFDF9] p-0.5" aria-label="Entity name display language">
             {[
               ['en', 'EN'],
               ['hi', 'हिंदी'],

@@ -1581,8 +1581,12 @@ def process_audio():
         raw_transcript = transcribe_audio(temp_audio_path, language_code=preferred_lang)
         transcript_language = preferred_lang
 
-        # If empty and preferred_lang was en-IN, try hi-IN (or vice-versa)
-        if raw_transcript is not None and not raw_transcript.strip():
+        # Retry between Hindi and Indian English only for those selected languages.
+        if (
+            raw_transcript is not None
+            and not raw_transcript.strip()
+            and preferred_lang in {"hi-IN", "en-IN"}
+        ):
             fallback_lang = "en-IN" if preferred_lang == "hi-IN" else "hi-IN"
             fallback_transcript = transcribe_audio(temp_audio_path, language_code=fallback_lang)
             if fallback_transcript and fallback_transcript.strip():

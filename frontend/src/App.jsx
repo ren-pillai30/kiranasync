@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { AnimatePresence } from 'framer-motion';
 
 import { text } from './constants/localization';
+import { INDIAN_LANGUAGES } from './constants/languages';
 import { api } from './services/api';
 import { useVoiceRecorder } from './hooks/useVoiceRecorder';
 import { useVoiceReceipt } from './hooks/useVoiceReceipt';
@@ -34,13 +35,22 @@ const getInitialLanguage = () => {
     : 'hi';
 };
 
+const getInitialVoiceLanguage = () => {
+  const savedLanguage = typeof window !== 'undefined'
+    ? window.localStorage.getItem('kiranasync-voice-language')
+    : null;
+  return INDIAN_LANGUAGES.some(({ code }) => code === savedLanguage)
+    ? savedLanguage
+    : getInitialLanguage() === 'hi' ? 'hi-IN' : 'en-IN';
+};
+
 export default function App() {
   const [authChecked, setAuthChecked] = useState(false);
   const [authenticated, setAuthenticated] = useState(false);
   const [storeSetupComplete, setStoreSetupComplete] = useState(true);
   const [storeSession, setStoreSession] = useState(null);
   const [lang, setLang] = useState(getInitialLanguage);
-  const selectedLangCode = lang === 'hi' ? 'hi-IN' : 'en-IN';
+  const [selectedLangCode, setSelectedLangCode] = useState(getInitialVoiceLanguage);
   const nameDisplayMode = lang;
   const t = text[lang];
 
@@ -69,7 +79,7 @@ export default function App() {
   const [barcodeNotice, setBarcodeNotice] = useState('');
   const [billData, setBillData] = useState({ billItems: [], customerName: 'Walk-in Customer', paymentMode: 'cash', customerBalance: 0 });
   const [isMuted, setIsMuted] = useState(false);
-  const handleLanguageChange = useCallback((nextLang) => {
+  const handleDisplayLanguageChange = useCallback((nextLang) => {
     const normalized = nextLang === 'hi' ? 'hi' : 'en';
     setLang(normalized);
   }, []);
@@ -77,8 +87,9 @@ export default function App() {
   useEffect(() => {
     if (typeof window !== 'undefined') {
       window.localStorage.setItem('kiranasync-name-display', lang);
+      window.localStorage.setItem('kiranasync-voice-language', selectedLangCode);
     }
-  }, [lang]);
+  }, [lang, selectedLangCode]);
 
   const checkAuth = useCallback(async () => {
     try {
@@ -157,7 +168,7 @@ export default function App() {
   const { voiceError, setVoiceError, playVoiceReceipt, stopActiveAudio } = useVoiceReceipt({
     playbackAudioContextRef: null,
     isMuted,
-    lang,
+    languageCode: selectedLangCode,
     inventory,
     credit,
   });
@@ -452,9 +463,7 @@ export default function App() {
       )}
       <Header
         selectedLangCode={selectedLangCode}
-        setSelectedLangCode={(languageCode) => handleLanguageChange(
-          languageCode.startsWith('hi') ? 'hi' : 'en'
-        )}
+        setSelectedLangCode={setSelectedLangCode}
         isMuted={isMuted}
         setIsMuted={setIsMuted}
         isRecording={voiceRecorder.isRecording}
@@ -606,7 +615,7 @@ export default function App() {
             <DashboardView
               t={t}
               lang={lang}
-              onLanguageChange={handleLanguageChange}
+              onLanguageChange={handleDisplayLanguageChange}
               isRecording={voiceRecorder.isRecording}
               startRecording={voiceRecorder.startRecording}
               onOpenSimulator={() => setShowCallSimulator(true)}

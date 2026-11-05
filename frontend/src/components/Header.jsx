@@ -31,11 +31,12 @@ export default function Header({
           value={selectedLangCode}
           onChange={(e) => setSelectedLangCode(e.target.value)}
           className="bg-[#FFFDF7] text-stone-800 text-xs px-3 py-1.5 rounded-lg border border-[#FDE68A] focus:outline-none focus:ring-2 focus:ring-[#FEF3C7] cursor-pointer font-semibold shadow-xs hover:border-amber-400 transition-all"
-          title="Select Spoken Language"
+          title="Select voice input and output language"
+          aria-label="Voice input and output language"
         >
-          {INDIAN_LANGUAGES.filter(({ code }) => ['hi-IN', 'en-IN'].includes(code)).map((l) => (
+          {INDIAN_LANGUAGES.map((l) => (
             <option key={l.code} value={l.code}>
-              {l.code === 'hi-IN' ? 'हिंदी (Hindi)' : 'English'}
+              {l.label}
             </option>
           ))}
         </select>

@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { INDIAN_LANGUAGES } from '../constants/languages';
 import { useCallSession } from '../hooks/useCallSession';
@@ -14,7 +14,46 @@ const SAMPLE_PROMPTS = [
   { label: 'Customer Repayment', text: 'Ramesh ne 100 rupaye jama kar diye hain.' },
 ];
 
-export default function CallSimulator({ isOpen, onClose, onRefreshStore, onOpenBill, existingCustomers = [], nameDisplayMode = 'en' }) {
+export default function CallSimulator(props) {
+  const { isOpen } = props;
+  const [tabs, setTabs] = useState([]);
+  const [activeTabId, setActiveTabId] = useState(null);
+  const wasOpenRef = useRef(false);
+  const nextTabIdRef = useRef(1);
+
+  useEffect(() => {
+    if (isOpen && !wasOpenRef.current) {
+      const id = nextTabIdRef.current;
+      nextTabIdRef.current += 1;
+      setTabs((currentTabs) => [...currentTabs, { id, label: `Call ${id}` }]);
+      setActiveTabId(id);
+    }
+    wasOpenRef.current = isOpen;
+  }, [isOpen]);
+
+  return tabs.map((tab) => (
+    <CallSimulatorTab
+      key={tab.id}
+      {...props}
+      isOpen={isOpen && tab.id === activeTabId}
+      tabs={tabs}
+      activeTabId={activeTabId}
+      onSelectTab={setActiveTabId}
+    />
+  ));
+}
+
+function CallSimulatorTab({
+  isOpen,
+  onClose,
+  onRefreshStore,
+  onOpenBill,
+  existingCustomers = [],
+  nameDisplayMode = 'en',
+  tabs,
+  activeTabId,
+  onSelectTab,
+}) {
   const {
     callActive,
     callStatus,
@@ -43,6 +82,12 @@ export default function CallSimulator({ isOpen, onClose, onRefreshStore, onOpenB
 
   const transcriptEndRef = useRef(null);
 
+  useEffect(() => {
+    if (!isOpen && callActive) {
+      hangUpCall();
+    }
+  }, [isOpen, callActive, hangUpCall]);
+
   // Auto-scroll transcript log on updates
   useEffect(() => {
     if (transcriptEndRef.current) {
@@ -68,6 +113,24 @@ export default function CallSimulator({ isOpen, onClose, onRefreshStore, onOpenB
           className="bg-[#FAF7F2] border-2 border-[#991B1B] rounded-2xl shadow-2xl w-full max-w-4xl max-h-[92vh] flex flex-col overflow-hidden text-stone-900 pointer-events-auto cursor-auto"
           onClick={(e) => e.stopPropagation()}
         >
+          <div className="flex items-center gap-1 overflow-x-auto border-b border-[#D8CEBA] bg-[#F5F0E6] px-4 pt-2">
+            {tabs.map((tab) => (
+              <button
+                key={tab.id}
+                type="button"
+                onClick={() => onSelectTab(tab.id)}
+                aria-pressed={tab.id === activeTabId}
+                className={`shrink-0 rounded-t-lg border border-b-0 px-4 py-1.5 text-xs font-bold transition-colors ${
+                  tab.id === activeTabId
+                    ? 'border-[#991B1B] bg-[#FAF7F2] text-[#991B1B]'
+                    : 'border-[#D8CEBA] bg-[#E9E1D2] text-stone-600 hover:bg-[#FFFDF9]'
+                }`}
+              >
+                {tab.label}
+              </button>
+            ))}
+          </div>
+
           {/* HEADER BAR */}
           <div className="flex items-center justify-between px-6 py-3.5 bg-[#991B1B] border-b border-[#7F1D1D]">
             <div className="flex items-center space-x-3">
