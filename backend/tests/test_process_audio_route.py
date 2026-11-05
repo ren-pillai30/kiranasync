@@ -120,7 +120,7 @@ class ProcessAudioRouteTests(unittest.TestCase):
             patch("backend.app.main.current_store_id", return_value=7),
             patch(
                 "backend.app.main.transcribe_audio",
-                return_value="100 रुपये रमेश के खाते में जोड़ो",
+                return_value="रमेश के खाते में २,५०० डाल दो",
             ),
             patch("backend.app.main.understand_command") as understand_command,
             patch("backend.app.main.parse_and_execute") as parse_and_execute,
@@ -130,7 +130,7 @@ class ProcessAudioRouteTests(unittest.TestCase):
             understand_command.return_value = {
                 "action": "credit",
                 "entity": "रमेश",
-                "quantity": "100",
+                "quantity": "2",
             }
             inventory_query.filter_by.return_value.order_by.return_value.all.return_value = []
             customer_query.filter_by.return_value.order_by.return_value.all.return_value = [
@@ -156,7 +156,7 @@ class ProcessAudioRouteTests(unittest.TestCase):
         self.assertEqual(database_action["status"], "pending_confirmation")
         self.assertEqual(database_action["action"], "confirm_credit")
         self.assertEqual(database_action["draft"]["CustomerName"], "Ramesh")
-        self.assertEqual(database_action["draft"]["Amount"], 100)
+        self.assertEqual(database_action["draft"]["Amount"], 2500)
         self.assertEqual(understand_command.call_args.kwargs["customers"], ["Ramesh", "रमेश"])
         parse_and_execute.assert_not_called()
 

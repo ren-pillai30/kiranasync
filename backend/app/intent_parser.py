@@ -920,9 +920,9 @@ def extract_explicit_quantity(text_string):
         if quantity_marker
         else text_string
     )
-    digits = re.findall(r'\d+', quantity_text)
+    digits = re.search(r'\d+(?:[,،]\d+)*', quantity_text)
     if digits:
-        return int(digits[0])
+        return int(digits.group().replace(',', '').replace('،', ''))
 
     parsed_text = parse(quantity_text.lower(), language='en')
     digits = re.findall(r'\d+', parsed_text)

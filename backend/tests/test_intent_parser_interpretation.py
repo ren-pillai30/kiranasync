@@ -348,6 +348,19 @@ class IntentParserInterpretationTests(unittest.TestCase):
             64,
         )
 
+    def test_comma_grouped_amount_is_parsed_as_one_number(self):
+        self.assertEqual(
+            intent_parser.extract_explicit_quantity("Ramesh ke khate mein 2,500 daal do"),
+            2500,
+        )
+        self.assertEqual(
+            intent_parser.extract_explicit_quantity(
+                "\u0930\u092e\u0947\u0936 \u0915\u0947 \u0916\u093e\u0924\u0947 "
+                "\u092e\u0947\u0902 \u0968,\u096b\u0966\u0966 \u0921\u093e\u0932 \u0926\u094b"
+            ),
+            2500,
+        )
+
     def test_restock_does_not_fuzzy_match_different_brand(self):
         result = intent_parser.parse_and_execute(
             "50 goodday biscuit aayi hai",
