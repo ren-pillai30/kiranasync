@@ -47,6 +47,75 @@ class ProcessAudioRouteTests(unittest.TestCase):
         if os.path.exists(self.database_path):
             os.remove(self.database_path)
 
+    def test_postgres_sale_of_generic_mrp_variant_name_requires_exact_choice(self):
+        inventory = [
+            {
+                "ItemID": 3,
+                "ItemName": "Maggi (MRP ₹14)",
+                "ItemNameHindi": None,
+                "StockQuantity": 20,
+                "Price": 14,
+            },
+            {
+                "ItemID": 4,
+                "ItemName": "Maggi (MRP ₹20)",
+                "ItemNameHindi": None,
+                "StockQuantity": 8,
+                "Price": 20,
+            },
+        ]
+        with patch(
+            "backend.app.gemini_understanding.resolve_catalog_entity",
+            return_value=inventory[0]["ItemName"],
+        ):
+            result = main.build_postgres_voice_sale_result(
+                {"action": "sell", "entity": "Maggi", "quantity": 2},
+                "sell 2 Maggi",
+                inventory,
+            )
+
+        self.assertEqual(result["status"], "pending_selection")
+        self.assertEqual(result["action"], "select_inventory_item")
+        self.assertEqual(
+            [(item["ItemID"], item["Price"]) for item in result["draft"]["Candidates"]],
+            [(3, 14), (4, 20)],
+        )
+
+    def test_postgres_sale_with_spoken_mrp_selects_matching_variant(self):
+        inventory = [
+            {
+                "ItemID": 3,
+                "ItemName": "Maggi (MRP ₹14)",
+                "ItemNameHindi": None,
+                "StockQuantity": 20,
+                "Price": 14,
+            },
+            {
+                "ItemID": 4,
+                "ItemName": "Maggi (MRP ₹20)",
+                "ItemNameHindi": None,
+                "StockQuantity": 8,
+                "Price": 20,
+            },
+        ]
+        with patch(
+            "backend.app.gemini_understanding.resolve_catalog_entity",
+            return_value=inventory[0]["ItemName"],
+        ):
+            result = main.build_postgres_voice_sale_result(
+                {
+                    "action": "sell",
+                    "entity": "Maggi (MRP ₹14)",
+                    "quantity": 2,
+                },
+                "sell 2 Maggi for ₹14",
+                inventory,
+            )
+
+        self.assertEqual(result["status"], "pending_confirmation")
+        self.assertEqual(result["draft"]["ItemID"], 3)
+        self.assertEqual(result["draft"]["ItemName"], "Maggi (MRP ₹14)")
+
     def test_postgres_voice_sale_uses_store_inventory_for_confirmation(self):
         from backend.app.models import StoreCredit, StoreInventory
 

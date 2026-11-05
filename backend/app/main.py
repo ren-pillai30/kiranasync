@@ -1023,9 +1023,18 @@ def build_postgres_voice_sale_result(interpretation, raw_transcript, inventory):
         }
 
     from backend.app.gemini_understanding import resolve_catalog_entity
-    from backend.app.intent_parser import normalize_entity_name
+    from backend.app.intent_parser import (
+        find_currency_unit,
+        match_entity_with_score,
+        normalize_entity_name,
+    )
 
     alias_to_items = {}
+    base_alias_to_items = {}
+    variant_name_pattern = re.compile(
+        r"\s*\(MRP\s*₹?\s*[\d,.]+\)\s*$",
+        re.IGNORECASE,
+    )
     catalog = []
     for item in inventory:
         for alias in (item["ItemName"], item.get("ItemNameHindi")):
@@ -1034,6 +1043,11 @@ def build_postgres_voice_sale_result(interpretation, raw_transcript, inventory):
             clean_alias = alias.strip()
             catalog.append(clean_alias)
             alias_to_items.setdefault(clean_alias.casefold(), {})[item["ItemID"]] = item
+            base_alias = variant_name_pattern.sub("", clean_alias).strip()
+            if base_alias:
+                base_alias_to_items.setdefault(
+                    base_alias.casefold(), {}
+                )[item["ItemID"]] = item
 
     if not catalog:
         return {
@@ -1059,6 +1073,50 @@ def build_postgres_voice_sale_result(interpretation, raw_transcript, inventory):
         )
         if resolved_alias:
             matching_items = alias_to_items.get(resolved_alias.casefold(), {})
+
+    requested_base = variant_name_pattern.sub("", entity).strip()
+    matched_base = match_entity_with_score(
+        requested_base,
+        list(base_alias_to_items),
+        threshold=90,
+    )
+    variant_candidates = (
+        list(base_alias_to_items.get(matched_base.casefold(), {}).values())
+        if matched_base
+        else []
+    )
+    if len(variant_candidates) > 1:
+        transcript = raw_transcript.translate(str.maketrans("०१२३४५६७८९", "0123456789"))
+        spoken_prices = set()
+        if find_currency_unit(transcript):
+            spoken_prices = {
+                float(value.replace(",", ""))
+                for value in re.findall(r"\d+(?:[,.]\d{1,2})?", transcript)
+            }
+        priced_candidates = [
+            item for item in variant_candidates
+            if float(item["Price"]) in spoken_prices
+        ]
+        if len(priced_candidates) == 1:
+            matching_items = {
+                priced_candidates[0]["ItemID"]: priced_candidates[0]
+            }
+        else:
+            return {
+                "status": "pending_selection",
+                "action": "select_inventory_item",
+                "message": (
+                    f"More than one MRP variant of '{requested_base}' is in stock. "
+                    "Choose the exact product before the sale."
+                ),
+                "draft": {
+                    "Intent": "sell",
+                    "Quantity": quantity,
+                    "RawCommand": raw_transcript,
+                    "EntityName": requested_base,
+                    "Candidates": variant_candidates,
+                },
+            }
 
     if len(matching_items) == 1:
         item = next(iter(matching_items.values()))
