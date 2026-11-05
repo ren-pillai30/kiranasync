@@ -175,7 +175,7 @@ export default function CreditPanel({
                               QuantityOrBalance: person.OutstandingBalance,
                               Reason: '',
                             };
-                            if (Number(person.OutstandingBalance) < 1) {
+                            if (Number(person.OutstandingBalance) === 0) {
                               onDirectArchive(removal);
                             } else {
                               onRequestRemoval(removal);

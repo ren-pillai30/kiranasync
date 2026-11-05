@@ -51,7 +51,7 @@ export default function EntityRemovalModal({
                 Outstanding balance (₹
                 <strong className="font-mono font-bold">
                   {Number(pendingRemoval.QuantityOrBalance || 0).toLocaleString('en-IN')}
-                </strong>) and transaction history will be retained.
+                </strong>) will be recorded in the removal audit. The account will be removed from the active customer table; transaction history will remain.
               </div>
             )}
             <label className="block text-[11px] font-bold uppercase text-[#78716C] mb-1 tracking-wider">Reason (optional)</label>

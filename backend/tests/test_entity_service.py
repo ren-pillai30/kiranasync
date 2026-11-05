@@ -3,11 +3,14 @@ import sqlite3
 import tempfile
 import unittest
 from contextlib import closing
-from unittest.mock import patch
+from types import SimpleNamespace
+from unittest.mock import MagicMock, patch
 
 from backend.app import intent_parser
+from backend.app import main
 from backend.app.main import app
 from backend.app.intent_parser import get_db_records
+from backend.app.models import StoreCredit, StoreEntityArchive
 from backend.app.services.entity_service import EntityService
 
 
@@ -64,18 +67,18 @@ class EntityServiceTests(unittest.TestCase):
             [],
         )
 
-    def test_archive_customer_preserves_balance_and_records_removal(self):
+    def test_archive_customer_removes_account_and_records_balance_in_audit(self):
         result = self.service.archive_customer(1, "requested", "remove Ramesh")
 
         self.assertEqual(result["status"], "success")
         with closing(sqlite3.connect(self.database_path)) as conn:
             customer = conn.execute(
-                "SELECT OutstandingBalance, IsActive FROM CustomerCredit WHERE CustomerID = 1"
+                "SELECT 1 FROM CustomerCredit WHERE CustomerID = 1"
             ).fetchone()
             transaction = conn.execute(
                 "SELECT TransactionType, EntityName FROM Transactions"
             ).fetchone()
-        self.assertEqual(customer, (75, 0))
+        self.assertIsNone(customer)
         self.assertEqual(transaction, ("CustomerArchived", "Ramesh"))
         audit_records = self.service.list_archives()
         self.assertEqual(len(audit_records), 1)
@@ -84,6 +87,52 @@ class EntityServiceTests(unittest.TestCase):
             get_db_records("CustomerCredit", "CustomerName", db_path=self.database_path),
             [],
         )
+
+    def test_readding_removed_customer_starts_with_new_balance(self):
+        self.service.archive_customer(1, "requested", "remove Ramesh")
+        with patch.object(intent_parser, "DB_PATH", self.database_path):
+            app.config["LOGIN_DISABLED"] = True
+            response = app.test_client().post(
+                "/api/credit/add",
+                json={
+                    "CustomerName": "Ramesh",
+                    "CustomerNameHindi": "रमेश",
+                    "Amount": 20,
+                },
+            )
+
+        self.assertEqual(response.status_code, 200)
+        with closing(sqlite3.connect(self.database_path)) as conn:
+            customer = conn.execute(
+                "SELECT OutstandingBalance, IsActive FROM CustomerCredit "
+                "WHERE CustomerName = 'Ramesh'"
+            ).fetchone()
+        self.assertEqual(customer, (20, 1))
+        audit_records = self.service.list_archives()
+        self.assertEqual(len(audit_records), 1)
+        self.assertEqual(audit_records[0]["Balance"], 75)
+
+    def test_readding_legacy_inactive_customer_does_not_restore_stale_balance(self):
+        self.service.list_archives()
+        with closing(sqlite3.connect(self.database_path)) as conn:
+            conn.execute(
+                "UPDATE CustomerCredit SET IsActive = 0 WHERE CustomerID = 1"
+            )
+            conn.commit()
+        with patch.object(intent_parser, "DB_PATH", self.database_path):
+            app.config["LOGIN_DISABLED"] = True
+            response = app.test_client().post(
+                "/api/credit/add",
+                json={"CustomerName": "Ramesh", "Amount": 20},
+            )
+
+        self.assertEqual(response.status_code, 200)
+        with closing(sqlite3.connect(self.database_path)) as conn:
+            customer = conn.execute(
+                "SELECT OutstandingBalance, IsActive FROM CustomerCredit "
+                "WHERE CustomerName = 'Ramesh'"
+            ).fetchone()
+        self.assertEqual(customer, (20, 1))
 
     def test_remove_zero_balance_customer_deletes_row_but_keeps_audit_history(self):
         with closing(sqlite3.connect(self.database_path)) as conn:
@@ -146,7 +195,56 @@ class EntityServiceTests(unittest.TestCase):
             archived = conn.execute(
                 "SELECT IsActive, OutstandingBalance FROM CustomerCredit WHERE CustomerID = 1"
             ).fetchone()
-        self.assertEqual(archived, (0, 75))
+        self.assertIsNone(archived)
+
+    def test_postgres_customer_removal_records_balance_audit_and_deletes_account(self):
+        customer = SimpleNamespace(
+            customer_id=4,
+            customer_name="Ramesh",
+            outstanding_balance=75,
+            is_active=True,
+        )
+        customer_query = MagicMock()
+        customer_query.filter_by.return_value.first.return_value = customer
+        transaction_query = MagicMock()
+        transaction_query.filter_by.return_value.scalar.return_value = 3
+
+        with (
+            app.app_context(),
+            app.test_client() as client,
+            patch.dict(app.config, {"TESTING": True, "LOGIN_DISABLED": True}),
+            patch("backend.app.main.is_postgres_database", return_value=True),
+            patch("backend.app.main.current_store_id", return_value=7),
+            patch.object(StoreCredit, "query", customer_query),
+            patch("backend.app.main.db.session.query", return_value=transaction_query),
+            patch("backend.app.main.db.session.add") as session_add,
+            patch("backend.app.main.db.session.flush"),
+            patch("backend.app.main.db.session.delete") as session_delete,
+            patch("backend.app.main.db.session.commit") as session_commit,
+        ):
+            response = client.post(
+                "/api/entities/archive",
+                json={
+                    "EntityType": "Customer",
+                    "EntityID": 4,
+                    "Reason": "requested",
+                    "RawCommand": "remove Ramesh",
+                },
+            )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.get_json()["action"], "customer_deleted")
+        self.assertEqual(response.get_json()["status"], "success")
+        archive = next(
+            value for (value,), _ in session_add.call_args_list
+            if isinstance(value, StoreEntityArchive)
+        )
+        self.assertEqual(archive.store_id, 7)
+        self.assertEqual(archive.entity_name, "Ramesh")
+        self.assertEqual(archive.balance, 75)
+        self.assertEqual(archive.reason, "requested")
+        session_delete.assert_called_once_with(customer)
+        session_commit.assert_called_once()
 
 
 if __name__ == "__main__":

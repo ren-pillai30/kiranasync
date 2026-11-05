@@ -467,6 +467,27 @@ def get_transaction_ledger():
 
 @app.route('/api/archives', methods=['GET'])
 def get_entity_archives():
+    if is_postgres_database():
+        from backend.app.models import StoreEntityArchive
+
+        archives = [{
+            'ArchiveID': row.id,
+            'EntityType': row.entity_type,
+            'EntityName': row.entity_name,
+            'RemovalType': row.removal_type,
+            'RemovedAt': row.removed_at.strftime('%Y-%m-%d %H:%M:%S') if row.removed_at else None,
+            'Reason': row.reason,
+            'Quantity': row.quantity,
+            'Balance': row.balance,
+            'RawCommand': row.raw_command,
+        } for row in StoreEntityArchive.query.filter_by(
+            store_id=current_store_id(),
+        ).order_by(
+            StoreEntityArchive.removed_at.desc(),
+            StoreEntityArchive.id.desc(),
+        ).all()]
+        return jsonify({'status': 'success', 'archives': archives})
+
     from backend.app.intent_parser import DB_PATH
     from backend.app.services.entity_service import EntityService
 
@@ -1759,7 +1780,7 @@ def add_credit():
             return jsonify({'status': 'error', 'error': 'That customer is already active.'}), 409
         if existing:
             existing.customer_name_hindi = customer_name_hindi
-            existing.outstanding_balance = float(existing.outstanding_balance or 0) + amount
+            existing.outstanding_balance = amount
             existing.is_active = True
         else:
             max_customer_id = db.session.query(db.func.max(StoreCredit.customer_id)).filter_by(
@@ -1815,7 +1836,7 @@ def add_credit():
     if existing:
         cursor.execute(
             'UPDATE CustomerCredit SET IsActive = 1, CustomerNameHindi = ?, OutstandingBalance = ? WHERE CustomerID = ?',
-            (customer_name_hindi, float(existing[1] or 0) + amount, existing[0]),
+            (customer_name_hindi, amount, existing[0]),
         )
     else:
         cursor.execute(
@@ -1839,6 +1860,11 @@ def archive_entity():
     if is_postgres_database():
         data = request.get_json(silent=True) or {}
         entity_type = data.get('EntityType')
+        reason = str(data.get('Reason') or '').strip() or None
+        raw_command = str(data.get('RawCommand') or '').strip() or None
+        store_id = current_store_id()
+        from backend.app.models import StoreEntityArchive, StoreTransaction
+
         try:
             entity_id = int(data.get('EntityID'))
         except (TypeError, ValueError):
@@ -1857,9 +1883,66 @@ def archive_entity():
             return jsonify({'status': 'error', 'error': 'Choose a valid product or customer.'}), 400
         if not entity:
             return jsonify({'status': 'error', 'error': 'Entity not found.'}), 404
+
+        max_txn_id = db.session.query(
+            db.func.max(StoreTransaction.txn_id)
+        ).filter_by(store_id=store_id).scalar() or 0
+        if entity_type == 'Product':
+            entity_name = entity.item_name
+            quantity = int(entity.stock_quantity or 0)
+            balance = None
+            removal_type = 'WriteOff'
+            transaction_amount = -float(entity.price or 0) * quantity
+            entity.stock_quantity = 0
+            command_text = raw_command or f"Removed inventory item {entity_name}"
+        else:
+            entity_name = entity.customer_name
+            quantity = None
+            balance = float(entity.outstanding_balance or 0)
+            removal_type = 'CustomerArchived'
+            transaction_amount = 0
+            command_text = raw_command or f"Removed customer {entity_name}"
+
+        if reason:
+            command_text = f"{command_text} Reason: {reason}"
+        transaction = StoreTransaction(
+            store_id=store_id,
+            txn_id=max_txn_id + 1,
+            command_text=command_text[:1000],
+            total_amount=transaction_amount,
+            transaction_type=removal_type,
+            entity_name=entity_name,
+            quantity=quantity,
+        )
+        db.session.add(transaction)
+        entity_id_value = entity.item_id if entity_type == 'Product' else entity.customer_id
         entity.is_active = False
+        db.session.flush()
+        db.session.add(StoreEntityArchive(
+            store_id=store_id,
+            source_transaction_id=transaction.txn_id,
+            entity_type=entity_type,
+            entity_id=entity_id_value,
+            entity_name=entity_name,
+            removal_type=removal_type,
+            reason=reason,
+            quantity=quantity,
+            balance=balance,
+            raw_command=raw_command,
+        ))
+        if entity_type == 'Customer':
+            db.session.delete(entity)
         db.session.commit()
-        return jsonify({'status': 'success'})
+        return jsonify({
+            'status': 'success',
+            'action': 'inventory_archived' if entity_type == 'Product' else 'customer_deleted',
+            'message': (
+                f"Removed {entity_name} from active inventory and recorded "
+                f"a write-off for {quantity} unit(s)."
+                if entity_type == 'Product'
+                else f"Removed {entity_name} and recorded their balance of Rs {balance:g} in the removal audit. Transaction history was retained."
+            ),
+        })
     from backend.app.intent_parser import DB_PATH
     from backend.app.services.entity_service import EntityService
 

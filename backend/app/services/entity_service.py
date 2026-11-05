@@ -108,23 +108,16 @@ class EntityService:
                 return {"status": "error", "error": "That active customer was not found."}
 
             customer_name, balance = customer
-            is_zero_balance = float(balance or 0) == 0
-            if is_zero_balance:
-                from backend.app.services.alias_service import ensure_aliases_schema
-                ensure_aliases_schema(conn)
-                cursor.execute(
-                    "DELETE FROM Aliases WHERE EntityType = 'Customer' AND EntityID = ?",
-                    (customer_id,),
-                )
-                cursor.execute(
-                    "DELETE FROM CustomerCredit WHERE CustomerID = ? AND IsActive = 1",
-                    (customer_id,),
-                )
-            else:
-                cursor.execute(
-                    "UPDATE CustomerCredit SET IsActive = 0 WHERE CustomerID = ? AND IsActive = 1",
-                    (customer_id,),
-                )
+            from backend.app.services.alias_service import ensure_aliases_schema
+            ensure_aliases_schema(conn)
+            cursor.execute(
+                "DELETE FROM Aliases WHERE EntityType = 'Customer' AND EntityID = ?",
+                (customer_id,),
+            )
+            cursor.execute(
+                "DELETE FROM CustomerCredit WHERE CustomerID = ? AND IsActive = 1",
+                (customer_id,),
+            )
             if cursor.rowcount != 1:
                 return {"status": "error", "error": "That customer was already removed."}
 
@@ -157,14 +150,11 @@ class EntityService:
             conn.commit()
             return {
                 "status": "success",
-                "action": "customer_deleted" if is_zero_balance else "customer_archived",
+                "action": "customer_deleted",
                 "message": (
-                    f"Removed {customer_name} and their zero balance from the customer table. "
+                    f"Removed {customer_name} and recorded their balance of "
+                    f"Rs {float(balance or 0):g} in the removal audit. "
                     "Transaction history was retained."
-                    if is_zero_balance
-                    else
-                    f"Removed {customer_name} from the active udhaar list. "
-                    f"Their outstanding balance of Rs {float(balance or 0):g} and transaction history were retained."
                 ),
             }
         finally:

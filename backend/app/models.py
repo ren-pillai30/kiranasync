@@ -82,3 +82,20 @@ class StoreTransaction(db.Model):
     transaction_type = db.Column(db.String(50), nullable=False)
     entity_name = db.Column(db.String(255), nullable=True)
     quantity = db.Column(db.Integer, nullable=True)
+
+
+class StoreEntityArchive(db.Model):
+    __tablename__ = "store_entity_archives"
+
+    id = db.Column(db.Integer, primary_key=True)
+    store_id = db.Column(db.Integer, db.ForeignKey("stores.id"), nullable=False, index=True)
+    source_transaction_id = db.Column(db.Integer, nullable=True)
+    entity_type = db.Column(db.String(32), nullable=False)
+    entity_id = db.Column(db.Integer, nullable=True)
+    entity_name = db.Column(db.String(255), nullable=False)
+    removal_type = db.Column(db.String(50), nullable=False)
+    removed_at = db.Column(db.DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+    reason = db.Column(db.String(1000), nullable=True)
+    quantity = db.Column(db.Float, nullable=True)
+    balance = db.Column(db.Float, nullable=True)
+    raw_command = db.Column(db.String(1000), nullable=True)
