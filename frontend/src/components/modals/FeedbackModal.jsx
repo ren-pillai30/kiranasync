@@ -16,14 +16,55 @@ export default function FeedbackModal({ isOpen, onClose }) {
   const [rating, setRating] = useState(0);
   const [category, setCategory] = useState('General');
   const [message, setMessage] = useState('');
+  const [images, setImages] = useState([]);
   const [submitting, setSubmitting] = useState(false);
   const [success, setSuccess] = useState('');
   const [error, setError] = useState('');
+
+  const handleImagesSelected = (event) => {
+    const selected = Array.from(event.target.files || []);
+    event.target.value = '';
+    setError('');
+
+    const allowedTypes = ['image/jpeg', 'image/png', 'image/webp'];
+    const maxFileSize = 2 * 1024 * 1024;
+    const maxTotalSize = 3 * 1024 * 1024;
+    const maxImages = 5;
+    const additions = [];
+    let validationError = '';
+
+    for (const file of selected) {
+      if (!allowedTypes.includes(file.type)) {
+        validationError = 'Upload JPG, PNG, or WebP images only.';
+        continue;
+      }
+      if (file.size > maxFileSize) {
+        validationError = 'Each image must be 2 MB or smaller.';
+        continue;
+      }
+      if (images.length + additions.length >= maxImages) {
+        validationError = 'You can attach up to 5 images.';
+        break;
+      }
+      const currentSize = [...images, ...additions].reduce((sum, image) => sum + image.size, 0);
+      if (currentSize + file.size > maxTotalSize) {
+        validationError = 'All images together must be 3 MB or smaller.';
+        continue;
+      }
+      additions.push(file);
+    }
+
+    if (additions.length) {
+      setImages((current) => [...current, ...additions]);
+    }
+    if (validationError) setError(validationError);
+  };
 
   const handleClose = () => {
     setRating(0);
     setCategory('General');
     setMessage('');
+    setImages([]);
     setSuccess('');
     setError('');
     onClose();
@@ -44,15 +85,17 @@ export default function FeedbackModal({ isOpen, onClose }) {
     setError('');
     setSuccess('');
     try {
-      const response = await api.submitFeedback({
-        rating,
-        category,
-        message: message.trim(),
-      });
+      const feedback = new FormData();
+      feedback.append('rating', String(rating));
+      feedback.append('category', category);
+      feedback.append('message', message.trim());
+      images.forEach((image) => feedback.append('images', image));
+      const response = await api.submitFeedback(feedback);
       setSuccess(response.message);
       setRating(0);
       setCategory('General');
       setMessage('');
+      setImages([]);
     } catch (submitError) {
       setError(submitError.message || 'Feedback could not be sent. Please try again.');
     } finally {
@@ -79,7 +122,7 @@ export default function FeedbackModal({ isOpen, onClose }) {
             role="dialog"
             aria-modal="true"
             aria-labelledby="feedback-title"
-            className="relative z-10 w-full max-w-lg overflow-hidden rounded-2xl border-2 border-[#991B1B] bg-[#FAF7F2] text-stone-900 shadow-2xl"
+            className="relative z-10 max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-2xl border-2 border-[#991B1B] bg-[#FAF7F2] text-stone-900 shadow-2xl"
             initial={{ scale: 0.95, opacity: 0, y: 20 }}
             animate={{ scale: 1, opacity: 1, y: 0 }}
             exit={{ scale: 0.95, opacity: 0, y: 20 }}
@@ -168,6 +211,38 @@ export default function FeedbackModal({ isOpen, onClose }) {
                   required
                   className="w-full resize-none rounded-xl border border-[#D8CEBA] bg-[#FFFDF9] px-3 py-2.5 text-sm font-medium text-stone-900 placeholder:text-stone-400 focus:border-[#991B1B] focus:outline-none focus:ring-2 focus:ring-[#991B1B]/20"
                 />
+              </div>
+
+              <div>
+                <label htmlFor="feedback-images" className="mb-1.5 block text-xs font-bold uppercase tracking-wider text-stone-700">
+                  Screenshots or images <span className="font-medium normal-case text-stone-500">(optional, up to 5)</span>
+                </label>
+                <input
+                  id="feedback-images"
+                  type="file"
+                  accept="image/jpeg,image/png,image/webp"
+                  multiple
+                  onChange={handleImagesSelected}
+                  className="block w-full rounded-xl border border-[#D8CEBA] bg-[#FFFDF9] px-3 py-2 text-xs text-stone-700 file:mr-3 file:rounded-lg file:border-0 file:bg-[#F4EFE6] file:px-3 file:py-1.5 file:text-xs file:font-bold file:text-stone-800"
+                />
+                <p className="mt-1 text-[11px] text-stone-500">JPG, PNG, or WebP; 2 MB max per image and 3 MB total.</p>
+                {images.length > 0 && (
+                  <ul className="mt-2 space-y-1">
+                    {images.map((image, index) => (
+                      <li key={`${image.name}-${image.lastModified}-${index}`} className="flex items-center justify-between gap-2 rounded-lg bg-white px-3 py-1.5 text-xs text-stone-700">
+                        <span className="truncate">{image.name} ({(image.size / 1024).toFixed(0)} KB)</span>
+                        <button
+                          type="button"
+                          aria-label={`Remove ${image.name}`}
+                          onClick={() => setImages((current) => current.filter((_, imageIndex) => imageIndex !== index))}
+                          className="shrink-0 font-bold text-red-700 hover:text-red-900"
+                        >
+                          Remove
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                )}
               </div>
 
               <button

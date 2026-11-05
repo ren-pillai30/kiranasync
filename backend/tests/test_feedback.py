@@ -1,3 +1,5 @@
+import base64
+import io
 import os
 import unittest
 from types import SimpleNamespace
@@ -75,6 +77,72 @@ class FeedbackRouteTests(unittest.TestCase):
             kwargs["json"]["sender"]["email"],
             "feedback@example.com",
         )
+
+    def test_feedback_emails_uploaded_image_as_private_attachment(self):
+        user = SimpleNamespace(
+            is_authenticated=True,
+            email="owner@example.com",
+            display_name="Store Owner",
+            store=SimpleNamespace(name="Corner Shop"),
+        )
+        image_bytes = b"\xff\xd8\xfftest image bytes"
+        provider_response = SimpleNamespace(ok=True, status_code=200)
+        config = {
+            "FEEDBACK_BREVO_API_KEY": "test-key",
+            "FEEDBACK_FROM_EMAIL": "feedback@example.com",
+            "FEEDBACK_TO_EMAIL": "developers@example.com",
+        }
+
+        with (
+            patch.dict(os.environ, config),
+            patch("backend.app.main.current_user", user),
+            patch(
+                "backend.app.main.requests.post",
+                return_value=provider_response,
+            ) as send_email,
+        ):
+            response = self.client.post(
+                "/api/feedback",
+                data={
+                    "rating": "5",
+                    "category": "Bug Report",
+                    "message": "The page is blank.",
+                    "images": (io.BytesIO(image_bytes), "screen shot.jpg", "image/jpeg"),
+                },
+            )
+
+        self.assertEqual(response.status_code, 200)
+        attachment = send_email.call_args.kwargs["json"]["attachment"]
+        self.assertEqual(attachment, [{
+            "name": "screen_shot.jpg",
+            "content": base64.b64encode(image_bytes).decode("ascii"),
+        }])
+        self.assertIn("screen_shot.jpg", send_email.call_args.kwargs["json"]["textContent"])
+
+    def test_feedback_rejects_non_image_upload(self):
+        user = SimpleNamespace(
+            is_authenticated=True,
+            email="owner@example.com",
+            display_name="Store Owner",
+            store=SimpleNamespace(name="Corner Shop"),
+        )
+        with (
+            patch("backend.app.main.current_user", user),
+            patch("backend.app.main.requests.post") as send_email,
+        ):
+            response = self.client.post(
+                "/api/feedback",
+                data={
+                    "rating": "5",
+                    "category": "Bug Report",
+                    "message": "The page is blank.",
+                    "images": (io.BytesIO(b"not an image"), "screenshot.jpg", "image/jpeg"),
+                },
+            )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("not a valid JPEG image", response.get_json()["error"])
+        send_email.assert_not_called()
 
     def test_feedback_history_endpoint_is_not_available(self):
         response = self.client.get("/api/feedback")

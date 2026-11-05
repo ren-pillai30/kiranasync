@@ -2264,12 +2264,23 @@ def confirm_restock():
 
 @app.route('/api/feedback', methods=['POST'])
 def handle_store_feedback():
+    import base64
     import html
+    import os
+    from werkzeug.utils import secure_filename
 
     if not current_user.is_authenticated:
         return jsonify({"status": "error", "error": "Authentication required."}), 401
 
-    data = request.get_json(silent=True) or {}
+    if request.content_length and request.content_length > 4 * 1024 * 1024:
+        return jsonify({
+            "status": "error",
+            "error": "Feedback request must be 4 MB or smaller.",
+        }), 413
+
+    data = request.form if request.mimetype == "multipart/form-data" else (
+        request.get_json(silent=True) or {}
+    )
     message = str(data.get("message") or "").strip()
     if not message:
         return jsonify({"status": "error", "error": "Feedback message cannot be empty."}), 400
@@ -2305,6 +2316,59 @@ def handle_store_feedback():
     if category not in categories:
         return jsonify({"status": "error", "error": "Choose a valid feedback category."}), 400
 
+    uploaded_images = request.files.getlist("images")
+    uploaded_images = [image for image in uploaded_images if image and image.filename]
+    if len(uploaded_images) > 5:
+        return jsonify({
+            "status": "error",
+            "error": "Attach no more than 5 images.",
+        }), 400
+
+    allowed_images = {
+        ".jpg": (b"\xff\xd8\xff", "image/jpeg"),
+        ".jpeg": (b"\xff\xd8\xff", "image/jpeg"),
+        ".png": (b"\x89PNG\r\n\x1a\n", "image/png"),
+        ".webp": (None, "image/webp"),
+    }
+    attachments = []
+    total_image_bytes = 0
+    for image in uploaded_images:
+        filename = secure_filename(image.filename)
+        extension = os.path.splitext(filename)[1].lower()
+        image_config = allowed_images.get(extension)
+        if not image_config:
+            return jsonify({
+                "status": "error",
+                "error": "Only JPG, PNG, and WebP images can be attached.",
+            }), 400
+
+        content = image.read(2 * 1024 * 1024 + 1)
+        if len(content) > 2 * 1024 * 1024:
+            return jsonify({
+                "status": "error",
+                "error": "Each image must be 2 MB or smaller.",
+            }), 400
+        total_image_bytes += len(content)
+        if total_image_bytes > 3 * 1024 * 1024:
+            return jsonify({
+                "status": "error",
+                "error": "All attached images together must be 3 MB or smaller.",
+            }), 400
+
+        signature, content_type = image_config
+        is_valid_image = content.startswith(signature) if signature else (
+            len(content) >= 12 and content.startswith(b"RIFF") and content[8:12] == b"WEBP"
+        )
+        if not is_valid_image:
+            return jsonify({
+                "status": "error",
+                "error": f"{filename} is not a valid {content_type.split('/')[-1].upper()} image.",
+            }), 400
+        attachments.append({
+            "name": filename,
+            "content": base64.b64encode(content).decode("ascii"),
+        })
+
     api_key = os.getenv("FEEDBACK_BREVO_API_KEY", "").strip()
     sender = os.getenv("FEEDBACK_FROM_EMAIL", "").strip()
     recipient = os.getenv("FEEDBACK_TO_EMAIL", "").strip()
@@ -2328,6 +2392,10 @@ def handle_store_feedback():
         f"Category: {category}\n"
         f"Rating: {rating}/5\n\n"
         f"{message}"
+        + (
+            "\n\nAttached images: " + ", ".join(item["name"] for item in attachments)
+            if attachments else ""
+        )
     )
     email_html = (
         "<h2>New private KiranaSync feedback</h2>"
@@ -2339,7 +2407,25 @@ def handle_store_feedback():
         f"<p><strong>Rating:</strong> {rating}/5</p>"
         f"<pre style=\"white-space:pre-wrap;font-family:inherit\">"
         f"{html.escape(message)}</pre>"
+        + (
+            "<p><strong>Attached images:</strong> "
+            + ", ".join(html.escape(item["name"]) for item in attachments)
+            + "</p>"
+            if attachments else ""
+        )
     )
+    email_payload = {
+        "sender": {
+            "name": "KiranaSync Feedback",
+            "email": sender,
+        },
+        "to": [{"email": recipient}],
+        "subject": f"KiranaSync feedback: {category} ({rating}/5)",
+        "textContent": email_text,
+        "htmlContent": email_html,
+    }
+    if attachments:
+        email_payload["attachment"] = attachments
     try:
         response = requests.post(
             "https://api.brevo.com/v3/smtp/email",
@@ -2347,16 +2433,7 @@ def handle_store_feedback():
                 "api-key": api_key,
                 "Content-Type": "application/json",
             },
-            json={
-                "sender": {
-                    "name": "KiranaSync Feedback",
-                    "email": sender,
-                },
-                "to": [{"email": recipient}],
-                "subject": f"KiranaSync feedback: {category} ({rating}/5)",
-                "textContent": email_text,
-                "htmlContent": email_html,
-            },
+            json=email_payload,
             timeout=10,
         )
     except requests.RequestException:
