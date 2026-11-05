@@ -569,7 +569,10 @@ def get_hisaab_summary():
             else 0.0
         )
         cash_collected = (
-            opening_register_balance + cash_sales["total"] + repayments["total"]
+            opening_register_balance
+            + cash_sales["total"]
+            + repayments["total"]
+            - abs(restocks["total"])
         )
         return jsonify({
             "status": "success",

@@ -23,6 +23,9 @@ import FeedbackModal from './components/modals/FeedbackModal';
 import TransactionConfirmModal from './components/modals/TransactionConfirmModal';
 import AuthScreen from './components/AuthScreen';
 import StoreSetupModal from './components/modals/StoreSetupModal';
+import StoreResetModal from './components/modals/StoreResetModal';
+
+const RESET_ALLOWED_EMAIL = 'aryan.pillai2024@vitstudent.ac.in';
 
 export default function App() {
   const [authChecked, setAuthChecked] = useState(false);
@@ -52,6 +55,7 @@ export default function App() {
   const [showBillModal, setShowBillModal] = useState(false);
   const [showFeedbackModal, setShowFeedbackModal] = useState(false);
   const [showStoreSettings, setShowStoreSettings] = useState(false);
+  const [showStoreReset, setShowStoreReset] = useState(false);
   const [showDayClosingModal, setShowDayClosingModal] = useState(false);
   const [showBarcodeModal, setShowBarcodeModal] = useState(false);
   const [barcodeNotice, setBarcodeNotice] = useState('');
@@ -407,6 +411,27 @@ export default function App() {
     void fetchDashboardData();
   };
 
+  const handleStoreReset = async (store) => {
+    setShowStoreReset(false);
+    setStoreSession((current) => ({
+      ...current,
+      store_name: store.store_name,
+      store_phone: store.phone,
+      store_address: store.address,
+      store_city: store.city,
+      register_opening_balance: store.register_opening_balance,
+      store_setup_complete: false,
+    }));
+    setTransactions([]);
+    setArchives([]);
+    setStoreSetupComplete(false);
+    actions.setPendingDraft(null);
+    actions.setPendingTransaction(null);
+    actions.setPendingItemChoice(null);
+    actions.setPendingRemoval(null);
+    await refreshAll({ includeArchives: true });
+  };
+
   return (
     <div className="flex flex-col w-screen h-screen relative bg-transparent overflow-hidden">
       {(!storeSetupComplete || showStoreSettings) && (
@@ -415,6 +440,12 @@ export default function App() {
           isRequired={!storeSetupComplete}
           onClose={() => setShowStoreSettings(false)}
           onComplete={handleStoreSetupComplete}
+        />
+      )}
+      {showStoreReset && (
+        <StoreResetModal
+          onClose={() => setShowStoreReset(false)}
+          onReset={handleStoreReset}
         />
       )}
       <Header
@@ -588,6 +619,11 @@ export default function App() {
                 fetchArchives();
                 fetchLedgerData();
               }}
+              canResetStore={
+                storeSession?.email?.toLowerCase() === RESET_ALLOWED_EMAIL
+                && storeSession?.role === 'owner'
+              }
+              onOpenStoreReset={() => setShowStoreReset(true)}
               hisaabData={hisaabData}
               inventory={inventory}
               dashboardLoading={dashboardLoading}

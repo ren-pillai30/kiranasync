@@ -119,12 +119,17 @@ class RetailAccountingTests(unittest.TestCase):
         draft3 = self.cmd_service.create_pending_command("repayment", {"CustomerName": "Suresh", "Amount": 100.0})
         self.cmd_service.confirm_command(draft3["CommandID"], TransactionService.commit_repayment)
 
+        # 4. Restock 2 Maggi at the recorded price of ₹14 each
+        draft4 = self.cmd_service.create_pending_command("restock", {"ItemID": 1, "Quantity": 2})
+        self.cmd_service.confirm_command(draft4["CommandID"], TransactionService.commit_restock)
+
         hisaab = self.query_service.get_today_hisaab()
         self.assertEqual(hisaab["CashSalesTotal"], 140.0)
         self.assertEqual(hisaab["UdhaarSalesTotal"], 70.0)
         self.assertEqual(hisaab["RepaymentsTotal"], 100.0)
         self.assertEqual(hisaab["TotalRevenue"], 210.0) # 140 + 70
-        self.assertEqual(hisaab["CashCollected"], 240.0) # 140 + 100
+        self.assertEqual(hisaab["RestockCostTotal"], 28.0)
+        self.assertEqual(hisaab["CashCollected"], 212.0) # 140 + 100 - 28
         self.assertEqual(hisaab["TotalOutstandingDebt"], 270.0) # 300 + 70 - 100
 
     def test_hisaab_excludes_archived_customer_balances(self):

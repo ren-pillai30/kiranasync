@@ -9,6 +9,8 @@ export default function DashboardView({
   lang,
   onLanguageChange,
   onOpenArchives,
+  canResetStore,
+  onOpenStoreReset,
   onViewBill,
   hisaabData,
   inventory,
@@ -84,7 +86,15 @@ export default function DashboardView({
           >
             {lang === 'hi' ? 'आर्काइव' : 'Archives'}
           </button>
-
+          {canResetStore && (
+            <button
+              type="button"
+              onClick={onOpenStoreReset}
+              className="px-3.5 py-1.5 bg-red-50 hover:bg-red-100 text-red-800 border border-red-200 rounded-lg text-xs font-bold shadow-2xs transition-all cursor-pointer"
+            >
+              {lang === 'hi' ? 'डेमो डेटा रीसेट' : 'Reset demo data'}
+            </button>
+          )}
         </div>
       </div>
 

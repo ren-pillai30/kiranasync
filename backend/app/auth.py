@@ -1,12 +1,20 @@
 import math
 import os
+import sqlite3
 
-from flask import jsonify, request
+from flask import jsonify, request, session
 from flask_login import LoginManager, current_user, login_user, logout_user
-from sqlalchemy.exc import OperationalError
+from sqlalchemy.exc import OperationalError, SQLAlchemyError
 
-from backend.app.database import db
-from backend.app.models import Store, User
+from backend.app.database import db, is_postgres_database
+from backend.app.models import (
+    Store,
+    StoreCredit,
+    StoreEntityArchive,
+    StoreInventory,
+    StoreTransaction,
+    User,
+)
 from backend.app.intent_parser import initialize_store_database
 
 
@@ -150,5 +158,105 @@ def register_auth_routes(app):
                 "city": city,
                 "register_opening_balance": register_opening_balance,
                 "setup_complete": True,
+            },
+        })
+
+    @app.route("/api/store/reset", methods=["POST"])
+    def reset_store():
+        if not current_user.is_authenticated:
+            return jsonify({"status": "error", "error": "Authentication required."}), 401
+        if (
+            current_user.email.casefold() != "aryan.pillai2024@vitstudent.ac.in"
+            or current_user.role != "owner"
+        ):
+            return jsonify({"status": "error", "error": "This action is not available for this account."}), 403
+        data = request.get_json(silent=True) or {}
+        if data.get("confirmation") != "RESET":
+            return jsonify({"status": "error", "error": "Type RESET to confirm clearing this store."}), 400
+
+        store = current_user.store
+        try:
+            if is_postgres_database():
+                store_id = current_user.store_id
+                for model in (
+                    StoreInventory,
+                    StoreCredit,
+                    StoreTransaction,
+                    StoreEntityArchive,
+                ):
+                    model.query.filter_by(store_id=store_id).delete(
+                        synchronize_session=False
+                    )
+
+            store.name = "My Store"
+            store.phone = None
+            store.address = None
+            store.city = None
+            store.register_opening_balance = 0
+            store.setup_complete = False
+
+            from backend.app.intent_parser import get_store_db_path, initialize_store_database
+
+            database_path = get_store_db_path(current_user.store_id)
+            if not os.path.exists(database_path):
+                initialize_store_database(current_user.store_id)
+            connection = sqlite3.connect(database_path)
+            try:
+                with connection:
+                    existing_tables = {
+                        row[0]
+                        for row in connection.execute(
+                            "SELECT name FROM sqlite_master WHERE type = 'table'"
+                        )
+                    }
+                    for table in (
+                        "Inventory",
+                        "CustomerCredit",
+                        "Transactions",
+                        "EntityArchive",
+                        "Aliases",
+                        "PendingCommands",
+                    ):
+                        if table in existing_tables:
+                            connection.execute(f'DELETE FROM "{table}"')
+                    if "sqlite_sequence" in existing_tables:
+                        connection.execute(
+                            """
+                            DELETE FROM sqlite_sequence
+                            WHERE name IN (
+                                'Inventory', 'CustomerCredit', 'Transactions',
+                                'EntityArchive', 'Aliases'
+                            )
+                            """
+                        )
+            finally:
+                connection.close()
+            db.session.commit()
+        except (sqlite3.Error, OSError):
+            db.session.rollback()
+            app.logger.exception("Store data reset failed for store %s", current_user.store_id)
+            return jsonify({
+                "status": "error",
+                "error": "The store data could not be fully reset. No reset was confirmed; contact support before retrying.",
+            }), 500
+        except SQLAlchemyError:
+            db.session.rollback()
+            app.logger.exception("Store profile reset failed for store %s", current_user.store_id)
+            return jsonify({
+                "status": "error",
+                "error": "Store data was cleared, but the store profile could not be reset. Contact support before continuing.",
+            }), 500
+
+        session.pop("call_sim_pending_action", None)
+        session.pop("call_sim_bill_items", None)
+        return jsonify({
+            "status": "success",
+            "store": {
+                "store_name": store.name,
+                "phone": store.phone,
+                "address": store.address,
+                "city": store.city,
+                "register_opening_balance": store.register_opening_balance,
+                "setup_complete": store.setup_complete,
             },
         })

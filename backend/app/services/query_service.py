@@ -191,7 +191,9 @@ class QueryService:
             total_debt = float(cursor.fetchone()[0])
 
             total_revenue = cash_sales["total"] + udhaar_sales["total"]
-            cash_collected = cash_sales["total"] + repayments["total"]
+            cash_collected = (
+                cash_sales["total"] + repayments["total"] - abs(restocks["total"])
+            )
 
             message = (
                 f"Today's Hisaab: Total Sales ₹{total_revenue:g} (Cash: ₹{cash_sales['total']:g}, Udhaar: ₹{udhaar_sales['total']:g}). "
