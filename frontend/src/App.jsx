@@ -432,10 +432,6 @@ export default function App() {
         onOpenFeedback={() => setShowFeedbackModal(true)}
         onOpenStoreSettings={() => setShowStoreSettings(true)}
         onOpenDayClosing={handleOpenDayClosing}
-        onOpenBarcode={() => {
-          setShowBarcodeModal(true);
-          setBarcodeNotice(typeof window !== 'undefined' && 'BarcodeDetector' in window ? '' : 'Barcode scanning is not supported in this browser; manual entry still works.');
-        }}
         handleMinimize={handleMinimize}
         handleClose={handleClose}
       />
