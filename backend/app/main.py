@@ -478,6 +478,7 @@ def get_entity_archives():
 @app.route('/api/analytics/hisaab', methods=['GET'])
 def get_hisaab_summary():
     if is_postgres_database():
+        from sqlalchemy.orm import aliased
         from backend.app.models import StoreCredit, StoreTransaction
 
         store_id = current_store_id()
@@ -504,6 +505,32 @@ def get_hisaab_summary():
         }
         cash_sales = summary.get("Sale", {"total": 0.0, "count": 0})
         udhaar_sales = summary.get("UdhaarSale", {"total": 0.0, "count": 0})
+        credit_transaction = aliased(StoreTransaction)
+        linked_udhaar_sale = aliased(StoreTransaction)
+        standalone_credit = (
+            db.session.query(
+                db.func.coalesce(db.func.sum(credit_transaction.total_amount), 0.0),
+                db.func.count(credit_transaction.id),
+            )
+            .filter(
+                credit_transaction.store_id == store_id,
+                credit_transaction.timestamp >= day_start,
+                credit_transaction.timestamp < day_end,
+                credit_transaction.transaction_type == "Credit",
+                ~db.session.query(linked_udhaar_sale.id)
+                .filter(
+                    linked_udhaar_sale.store_id == credit_transaction.store_id,
+                    linked_udhaar_sale.timestamp >= day_start,
+                    linked_udhaar_sale.timestamp < day_end,
+                    linked_udhaar_sale.transaction_type == "UdhaarSale",
+                    linked_udhaar_sale.command_text == credit_transaction.command_text,
+                )
+                .exists(),
+            )
+            .one()
+        )
+        udhaar_sales["total"] += float(standalone_credit[0] or 0)
+        udhaar_sales["count"] += int(standalone_credit[1] or 0)
         repayments = summary.get("Repayment", {"total": 0.0, "count": 0})
         restocks = summary.get("Restock", {"total": 0.0, "count": 0})
         total_debt = (
@@ -783,7 +810,7 @@ def confirm_transaction():
     raw_command = str(data.get('RawCommand') or '').strip()
 
     if is_postgres_database():
-        from backend.app.models import StoreCredit
+        from backend.app.models import StoreCredit, StoreTransaction
         from backend.app.intent_parser import match_entity_with_score
 
         customer_name = str(data.get('CustomerName') or '').strip()
@@ -816,6 +843,17 @@ def confirm_transaction():
             db.session.add(customer)
             new_balance = amount
             message = f"Created {resolved_name}'s account with Rs {amount:g} balance."
+        max_txn_id = db.session.query(
+            db.func.max(StoreTransaction.txn_id)
+        ).filter_by(store_id=store_id).scalar() or 0
+        db.session.add(StoreTransaction(
+            store_id=store_id,
+            txn_id=max_txn_id + 1,
+            command_text=raw_command[:1000] or f"Added credit for {resolved_name}",
+            total_amount=amount,
+            transaction_type="Credit",
+            entity_name=resolved_name,
+        ))
         db.session.commit()
         return jsonify({
             'status': 'success',
@@ -1703,7 +1741,7 @@ def add_inventory():
 @app.route('/api/credit/add', methods=['POST'])
 def add_credit():
     if is_postgres_database():
-        from backend.app.models import StoreCredit
+        from backend.app.models import StoreCredit, StoreTransaction
         data = request.get_json(silent=True) or {}
         customer_name = str(data.get('CustomerName', '')).strip()
         customer_name_hindi = str(data.get('CustomerNameHindi', '')).strip() or None
@@ -1734,6 +1772,18 @@ def add_credit():
                 customer_name_hindi=customer_name_hindi,
                 outstanding_balance=amount,
                 is_active=True,
+            ))
+        if amount > 0:
+            max_txn_id = db.session.query(
+                db.func.max(StoreTransaction.txn_id)
+            ).filter_by(store_id=current_store_id()).scalar() or 0
+            db.session.add(StoreTransaction(
+                store_id=current_store_id(),
+                txn_id=max_txn_id + 1,
+                command_text=f"Added starting credit for {customer_name}",
+                total_amount=amount,
+                transaction_type="Credit",
+                entity_name=customer_name,
             ))
         db.session.commit()
         return jsonify({'status': 'success'})

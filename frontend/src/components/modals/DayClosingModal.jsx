@@ -184,7 +184,7 @@ export default function DayClosingModal({
                   ₹{Math.abs(Number(hisaabData?.UdhaarSalesTotal) || 0).toLocaleString("en-IN")}
                 </span>
                 <span className="text-[10px] text-stone-400">
-                  {hisaabData?.UdhaarSalesCount || 0} credit order(s)
+                  {hisaabData?.UdhaarSalesCount || 0} credit transaction(s)
                 </span>
               </div>
 

@@ -141,5 +141,24 @@ class RetailAccountingTests(unittest.TestCase):
             300.0,
         )
 
+    def test_hisaab_includes_standalone_credit_without_double_counting_credit_sales(self):
+        conn = sqlite3.connect(self.db_path)
+        conn.executemany(
+            "INSERT INTO Transactions (CommandText, TotalAmount, TransactionType, EntityName) "
+            "VALUES (?, ?, ?, ?)",
+            [
+                ("Added 40 to Suresh's khaata", 40, "Credit", "Suresh"),
+                ("Suresh bought 2 items on credit", 25, "UdhaarSale", "Maggi 70g"),
+                ("Suresh bought 2 items on credit", 25, "Credit", "Suresh"),
+            ],
+        )
+        conn.commit()
+        conn.close()
+
+        hisaab = self.query_service.get_today_hisaab()
+        self.assertEqual(hisaab["UdhaarSalesTotal"], 65.0)
+        self.assertEqual(hisaab["UdhaarSalesCount"], 2)
+        self.assertEqual(hisaab["TotalRevenue"], 65.0)
+
 if __name__ == '__main__':
     unittest.main()

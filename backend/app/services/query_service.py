@@ -164,6 +164,22 @@ class QueryService:
             
             cash_sales = summary.get("Sale", {"total": 0.0, "count": 0})
             udhaar_sales = summary.get("UdhaarSale", {"total": 0.0, "count": 0})
+            cursor.execute('''
+                SELECT coalesce(sum(credit.TotalAmount), 0.0), count(*)
+                FROM Transactions AS credit
+                WHERE credit.TransactionType = 'Credit'
+                    AND date(credit.Timestamp) = date('now')
+                    AND NOT EXISTS (
+                        SELECT 1
+                        FROM Transactions AS udhaar_sale
+                        WHERE udhaar_sale.TransactionType = 'UdhaarSale'
+                            AND date(udhaar_sale.Timestamp) = date(credit.Timestamp)
+                            AND udhaar_sale.CommandText = credit.CommandText
+                    )
+            ''')
+            standalone_credit_total, standalone_credit_count = cursor.fetchone()
+            udhaar_sales["total"] += float(standalone_credit_total or 0)
+            udhaar_sales["count"] += int(standalone_credit_count or 0)
             repayments = summary.get("Repayment", {"total": 0.0, "count": 0})
             restocks = summary.get("Restock", {"total": 0.0, "count": 0})
 

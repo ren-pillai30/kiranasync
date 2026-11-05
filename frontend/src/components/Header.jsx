@@ -33,9 +33,9 @@ export default function Header({
           className="bg-[#FFFDF7] text-stone-800 text-xs px-3 py-1.5 rounded-lg border border-[#FDE68A] focus:outline-none focus:ring-2 focus:ring-[#FEF3C7] cursor-pointer font-semibold shadow-xs hover:border-amber-400 transition-all"
           title="Select Spoken Language"
         >
-          {INDIAN_LANGUAGES.map((l) => (
+          {INDIAN_LANGUAGES.filter(({ code }) => ['hi-IN', 'en-IN'].includes(code)).map((l) => (
             <option key={l.code} value={l.code}>
-              {l.label}
+              {l.code === 'hi-IN' ? 'हिंदी (Hindi)' : 'English'}
             </option>
           ))}
         </select>

@@ -16,6 +16,9 @@ class HisaabAnalyticsTests(unittest.TestCase):
             ("Restock", -12, 1),
             ("Credit", 100, 1),
         ]
+        credit_query = MagicMock()
+        credit_query.filter.return_value.one.return_value = (30, 1)
+        linked_sale_query = MagicMock()
         debt_query = MagicMock()
         debt_query.filter_by.return_value.scalar.return_value = 120
 
@@ -34,7 +37,12 @@ class HisaabAnalyticsTests(unittest.TestCase):
             ),
             patch(
                 "backend.app.main.db.session.query",
-                side_effect=[transaction_query, debt_query],
+                side_effect=[
+                    transaction_query,
+                    credit_query,
+                    linked_sale_query,
+                    debt_query,
+                ],
             ) as query,
         ):
             response = client.get("/api/analytics/hisaab")
@@ -46,21 +54,22 @@ class HisaabAnalyticsTests(unittest.TestCase):
                 "status": "success",
                 "CashSalesTotal": 80,
                 "CashSalesCount": 2,
-                "UdhaarSalesTotal": 40,
-                "UdhaarSalesCount": 1,
+                "UdhaarSalesTotal": 70,
+                "UdhaarSalesCount": 2,
                 "RepaymentsTotal": 20,
                 "RepaymentsCount": 1,
                 "RestockCostTotal": 12,
-                "TotalRevenue": 120,
+                "TotalRevenue": 150,
                 "CashCollected": 150,
                 "TotalOutstandingDebt": 120,
                 "Message": (
-                    "Today's Hisaab: Total Sales ₹120 (Cash: ₹80, Udhaar: ₹40). "
+                    "Today's Hisaab: Total Sales ₹150 (Cash: ₹80, Udhaar: ₹70). "
                     "Cash in register: ₹150. Total customer debt: ₹120."
                 ),
             },
         )
         transaction_query.filter.assert_called_once()
+        credit_query.filter.assert_called_once()
         filter_args = transaction_query.filter.call_args.args
         self.assertEqual(len(filter_args), 3)
         self.assertEqual(
@@ -68,7 +77,7 @@ class HisaabAnalyticsTests(unittest.TestCase):
             str(StoreTransaction.store_id == 7),
         )
         debt_query.filter_by.assert_called_once_with(store_id=7, is_active=True)
-        self.assertEqual(query.call_count, 2)
+        self.assertEqual(query.call_count, 4)
 
     def test_sqlite_hisaab_adds_store_opening_register_balance(self):
         stored_hisaab = {
