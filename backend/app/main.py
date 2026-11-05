@@ -573,6 +573,7 @@ def get_hisaab_summary():
             + cash_sales["total"]
             + repayments["total"]
             - abs(restocks["total"])
+            - float(standalone_credit[0] or 0)
         )
         return jsonify({
             "status": "success",

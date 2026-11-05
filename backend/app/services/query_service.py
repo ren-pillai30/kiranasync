@@ -192,7 +192,10 @@ class QueryService:
 
             total_revenue = cash_sales["total"] + udhaar_sales["total"]
             cash_collected = (
-                cash_sales["total"] + repayments["total"] - abs(restocks["total"])
+                cash_sales["total"]
+                + repayments["total"]
+                - abs(restocks["total"])
+                - float(standalone_credit_total or 0)
             )
 
             message = (

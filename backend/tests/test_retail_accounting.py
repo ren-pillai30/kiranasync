@@ -164,6 +164,7 @@ class RetailAccountingTests(unittest.TestCase):
         self.assertEqual(hisaab["UdhaarSalesTotal"], 65.0)
         self.assertEqual(hisaab["UdhaarSalesCount"], 2)
         self.assertEqual(hisaab["TotalRevenue"], 65.0)
+        self.assertEqual(hisaab["CashCollected"], -40.0)
 
 if __name__ == '__main__':
     unittest.main()

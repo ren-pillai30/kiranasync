@@ -60,11 +60,11 @@ class HisaabAnalyticsTests(unittest.TestCase):
                 "RepaymentsCount": 1,
                 "RestockCostTotal": 12,
                 "TotalRevenue": 150,
-                "CashCollected": 138,
+                "CashCollected": 108,
                 "TotalOutstandingDebt": 120,
                 "Message": (
                     "Today's Hisaab: Total Sales ₹150 (Cash: ₹80, Udhaar: ₹70). "
-                    "Cash in register: ₹138. Total customer debt: ₹120."
+                    "Cash in register: ₹108. Total customer debt: ₹120."
                 ),
             },
         )
@@ -87,7 +87,7 @@ class HisaabAnalyticsTests(unittest.TestCase):
             "RepaymentsTotal": 20,
             "TotalRevenue": 120,
             "RestockCostTotal": 12,
-            "CashCollected": 88,
+            "CashCollected": 58,
             "TotalOutstandingDebt": 120,
             "Message": "",
         }
@@ -111,8 +111,8 @@ class HisaabAnalyticsTests(unittest.TestCase):
             response = client.get("/api/analytics/hisaab")
 
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.get_json()["CashCollected"], 138)
-        self.assertIn("Cash in register: ₹138", response.get_json()["Message"])
+        self.assertEqual(response.get_json()["CashCollected"], 108)
+        self.assertIn("Cash in register: ₹108", response.get_json()["Message"])
 
 
 if __name__ == "__main__":
