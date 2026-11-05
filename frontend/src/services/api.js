@@ -158,7 +158,6 @@ export const api = {
     }),
 
   // Feedback
-  getFeedback: () => request('/api/feedback'),
   submitFeedback: (payload) =>
     request('/api/feedback', {
       method: 'POST',

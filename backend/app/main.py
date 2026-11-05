@@ -2108,73 +2108,120 @@ def confirm_restock():
     })
 
 
-def ensure_feedback_schema(connection):
-    connection.execute(
-        """
-        CREATE TABLE IF NOT EXISTS StoreFeedback (
-            FeedbackID INTEGER PRIMARY KEY AUTOINCREMENT,
-            Timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
-            Rating INTEGER,
-            Category TEXT,
-            Message TEXT,
-            Author TEXT
-        )
-        """
-    )
-    connection.commit()
-
-@app.route('/api/feedback', methods=['GET', 'POST'])
+@app.route('/api/feedback', methods=['POST'])
 def handle_store_feedback():
-    import sqlite3
-    from backend.app.intent_parser import DB_PATH
+    import html
 
-    conn = sqlite3.connect(DB_PATH)
-    ensure_feedback_schema(conn)
-
-    if request.method == 'GET':
-        cursor = conn.cursor()
-        cursor.execute(
-            "SELECT FeedbackID, Timestamp, Rating, Category, Message, Author FROM StoreFeedback ORDER BY FeedbackID DESC LIMIT 50"
-        )
-        rows = [
-            {
-                "FeedbackID": r[0],
-                "Timestamp": r[1],
-                "Rating": r[2],
-                "Category": r[3],
-                "Message": r[4],
-                "Author": r[5] or "Store Cashier",
-            }
-            for r in cursor.fetchall()
-        ]
-        conn.close()
-        return jsonify({"status": "success", "feedback": rows})
+    if not current_user.is_authenticated:
+        return jsonify({"status": "error", "error": "Authentication required."}), 401
 
     data = request.get_json(silent=True) or {}
     message = str(data.get("message") or "").strip()
     if not message:
-        conn.close()
         return jsonify({"status": "error", "error": "Feedback message cannot be empty."}), 400
+    if len(message) > 5000:
+        return jsonify({
+            "status": "error",
+            "error": "Feedback must be 5,000 characters or fewer.",
+        }), 400
 
     try:
-        rating = int(data.get("rating", 5))
-        rating = max(1, min(5, rating))
+        raw_rating = data.get("rating")
+        if isinstance(raw_rating, bool):
+            raise ValueError
+        rating = int(raw_rating)
+        if str(rating) != str(raw_rating) or not 1 <= rating <= 5:
+            raise ValueError
     except (ValueError, TypeError):
-        rating = 5
+        return jsonify({
+            "status": "error",
+            "error": "Choose a rating from 1 to 5.",
+        }), 400
 
+    categories = {
+        "General",
+        "Voice Recognition",
+        "Stock & Inventory",
+        "Customer Udhaar",
+        "Billing & Invoices",
+        "Feature Request",
+        "Bug Report",
+    }
     category = str(data.get("category") or "General").strip()
-    author = str(data.get("author") or "Store Cashier").strip()
+    if category not in categories:
+        return jsonify({"status": "error", "error": "Choose a valid feedback category."}), 400
 
-    cursor = conn.cursor()
-    cursor.execute(
-        "INSERT INTO StoreFeedback (Rating, Category, Message, Author) VALUES (?, ?, ?, ?)",
-        (rating, category, message, author),
+    api_key = os.getenv("FEEDBACK_RESEND_API_KEY", "").strip()
+    sender = os.getenv("FEEDBACK_FROM_EMAIL", "").strip()
+    recipient = os.getenv("FEEDBACK_TO_EMAIL", "").strip()
+    if not api_key or not sender or not recipient:
+        app.logger.error("Feedback email delivery is not configured.")
+        return jsonify({
+            "status": "error",
+            "error": "Private feedback email is not configured. Please try again later.",
+        }), 503
+
+    submitted_at = datetime.now(timezone.utc).isoformat()
+    store = getattr(current_user, "store", None)
+    store_name = getattr(store, "name", "Unknown store")
+    user_email = getattr(current_user, "email", "Unknown account")
+    display_name = getattr(current_user, "display_name", "Unknown user")
+    email_text = (
+        "New private KiranaSync feedback\n\n"
+        f"Account: {display_name} <{user_email}>\n"
+        f"Store: {store_name}\n"
+        f"Submitted: {submitted_at}\n"
+        f"Category: {category}\n"
+        f"Rating: {rating}/5\n\n"
+        f"{message}"
     )
-    conn.commit()
-    conn.close()
+    email_html = (
+        "<h2>New private KiranaSync feedback</h2>"
+        f"<p><strong>Account:</strong> {html.escape(display_name)} "
+        f"&lt;{html.escape(user_email)}&gt;</p>"
+        f"<p><strong>Store:</strong> {html.escape(store_name)}</p>"
+        f"<p><strong>Submitted:</strong> {html.escape(submitted_at)}</p>"
+        f"<p><strong>Category:</strong> {html.escape(category)}</p>"
+        f"<p><strong>Rating:</strong> {rating}/5</p>"
+        f"<pre style=\"white-space:pre-wrap;font-family:inherit\">"
+        f"{html.escape(message)}</pre>"
+    )
+    try:
+        response = requests.post(
+            "https://api.resend.com/emails",
+            headers={
+                "Authorization": f"Bearer {api_key}",
+                "Content-Type": "application/json",
+            },
+            json={
+                "from": sender,
+                "to": [recipient],
+                "subject": f"KiranaSync feedback: {category} ({rating}/5)",
+                "text": email_text,
+                "html": email_html,
+            },
+            timeout=10,
+        )
+    except requests.RequestException:
+        app.logger.exception("Feedback email delivery request failed.")
+        return jsonify({
+            "status": "error",
+            "error": "Feedback could not be emailed right now. Please try again later.",
+        }), 502
+
+    if not response.ok:
+        app.logger.error(
+            "Feedback email provider returned HTTP %s.",
+            response.status_code,
+        )
+        return jsonify({
+            "status": "error",
+            "error": "Feedback could not be emailed right now. Please try again later.",
+        }), 502
+
     return jsonify({
         "status": "success",
-        "message": "Thank you! Your feedback has been recorded.",
+        "message": "Your feedback was sent privately to the developers.",
     })
 
 
