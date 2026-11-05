@@ -428,7 +428,6 @@ export default function App() {
         isRecording={voiceRecorder.isRecording}
         startRecording={voiceRecorder.startRecording}
         onOpenSimulator={() => setShowCallSimulator(true)}
-        onOpenBill={() => handleOpenBill()}
         onOpenFeedback={() => setShowFeedbackModal(true)}
         onOpenStoreSettings={() => setShowStoreSettings(true)}
         onOpenDayClosing={handleOpenDayClosing}

@@ -8,7 +8,6 @@ export default function Header({
   isRecording,
   startRecording,
   onOpenSimulator,
-  onOpenBill,
   onOpenFeedback,
   onOpenStoreSettings,
   onOpenDayClosing,
@@ -68,17 +67,6 @@ export default function Header({
         >
           <span className="text-[10px] font-black uppercase">Mic</span>
           <span>{isRecording ? 'Listening...' : 'Speak Command'}</span>
-        </button>
-
-        {/* QUICK BILL GENERATOR BUTTON */}
-        <button
-          type="button"
-          onClick={onOpenBill}
-          className="text-xs px-3.5 py-1.5 rounded-lg border border-[#E2D9C8] text-stone-800 bg-[#FFFDF7] hover:bg-[#F4EFE6] hover:border-stone-400 font-semibold flex items-center space-x-1.5 shadow-xs transition-all cursor-pointer"
-          title="Create or print commercial Kirana cash memo"
-        >
-          <span className="text-[10px] font-black uppercase">Bill</span>
-          <span>Bill</span>
         </button>
 
         {/* PHONE CALL SIMULATOR */}
